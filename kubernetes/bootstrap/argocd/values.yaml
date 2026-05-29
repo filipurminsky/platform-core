@@ -10,6 +10,11 @@ configs:
     server.insecure: true
     # Allow Applications to live/target any namespace (apps, tenant-*, etc.)
     application.namespaces: "*"
+    # Compute diffs server-side so the API server's schema is used. Avoids
+    # "field not declared in schema" ComparisonErrors when the cluster's k8s
+    # version is newer than the schema bundled in this ArgoCD version
+    # (e.g. k8s 1.33's Deployment .status.terminatingReplicas).
+    controller.diff.server.side: "true"
 
 # Trim resources so the whole stack fits on a laptop kind cluster
 controller:

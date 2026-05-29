@@ -6,6 +6,11 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: platform-core
 nodes:
   - role: control-plane
+    # Pin k8s to 1.30 — the pinned component versions (Strimzi 0.40, etc.) predate
+    # k8s 1.33 and crash on it. Pinning makes local bootstrap reproducible.
+    # If `kind` complains the image isn't built for your kind version, bump this
+    # to a kindest/node tag from your `kind version`'s release notes.
+    image: kindest/node:v1.30.4
     # Label + port mappings let ingress-nginx serve on the host's :80/:443,
     # which the echo-service canary Ingress (echo.platform-core.local) relies on.
     kubeadmConfigPatches:
@@ -22,4 +27,6 @@ nodes:
         hostPort: 443
         protocol: TCP
   - role: worker
+    image: kindest/node:v1.30.4
   - role: worker
+    image: kindest/node:v1.30.4

@@ -11,6 +11,14 @@ resources:
   - worker-service/
   - vllm-inference/
 
-commonLabels:
-  app.kubernetes.io/part-of: platform-core
-  app.kubernetes.io/managed-by: argocd
+# Use `labels` with includeSelectors:false, NOT commonLabels.
+# commonLabels injects labels into Service/Deployment SELECTORS, but kustomize
+# doesn't know the Rollout CRD's selector path — so the echo-service Service
+# selector got app.kubernetes.io/managed-by while the Rollout selector didn't,
+# which Argo Rollouts rejects ("unmatch label ... in rollout"). Keeping these as
+# metadata-only labels avoids polluting selectors.
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: platform-core
+      app.kubernetes.io/managed-by: argocd
+    includeSelectors: false

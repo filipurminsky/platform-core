@@ -63,7 +63,7 @@ kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl 
 helm repo add argo https://argoproj.github.io/argo-helm --force-update
 helm upgrade --install argocd argo/argo-cd \
   --namespace "$ARGOCD_NAMESPACE" \
-  --version "6.7.0" \
+  --version "9.5.17" \
   --values kubernetes/bootstrap/argocd/values.yaml \
   --wait --timeout 5m
 
