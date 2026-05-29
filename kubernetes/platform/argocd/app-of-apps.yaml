@@ -23,7 +23,9 @@ spec:
     path: kubernetes
     directory:
       recurse: true
-      include: "{application.yaml,applicationset.yaml}"
+      # NB: matched against the path relative to `path:` above — a bare
+      # "application.yaml" only matches the root, so use **/ to match any depth.
+      include: "{**/application.yaml,**/applicationset.yaml}"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
