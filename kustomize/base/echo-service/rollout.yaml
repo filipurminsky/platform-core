@@ -65,6 +65,7 @@ spec:
       containers:
         - name: echo-service
           image: echo-service:latest
+          imagePullPolicy: IfNotPresent   # use the image loaded via `kind load`
           ports:
             - containerPort: 8080
               name: http
