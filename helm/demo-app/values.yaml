@@ -1,0 +1,67 @@
+replicaCount: 2
+
+image:
+  repository: ""          # required — set per environment
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  className: nginx
+  host: ""
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+pdb:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # By default: deny all ingress except from ingress-nginx and monitoring namespaces
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+serviceMonitor:
+  enabled: true
+  path: /metrics
+  interval: 30s
+
+podAntiAffinity:
+  enabled: true       # spread replicas across nodes
+
+serviceAccount:
+  create: true
+  annotations: {}     # add eks.amazonaws.com/role-arn for IRSA

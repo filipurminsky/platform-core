@@ -1,0 +1,50 @@
+# ---------------------------------------------------------------------------
+# Tenant provisioning via ApplicationSet (git directory generator).
+#
+# Every folder matching kubernetes/tenants/team-* becomes its own ArgoCD
+# Application that syncs that tenant's namespace, quota, limits, network
+# policies and RBAC. Onboarding a new team = add a folder + open a PR.
+#
+# This manifest is applied by the platform app-of-apps (which recurses
+# kubernetes/platform/).
+# ---------------------------------------------------------------------------
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tenants
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/filipurminsky/platform-core
+        revision: HEAD
+        directories:
+          - path: kubernetes/tenants/team-*
+  template:
+    metadata:
+      # team-alpha -> tenant-alpha
+      name: 'tenant-{{ trimPrefix "team-" .path.basename }}'
+      labels:
+        platform.io/tenant: '{{ trimPrefix "team-" .path.basename }}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core
+        targetRevision: HEAD
+        path: '{{ .path.path }}'
+      destination:
+        server: https://kubernetes.default.svc
+        # Tenant manifests carry their own namespace; this is only the default
+        # for any cluster-scoped fallback.
+        namespace: 'tenant-{{ trimPrefix "team-" .path.basename }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          # The tenant kustomization defines the Namespace explicitly (with PSA
+          # labels), so ArgoCD must not create a bare one.
+          - CreateNamespace=false
+          - ApplyOutOfSyncOnly=true

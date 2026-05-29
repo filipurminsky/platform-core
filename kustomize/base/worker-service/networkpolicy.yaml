@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-service
+spec:
+  podSelector:
+    matchLabels:
+      app: worker-service
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform
+      ports:
+        - port: 9092    # Kafka plain
+        - port: 9093    # Kafka TLS
+    - ports:
+        - port: 53      # DNS
+          protocol: UDP
+        - port: 53
+          protocol: TCP

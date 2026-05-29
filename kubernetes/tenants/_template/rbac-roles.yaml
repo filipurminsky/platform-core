@@ -1,0 +1,89 @@
+# ---------------------------------------------------------------------------
+# Tenant RBAC — the "what they can do". The "who" (group subjects) lives in
+# each tenant's rolebindings.yaml so the same role definitions are reused
+# verbatim across every namespace.
+#
+# Two roles:
+#   tenant-admin   — full control over workload resources, but NOT over the
+#                    platform-owned guardrails (ResourceQuota, LimitRange,
+#                    NetworkPolicy, RBAC). Teams cannot widen their own limits.
+#   tenant-viewer  — read-only across the namespace.
+# ---------------------------------------------------------------------------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tenant-admin
+rules:
+  # Core workload + config resources
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - pods/exec
+      - pods/portforward
+      - services
+      - endpoints
+      - configmaps
+      - secrets
+      - persistentvolumeclaims
+      - serviceaccounts
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["keda.sh"]
+    resources:
+      - scaledobjects
+      - triggerauthentications
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read-only visibility into the platform-imposed guardrails (cannot modify)
+  - apiGroups: [""]
+    resources:
+      - resourcequotas
+      - limitranges
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - networkpolicies
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tenant-viewer
+rules:
+  # Core group enumerated explicitly so secrets can be omitted from read access
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - services
+      - endpoints
+      - configmaps
+      - persistentvolumeclaims
+      - serviceaccounts
+      - resourcequotas
+      - limitranges
+      - events
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps", "batch", "autoscaling", "networking.k8s.io", "keda.sh"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  # Secrets are intentionally excluded from the viewer role

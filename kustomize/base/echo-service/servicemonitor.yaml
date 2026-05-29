@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: echo-service
+  labels:
+    app: echo-service
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: echo-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

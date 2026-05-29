@@ -1,0 +1,33 @@
+# Dev: 1 broker, 1 ZooKeeper node, no TLS/SCRAM, standard storage class
+- op: replace
+  path: /spec/kafka/replicas
+  value: 1
+
+- op: replace
+  path: /spec/zookeeper/replicas
+  value: 1
+
+- op: replace
+  path: /spec/kafka/config/default.replication.factor
+  value: "1"
+
+- op: replace
+  path: /spec/kafka/config/min.insync.replicas
+  value: "1"
+
+- op: replace
+  path: /spec/kafka/storage/volumes/0/class
+  value: standard
+
+- op: replace
+  path: /spec/zookeeper/storage/class
+  value: standard
+
+# Disable TLS listener auth in dev (simplifies local testing)
+- op: replace
+  path: /spec/kafka/listeners/1/authentication
+  value: {}
+
+# Disable Kafka Exporter in dev (saves resources)
+- op: remove
+  path: /spec/kafkaExporter

@@ -1,0 +1,63 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: monitoring
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # CRDs (ServiceMonitor, PrometheusRule) must exist before app workloads sync
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 58.2.1
+    helm:
+      values: |
+        fullnameOverride: kube-prometheus-stack
+        prometheus:
+          prometheusSpec:
+            # Discover ALL ServiceMonitors/PrometheusRules regardless of label,
+            # so the repo's existing manifests (mixed labels) are picked up.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            retention: 6h
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                memory: 1Gi
+        grafana:
+          fullnameOverride: grafana   # bootstrap.sh port-forwards svc/grafana
+          adminPassword: admin
+          defaultDashboardsEnabled: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+        alertmanager:
+          enabled: false              # not needed for local dev
+        prometheus-node-exporter:
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+        kube-state-metrics:
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

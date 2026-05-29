@@ -1,0 +1,35 @@
+# AppProject for team/application workloads — separates app delivery from the
+# platform project and adds governed promotion (change-freeze sync window).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Application workloads with SLO-gated, change-windowed promotion
+  sourceRepos:
+    - https://github.com/filipurminsky/platform-core.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: apps
+    - server: https://kubernetes.default.svc
+      namespace: "tenant-*"
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  # Change freeze: no automated syncs 00:00–06:00 UTC. A human can still trigger
+  # a manual sync (manualSync: true) for emergency fixes — deliberate guardrail,
+  # not a hard lock.
+  syncWindows:
+    - kind: deny
+      schedule: "0 0 * * *"
+      duration: 6h
+      timeZone: UTC
+      applications:
+        - "*"
+      manualSync: true

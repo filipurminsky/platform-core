@@ -1,0 +1,44 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+patches:
+  # echo-service is a Rollout (canary) — JSON patch for replicas + prod resources
+  - path: patch-echo-resources.yaml
+    target:
+      kind: Rollout
+      name: echo-service
+
+  # worker-service gets more memory for buffering Kafka batches
+  - path: patch-worker-resources.yaml
+    target:
+      kind: Deployment
+      name: worker-service
+
+replicas:
+  - name: worker-service
+    count: 0          # KEDA-managed
+  - name: vllm-inference
+    count: 0          # KEDA-managed
+  # echo-service replicas set via patch-echo-resources.yaml (Rollout — replicas transformer doesn't support it)
+
+configMapGenerator:
+  - name: env-config
+    literals:
+      - ENVIRONMENT=prod
+      - LOG_LEVEL=info
+
+# Updated by docker-build.yaml GitHub Actions workflow via:
+#   kustomize edit set image <name>=<ecr-url>:<sha>
+images:
+  - name: echo-service
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/echo-service
+    newTag: latest
+  - name: worker-service
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/worker-service
+    newTag: latest
+  - name: llm-gateway
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/llm-gateway
+    newTag: latest

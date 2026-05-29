@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-service
+spec:
+  # minAvailable: 1 only applies when replicas > 0; harmless when KEDA scales to zero
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: worker-service

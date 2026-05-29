@@ -1,0 +1,34 @@
+apiVersion: v2
+name: platform-services
+description: Umbrella chart — installs all platform dependencies in one release
+type: application
+version: 0.1.0
+dependencies:
+  - name: argo-cd
+    version: "6.7.0"
+    repository: https://argoproj.github.io/argo-helm
+    condition: argocd.enabled
+  - name: kube-prometheus-stack
+    version: "58.0.0"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: prometheus.enabled
+  - name: loki-stack
+    version: "2.10.0"
+    repository: https://grafana.github.io/helm-charts
+    condition: loki.enabled
+  - name: ingress-nginx
+    version: "4.10.0"
+    repository: https://kubernetes.github.io/ingress-nginx
+    condition: ingressNginx.enabled
+  - name: cert-manager
+    version: "1.14.0"
+    repository: https://charts.jetstack.io
+    condition: certManager.enabled
+  - name: external-secrets
+    version: "0.9.0"
+    repository: https://charts.external-secrets.io
+    condition: externalSecrets.enabled
+  - name: keda
+    version: "2.14.0"
+    repository: https://kedacore.github.io/charts
+    condition: keda.enabled

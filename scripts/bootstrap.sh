@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# bootstrap.sh — one-command local or AWS cluster setup
+# Usage:
+#   ./scripts/bootstrap.sh --mode=local   # kind cluster, zero AWS cost
+#   ./scripts/bootstrap.sh --mode=aws     # AWS EKS (terraform must already be applied)
+
+set -euo pipefail
+
+# ─── Defaults ────────────────────────────────────────────────────────────────
+MODE="local"
+ARGOCD_NAMESPACE="argocd"
+PLATFORM_NAMESPACE="platform"
+CLUSTER_NAME="platform-core"
+
+# ─── Parse args ──────────────────────────────────────────────────────────────
+for arg in "$@"; do
+  case $arg in
+    --mode=*) MODE="${arg#*=}" ;;
+    *) echo "Unknown argument: $arg"; exit 1 ;;
+  esac
+done
+
+log()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
+ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
+err()  { echo -e "\033[1;31m[ERR ]\033[0m  $*" >&2; exit 1; }
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || err "Required tool not found: $1 — install it first"
+}
+
+# ─── Dependency checks ───────────────────────────────────────────────────────
+require kubectl
+require helm
+[[ "$MODE" == "local" ]] && require kind
+[[ "$MODE" == "aws"   ]] && require aws
+
+# ─── Local: provision kind cluster ───────────────────────────────────────────
+if [[ "$MODE" == "local" ]]; then
+  log "Creating kind cluster: $CLUSTER_NAME"
+  if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
+    log "Cluster already exists, skipping creation"
+  else
+    kind create cluster \
+      --name "$CLUSTER_NAME" \
+      --config terraform/modules/kind/kind-config.yaml \
+      --wait 120s
+  fi
+  ok "kind cluster ready"
+
+elif [[ "$MODE" == "aws" ]]; then
+  log "Updating kubeconfig for EKS cluster"
+  AWS_REGION="${AWS_REGION:-eu-west-1}"
+  aws eks update-kubeconfig \
+    --name "$CLUSTER_NAME" \
+    --region "$AWS_REGION"
+  ok "kubeconfig updated"
+fi
+
+# ─── Install ArgoCD ──────────────────────────────────────────────────────────
+log "Installing ArgoCD"
+kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+helm repo add argo https://argoproj.github.io/argo-helm --force-update
+helm upgrade --install argocd argo/argo-cd \
+  --namespace "$ARGOCD_NAMESPACE" \
+  --version "6.7.0" \
+  --values kubernetes/bootstrap/argocd/values.yaml \
+  --wait --timeout 5m
+
+ok "ArgoCD installed"
+
+# ─── Bootstrap App-of-Apps ───────────────────────────────────────────────────
+# The AppProject must exist first — the echo-service Application references it.
+log "Applying platform-apps AppProject"
+kubectl apply -f kubernetes/platform/argocd/appproject-apps.yaml
+
+log "Applying ArgoCD App-of-Apps (root)"
+kubectl apply -f kubernetes/platform/argocd/app-of-apps.yaml
+ok "App-of-Apps applied — ArgoCD will now sync platform services + apps"
+
+# ─── Let ArgoCD converge ─────────────────────────────────────────────────────
+# Platform components install their own CRDs (Strimzi, KEDA, Rollouts, Kyverno,
+# Prometheus) via sync-waves and ArgoCD self-heals until they're ready. Rather
+# than a brittle label wait, surface progress and let it converge in the
+# background — first sync pulls several Helm charts and can take a few minutes.
+log "ArgoCD is reconciling. Watch progress with:"
+echo "    kubectl get applications -n $ARGOCD_NAMESPACE -w"
+echo "    kubectl argo rollouts get rollout echo-service -n apps --watch   # canary"
+kubectl -n "$ARGOCD_NAMESPACE" rollout status deploy/argocd-server --timeout=180s 2>/dev/null || true
+
+# ─── Access info (local mode only) ───────────────────────────────────────────
+if [[ "$MODE" == "local" ]]; then
+  echo ""
+  ok "Bootstrap kicked off. ArgoCD will keep syncing in the background."
+  echo ""
+  echo "ArgoCD admin password:"
+  kubectl -n argocd get secret argocd-initial-admin-secret \
+    -o jsonpath="{.data.password}" 2>/dev/null | base64 -d && echo
+  echo ""
+  echo "Port-forward what you need (run in separate terminals), e.g.:"
+  echo "  kubectl port-forward svc/argocd-server -n argocd     8080:80    # http://localhost:8080  (admin / above)"
+  echo "  kubectl port-forward svc/grafana       -n monitoring 3000:80    # http://localhost:3000  (admin / admin)"
+  echo ""
+  echo "Apps reachable via the ingress on http://localhost (add to /etc/hosts):"
+  echo "  127.0.0.1  echo.platform-core.local"
+  echo "  curl -H 'Host: echo.platform-core.local' http://localhost/"
+  echo ""
+  echo "Watch the canary + KEDA scaling demos:"
+  echo "  kubectl argo rollouts get rollout echo-service -n apps --watch"
+  echo "  kubectl apply -k tests/load        # generate load"
+  echo "  ./scripts/canary-demo.sh bad       # SLO-gated auto-rollback"
+  echo ""
+  echo "Note: Backstage (helm/backstage) is a stub and will show Degraded — it is"
+  echo "      optional for local dev and does not block the rest."
+fi

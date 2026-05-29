@@ -1,0 +1,8 @@
+# Dev: smaller PVC using kind's default storage class (hostPath)
+- op: replace
+  path: /spec/storageClassName
+  value: standard
+
+- op: replace
+  path: /spec/resources/requests/storage
+  value: 10Gi

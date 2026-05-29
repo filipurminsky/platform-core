@@ -1,0 +1,97 @@
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: echo-service
+  description: HTTP echo service — demonstrates GitOps deployment lifecycle and HPA scaling
+  tags: [python, fastapi, demo]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: echo-service
+    prometheus.io/rule: echo-service
+    grafana/dashboard-selector: "app=echo-service"
+    backstage.io/kubernetes-id: echo-service
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  providesApis:
+    - echo-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: worker-service
+  description: Kafka consumer worker — demonstrates KEDA consumer-lag autoscaling and DLQ pattern
+  tags: [python, kafka, keda, event-driven]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: worker-service
+    prometheus.io/rule: worker-service
+    backstage.io/kubernetes-id: worker-service
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  consumesApis:
+    - kafka-jobs-topic
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-gateway
+  description: Reverse proxy for vLLM — rate limiting, request logging, and tracing
+  tags: [python, fastapi, ai, proxy]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: llm-gateway
+    backstage.io/kubernetes-id: llm-gateway
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  consumesApis:
+    - vllm-inference-api
+  providesApis:
+    - llm-gateway-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: vllm-inference
+  description: Self-hosted LLM inference endpoint — OpenAI-compatible API with GPU scheduling and KEDA scale-to-zero
+  tags: [ai, vllm, gpu, keda]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: vllm-inference
+    prometheus.io/rule: vllm
+    grafana/dashboard-selector: "app=vllm-inference"
+    backstage.io/kubernetes-id: vllm-inference
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  providesApis:
+    - vllm-inference-api
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: platform-kafka
+  description: Strimzi-managed Kafka cluster — event bus for platform services
+  tags: [kafka, strimzi, messaging]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: kafka
+    backstage.io/kubernetes-id: platform-kafka
+spec:
+  type: service
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  providesApis:
+    - kafka-jobs-topic

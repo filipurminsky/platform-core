@@ -1,0 +1,18 @@
+# Canary Service — Argo Rollouts injects the rollouts-pod-template-hash selector
+# at runtime so this resolves only to canary pods during a rollout.
+apiVersion: v1
+kind: Service
+metadata:
+  name: echo-service-canary
+  labels:
+    app: echo-service
+    app.kubernetes.io/name: echo-service
+    app.kubernetes.io/part-of: platform-core
+spec:
+  selector:
+    app: echo-service
+  ports:
+    - port: 80
+      targetPort: 8080
+      name: http
+  type: ClusterIP

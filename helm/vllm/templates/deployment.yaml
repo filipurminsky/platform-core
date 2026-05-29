@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vllm.fullname" . }}
+  labels:
+    {{- include "vllm.labels" . | nindent 4 }}
+spec:
+  replicas: 0                  # KEDA manages replica count
+  selector:
+    matchLabels:
+      {{- include "vllm.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "vllm.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+    spec:
+      {{- if and .Values.gpu.enabled (not .Values.devMode.enabled) }}
+      runtimeClassName: {{ .Values.gpu.runtimeClass }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: model-cache-check
+          image: busybox:1.36
+          command: [sh, -c, "ls /model-cache && echo 'Cache hit' || echo 'Cold start'"]
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v{{ .Chart.AppVersion }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model"
+            - {{ include "vllm.modelName" . | quote }}
+            - "--download-dir"
+            - "/model-cache"
+            - "--dtype"
+            - {{ .Values.model.dtype | quote }}
+            - "--max-model-len"
+            - {{ .Values.model.maxModelLen | quote }}
+            {{- if .Values.devMode.enabled }}
+            - "--device"
+            - "cpu"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: huggingface-token
+                  key: token
+                  optional: true
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- include "vllm.resources" . | nindent 12 }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+      volumes:
+        - name: model-cache
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "vllm.fullname" . }}-model-cache
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

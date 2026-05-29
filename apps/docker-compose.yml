@@ -1,0 +1,90 @@
+version: "3.9"
+
+# Local dev stack: Kafka (KRaft mode, no ZooKeeper), echo-service, worker-service, llm-gateway stub
+#
+# Usage:
+#   cd apps/
+#   docker compose up -d
+#   docker compose logs -f worker-service
+#   # Produce a test job:
+#   docker compose exec kafka kafka-console-producer.sh \
+#     --bootstrap-server localhost:9092 --topic jobs <<< \
+#     '{"id":"test-001","type":"data-transform","payload":{"input":"hello","operation":"uppercase"}}'
+
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qg"
+    healthcheck:
+      test: ["CMD", "kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command: |
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+        --topic jobs --partitions 3 --replication-factor 1
+      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+        --topic jobs-dlq --partitions 1 --replication-factor 1
+      echo "Topics created."
+
+  echo-service:
+    build: ./echo-service
+    container_name: echo-service
+    ports:
+      - "8081:8080"
+    environment:
+      APP_VERSION: "local"
+
+  worker-service:
+    build: ./worker-service
+    container_name: worker-service
+    ports:
+      - "9091:9090"   # metrics
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_TOPIC: jobs
+      KAFKA_DLQ_TOPIC: jobs-dlq
+      KAFKA_CONSUMER_GROUP: worker-service
+      MAX_RETRIES: "3"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  # Lightweight mock for vLLM — echos the request body so llm-gateway can start
+  vllm-mock:
+    image: mendhak/http-https-echo:33
+    container_name: vllm-mock
+    ports:
+      - "8000:8080"
+
+  llm-gateway:
+    build: ./llm-gateway
+    container_name: llm-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      VLLM_BASE_URL: "http://vllm-mock:8080"
+      RATE_LIMIT_RPM: "60"
+    depends_on:
+      - vllm-mock

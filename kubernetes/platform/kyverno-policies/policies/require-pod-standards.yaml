@@ -1,0 +1,64 @@
+# Promote the CI conftest/OPA rules to ENFORCED admission policy for tenant
+# workloads. Graduated enforcement: strict (Enforce) in tenant-* namespaces (the
+# governed paved road); platform's own namespaces rely on CI + their operators.
+# This is what makes the guardrails non-bypassable — `kubectl apply` is checked
+# too, not just PRs.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-pod-standards
+  annotations:
+    policies.kyverno.io/title: Require resources, probes, non-root
+    policies.kyverno.io/category: Pod Security / Reliability
+    policies.kyverno.io/severity: medium
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-requests-and-limits
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["tenant-*"]
+      validate:
+        message: "Every container must set CPU and memory requests and limits."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
+
+    - name: require-liveness-readiness-probes
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["tenant-*"]
+      validate:
+        message: "Every container must define liveness and readiness probes."
+        pattern:
+          spec:
+            containers:
+              - livenessProbe:
+                  "?*": "?*"
+                readinessProbe:
+                  "?*": "?*"
+
+    - name: require-run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds: [Pod]
+              namespaces: ["tenant-*"]
+      validate:
+        message: "Pods must set securityContext.runAsNonRoot: true."
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true

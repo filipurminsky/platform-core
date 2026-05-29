@@ -1,0 +1,29 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfplan
+*.tfstate
+*.tfstate.backup
+terraform.tfvars        # contains real values — use terraform.tfvars.example
+
+# Secrets
+*.pem
+*.key
+kubeconfig
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Helm
+charts/
+*.tgz
+
+# kind
+kind-config.yaml.backup

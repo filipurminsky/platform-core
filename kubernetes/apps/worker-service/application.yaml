@@ -1,0 +1,26 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: worker-service
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/filipurminsky/platform-core.git
+    targetRevision: main
+    path: kubernetes/apps/worker-service
+    # ArgoCD deploys the ScaledObject and TriggerAuthentication from this directory.
+    # The Deployment itself is managed via the kustomize overlay (echo-service Application).
+    kustomize: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apps
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

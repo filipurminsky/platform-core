@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+bases:
+  - ../../base
+patches:
+  # Single broker — minimal footprint on kind
+  - path: patch-kafka-dev.yaml
+    target:
+      kind: Kafka
+      name: platform-kafka
+  # Single partition + single replica per topic
+  - path: patch-topics-dev.yaml
+    target:
+      kind: KafkaTopic

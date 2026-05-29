@@ -1,0 +1,29 @@
+checks:
+  addAllBuiltIn: true
+  exclude:
+    # vLLM legitimately needs privileged GPU access; exclude it from this check
+    - "no-privilege-escalation-container"
+  include:
+    - "required-label-owner"
+    - "resource-requests"
+    - "resource-limits"
+    - "liveness-probe"
+    - "readiness-probe"
+    - "no-read-only-root-fs"
+    - "run-as-non-root"
+    - "drop-net-raw-capability"
+
+customChecks:
+  - name: "required-label-owner"
+    template: "required-label"
+    params:
+      label: "app.kubernetes.io/part-of"
+
+ignoreFields:
+  # Strimzi-generated pods use root; ignore operator-managed resources
+  - objectMatcher:
+      namespaces: ["platform"]
+      apiGroups: ["kafka.strimzi.io"]
+    fieldMatchers:
+      - "run-as-non-root"
+      - "no-privilege-escalation-container"

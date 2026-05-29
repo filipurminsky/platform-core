@@ -1,0 +1,26 @@
+# Tier: small — per-container defaults so pods that omit resources still get
+# bounded, and the ResourceQuota (which requires requests/limits) is satisfied.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: defaults
+spec:
+  limits:
+    - type: Container
+      default:           # applied as limits if a container sets none
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:    # applied as requests if a container sets none
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "2"
+        memory: 2Gi
+      min:
+        cpu: 10m
+        memory: 16Mi
+    - type: PersistentVolumeClaim
+      max:
+        storage: 20Gi
+      min:
+        storage: 1Gi

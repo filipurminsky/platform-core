@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: vllm-inference
+  labels:
+    app: vllm-inference
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: vllm-inference
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s      # vLLM metrics change quickly during active inference

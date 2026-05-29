@@ -1,0 +1,27 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: worker-service
+  namespace: apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker-service
+  minReplicaCount: 0          # true scale-to-zero when jobs topic is idle
+  maxReplicaCount: 5          # one replica per partition at full load
+  cooldownPeriod: 60          # seconds before scaling down after idle
+  pollingInterval: 15         # how often KEDA checks consumer lag
+  triggers:
+    - type: kafka
+      authenticationRef:
+        name: kafka-trigger-auth
+      metadata:
+        bootstrapServers: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
+        consumerGroup: worker-service
+        topic: jobs
+        lagThreshold: "10"          # scale up when lag > 10 messages per partition
+        activationLagThreshold: "1" # activate (scale from 0→1) when any lag exists
+        offsetResetPolicy: latest
+        sasl: plaintext
+        tls: enable

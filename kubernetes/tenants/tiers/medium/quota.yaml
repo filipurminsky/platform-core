@@ -1,0 +1,17 @@
+# Tier: medium — for teams running production-like demo workloads.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+    pods: "40"
+    persistentvolumeclaims: "10"
+    services: "20"
+    services.loadbalancers: "2"
+    count/deployments.apps: "20"
+    count/jobs.batch: "20"

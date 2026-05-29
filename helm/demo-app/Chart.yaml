@@ -1,0 +1,11 @@
+apiVersion: v2
+name: demo-app
+description: Generic reusable Helm chart for stateless platform services
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - platform
+  - microservice
+maintainers:
+  - name: filipurminsky

@@ -1,0 +1,19 @@
+# Tier: large — for teams running GPU / vLLM-style workloads.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    requests.nvidia.com/gpu: "2"
+    limits.nvidia.com/gpu: "2"
+    pods: "80"
+    persistentvolumeclaims: "20"
+    services: "40"
+    services.loadbalancers: "4"
+    count/deployments.apps: "40"
+    count/jobs.batch: "40"

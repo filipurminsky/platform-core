@@ -1,0 +1,242 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+env:
+  STRIMZI_VERSION: "0.40.0"
+  KEDA_VERSION: "2.13.0"
+
+jobs:
+  helm-lint:
+    name: Helm lint + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "3.14.0"
+
+      - name: Set up kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar -xz && sudo mv kubeconform /usr/local/bin/
+
+      - name: Download Strimzi + KEDA CRD schemas
+        run: |
+          mkdir -p /tmp/crd-schemas/strimzi /tmp/crd-schemas/keda
+          # Strimzi CRDs → kubeconform schema format
+          curl -sSL "https://github.com/strimzi/strimzi-kafka-operator/releases/download/${STRIMZI_VERSION}/strimzi-crds-${STRIMZI_VERSION}.yaml" \
+            -o /tmp/crd-schemas/strimzi/crds.yaml
+          curl -sSL "https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}-crds.yaml" \
+            -o /tmp/crd-schemas/keda/crds.yaml
+
+      - name: Helm lint all charts
+        run: |
+          for chart in helm/*/; do
+            echo "==> Linting $chart"
+            helm lint "$chart"
+          done
+
+      - name: Helm template + kubeconform (demo-app)
+        run: |
+          helm template demo helm/demo-app \
+            | kubeconform -strict -summary \
+              -schema-location default \
+              -schema-location '/tmp/crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json'
+
+      - name: Helm template + kubeconform (vllm)
+        run: |
+          helm template vllm helm/vllm \
+            | kubeconform -strict -summary
+
+  kustomize-validate:
+    name: Kustomize build + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kustomize
+        run: |
+          curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Set up kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar -xz && sudo mv kubeconform /usr/local/bin/
+
+      - name: Build + validate dev overlay
+        run: |
+          kustomize build kustomize/overlays/dev \
+            | kubeconform -strict -summary -schema-location default
+
+      - name: Build + validate prod overlay
+        run: |
+          kustomize build kustomize/overlays/prod \
+            | kubeconform -strict -summary -schema-location default
+
+  kube-linter:
+    name: kube-linter best-practice checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run kube-linter on kubernetes/
+        uses: stackrox/kube-linter-action@v1
+        with:
+          directory: kubernetes/
+          config: .kube-linter.yaml
+
+  opa-policies:
+    name: OPA / conftest policy checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up conftest
+        run: |
+          curl -sSL https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz \
+            | tar -xz && sudo mv conftest /usr/local/bin/
+
+      - name: Set up kustomize
+        run: |
+          curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Run OPA policies (dev overlay)
+        run: |
+          kustomize build kustomize/overlays/dev \
+            | conftest test --policy policy/ -
+
+      - name: Run OPA policies (prod overlay)
+        run: |
+          kustomize build kustomize/overlays/prod \
+            | conftest test --policy policy/ -
+
+  terraform-validate:
+    name: Terraform fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.7.0"
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive terraform/
+
+      - name: Terraform validate (dev)
+        working-directory: terraform/environments/dev
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform validate (prod)
+        working-directory: terraform/environments/prod
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+  app-lint:
+    name: Python lint (apps)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [echo-service, worker-service, llm-gateway]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: apps/${{ matrix.app }}/requirements.txt
+
+      - name: Install deps + ruff
+        run: |
+          pip install ruff
+          pip install -r apps/${{ matrix.app }}/requirements.txt
+
+      - name: Ruff lint
+        run: ruff check apps/${{ matrix.app }}/main.py
+
+      - name: Ruff format check
+        run: ruff format --check apps/${{ matrix.app }}/main.py
+
+  app-build:
+    name: Docker build (apps)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [echo-service, worker-service, llm-gateway]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/${{ matrix.app }}
+          push: false
+          tags: platform-core/${{ matrix.app }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  checkov:
+    name: Checkov security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov on Terraform
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          soft_fail: false
+          output_format: cli
+
+  trivy-iac:
+    name: Trivy IaC + Dockerfile misconfig scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catches misconfigurations across Terraform, Kubernetes manifests and
+      # Dockerfiles (privileged pods, missing securityContext, broad IAM, etc.)
+      - name: Trivy config scan
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          scan-type: config
+          scan-ref: .
+          exit-code: "1"
+          severity: HIGH,CRITICAL
+          skip-dirs: ".github"
+
+  kyverno-policy-test:
+    name: Validate Kyverno policies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Kyverno CLI
+        run: |
+          VERSION=1.12.1
+          curl -sSL "https://github.com/kyverno/kyverno/releases/download/v${VERSION}/kyverno-cli_v${VERSION}_linux_x86_64.tar.gz" \
+            | tar -xz && sudo mv kyverno /usr/local/bin/
+
+      # Static validation that every ClusterPolicy is well-formed
+      - name: kyverno validate
+        run: |
+          kyverno validate kubernetes/platform/kyverno-policies/policies/

@@ -1,0 +1,94 @@
+# echo-service is delivered via Argo Rollouts canary, NOT a plain Deployment.
+# Each promotion shifts 10% → 50% → 100% of real traffic (nginx traffic routing),
+# pausing at each step to run an AnalysisTemplate that queries Prometheus for the
+# canary pods' success-rate and p90 latency. A single bad measurement aborts the
+# rollout and Argo Rollouts automatically reverts to the stable ReplicaSet.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: echo-service
+  labels:
+    app: echo-service
+    app.kubernetes.io/name: echo-service
+    app.kubernetes.io/part-of: platform-core
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: echo-service
+  strategy:
+    canary:
+      canaryService: echo-service-canary
+      stableService: echo-service
+      trafficRouting:
+        nginx:
+          stableIngress: echo-service
+      steps:
+        - setWeight: 10
+        - pause: { duration: 30s }
+        - analysis:
+            templates:
+              - templateName: echo-service-slo
+            args:
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
+        - setWeight: 50
+        - pause: { duration: 30s }
+        - analysis:
+            templates:
+              - templateName: echo-service-slo
+            args:
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app: echo-service
+        app.kubernetes.io/name: echo-service
+        app.kubernetes.io/part-of: platform-core
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: echo-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: echo-service
+          image: echo-service:latest
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

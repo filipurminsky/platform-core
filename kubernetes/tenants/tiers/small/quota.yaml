@@ -1,0 +1,17 @@
+# Tier: small — for experimental / low-traffic teams.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 4Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+    pods: "20"
+    persistentvolumeclaims: "5"
+    services: "10"
+    services.loadbalancers: "1"
+    count/deployments.apps: "10"
+    count/jobs.batch: "10"

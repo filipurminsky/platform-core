@@ -1,0 +1,58 @@
+# KafkaTopic CRs — managed by Strimzi Entity Operator
+# Partitions and replication factor are patched by Kustomize overlays.
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: jobs
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 5             # patched to 1 in dev overlay
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "604800000"   # 7 days
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: jobs-dlq
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 1
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "2592000000"  # 30 days — keep dead letters longer for investigation
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: llm-requests
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 5             # patched to 1 in dev overlay
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "86400000"    # 1 day — async inference requests are short-lived
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: llm-responses
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 5             # patched to 1 in dev overlay
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "86400000"
+    cleanup.policy: delete

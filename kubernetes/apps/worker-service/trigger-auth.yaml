@@ -1,0 +1,15 @@
+# TriggerAuthentication — wires Strimzi-generated SASL secret into KEDA
+# The Secret "worker-service" is created automatically by Strimzi UserOperator.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: kafka-trigger-auth
+  namespace: apps
+spec:
+  secretTargetRef:
+    - parameter: sasl
+      name: worker-service         # Strimzi-generated secret name = KafkaUser name
+      key: sasl.jaas.config
+    - parameter: tls
+      name: worker-service
+      key: tls

@@ -1,0 +1,33 @@
+# Dev: use CPU-compatible TinyLlama-1.1B; strip GPU requirements
+- op: replace
+  path: /spec/template/spec/containers/0/args
+  value:
+    - "--model"
+    - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    - "--download-dir"
+    - "/model-cache"
+    - "--dtype"
+    - "float32"       # CPU requires float32
+    - "--max-model-len"
+    - "2048"
+    - "--device"
+    - "cpu"
+
+- op: remove
+  path: /spec/template/spec/runtimeClassName
+
+- op: remove
+  path: /spec/template/spec/nodeSelector
+
+- op: remove
+  path: /spec/template/spec/tolerations
+
+- op: replace
+  path: /spec/template/spec/containers/0/resources
+  value:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi

@@ -1,0 +1,39 @@
+# SLO gate for the canary. Argo Rollouts runs this at each pause step and passes
+# the canary ReplicaSet's pod-template-hash so the queries measure ONLY canary
+# pods (the ServiceMonitor copies that pod label onto the metrics via
+# podTargetLabels). failureLimit: 1 means a single breaching sample aborts the
+# rollout → automatic revert to the stable ReplicaSet.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: echo-service-slo
+  labels:
+    app.kubernetes.io/part-of: platform-core
+spec:
+  args:
+    - name: canary-hash
+  metrics:
+    - name: success-rate
+      interval: 20s
+      count: 4
+      # >= 99% non-5xx. len(result)==0 tolerates the warm-up window with no traffic.
+      successCondition: "len(result) == 0 || result[0] >= 0.99"
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-operated.monitoring.svc:9090
+          query: |
+            sum(rate(echo_requests_total{status!~"5..",rollouts_pod_template_hash="{{args.canary-hash}}"}[1m]))
+            /
+            sum(rate(echo_requests_total{rollouts_pod_template_hash="{{args.canary-hash}}"}[1m]))
+    - name: p90-latency-seconds
+      interval: 20s
+      count: 4
+      successCondition: "len(result) == 0 || result[0] <= 0.5"
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-operated.monitoring.svc:9090
+          query: |
+            histogram_quantile(0.90,
+              sum(rate(echo_request_duration_seconds_bucket{rollouts_pod_template_hash="{{args.canary-hash}}"}[1m])) by (le))

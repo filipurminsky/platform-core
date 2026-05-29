@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-inference
+  labels:
+    app: vllm-inference
+spec:
+  replicas: 0                  # KEDA manages; starts at zero
+  selector:
+    matchLabels:
+      app: vllm-inference
+  template:
+    metadata:
+      labels:
+        app: vllm-inference
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8000"
+    spec:
+      serviceAccountName: vllm-inference
+      runtimeClassName: nvidia    # patched out in dev overlay (no GPU)
+      nodeSelector:
+        role: gpu                 # patched out in dev overlay
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule      # removed in dev overlay
+      initContainers:
+        - name: model-cache-check
+          image: busybox:1.36
+          command: [sh, -c, "ls /model-cache || echo 'Cold start: model will be downloaded'"]
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:v0.4.2
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model"
+            - "mistralai/Mistral-7B-Instruct-v0.2"   # patched by overlay
+            - "--download-dir"
+            - "/model-cache"
+            - "--dtype"
+            - "auto"
+            - "--max-model-len"
+            - "4096"
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: huggingface-token
+                  key: token
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 30    # allow up to 5 min for model load
+          resources:
+            requests:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"   # patched to 0 in dev overlay
+            limits:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"   # patched to 0 in dev overlay
+          volumeMounts:
+            - name: model-cache
+              mountPath: /model-cache
+          securityContext:
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: vllm-model-cache

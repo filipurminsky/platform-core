@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Run with:  kubectl apply -k tests/load
+namespace: apps
+
+resources:
+  - k6-job.yaml
+
+configMapGenerator:
+  - name: k6-echo-script
+    files:
+      - echo-load.js
+
+generatorOptions:
+  disableNameSuffixHash: true

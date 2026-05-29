@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tenant-bravo
+  labels:
+    platform.io/tenant: bravo
+    app.kubernetes.io/managed-by: argocd
+    # vLLM/GPU workloads need elevated capabilities; the baseline profile is the
+    # tightest PSA level that still permits them. (restricted forbids them.)
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

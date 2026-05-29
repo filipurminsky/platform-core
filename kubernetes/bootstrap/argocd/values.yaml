@@ -1,0 +1,47 @@
+# ArgoCD Helm values for LOCAL kind dev. Not production-tuned.
+# Installed by scripts/bootstrap.sh (argo/argo-cd chart).
+global:
+  domain: argocd.localhost
+
+configs:
+  params:
+    # Serve plain HTTP so `kubectl port-forward` → http://localhost:8080 works
+    # without TLS warnings. Do NOT do this in production.
+    server.insecure: true
+    # Allow Applications to live/target any namespace (apps, tenant-*, etc.)
+    application.namespaces: "*"
+
+# Trim resources so the whole stack fits on a laptop kind cluster
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+server:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+# ApplicationSet controller is needed for the multi-tenancy ApplicationSet
+applicationSet:
+  enabled: true
+
+# Dex/notifications not needed for local dev
+dex:
+  enabled: false
+notifications:
+  enabled: false

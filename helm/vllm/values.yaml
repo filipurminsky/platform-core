@@ -1,0 +1,75 @@
+model:
+  name: "mistralai/Mistral-7B-Instruct-v0.2"
+  revision: main
+  huggingfaceToken: ""     # set via External Secrets / env var HF_TOKEN
+  dtype: auto              # auto | float16 | bfloat16
+  maxModelLen: 4096
+
+gpu:
+  enabled: true
+  count: 1                 # nvidia.com/gpu request
+  runtimeClass: nvidia
+
+resources:
+  requests:
+    cpu: "2"
+    memory: 8Gi
+    nvidia.com/gpu: 1
+  limits:
+    cpu: "4"
+    memory: 16Gi
+    nvidia.com/gpu: 1
+
+# Overrides for dev / CPU mode (set gpu.enabled=false, model.name=TinyLlama/...)
+devMode:
+  enabled: false
+  model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+persistence:
+  enabled: true
+  size: 50Gi               # cache model weights; avoids re-download on pod restart
+  storageClass: gp3        # override to "standard" in dev
+
+service:
+  type: ClusterIP
+  port: 8000
+
+# Node affinity for GPU nodes
+nodeSelector:
+  role: gpu
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Equal"
+    value: "true"
+    effect: "NoSchedule"
+
+# Probes — vLLM takes time to load; don't mark ready until model is loaded
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  failureThreshold: 30     # allow up to 5 min for model load
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8000
+  initialDelaySeconds: 120
+  periodSeconds: 30
+  failureThreshold: 5
+
+extraEnv:
+  - name: VLLM_WORKER_MULTIPROC_METHOD
+    value: spawn
+  - name: CUDA_VISIBLE_DEVICES
+    value: "0"

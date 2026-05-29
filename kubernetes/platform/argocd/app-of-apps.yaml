@@ -1,0 +1,36 @@
+# App-of-Apps root Application.
+# Recurses the whole kubernetes/ tree but applies ONLY Application and
+# ApplicationSet manifests (directory.include filter). This is deliberate:
+#   - picks up every kubernetes/platform/<svc>/application.yaml (platform services)
+#   - picks up kubernetes/platform/tenants/applicationset.yaml (multi-tenancy)
+#   - picks up kubernetes/apps/<svc>/application.yaml (demo apps — otherwise orphaned)
+#   - IGNORES raw manifests (Kafka CRs, Kyverno ClusterPolicies, kustomize overlays)
+#     so they sync via their own child Application, not applied loose here.
+# The platform-apps AppProject is applied out-of-band by bootstrap.sh (it must
+# exist before the echo-service Application that references it).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/filipurminsky/platform-core.git
+    targetRevision: main
+    path: kubernetes
+    directory:
+      recurse: true
+      include: "{application.yaml,applicationset.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

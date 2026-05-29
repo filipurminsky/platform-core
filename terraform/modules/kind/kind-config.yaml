@@ -1,0 +1,25 @@
+# Static kind cluster config used by scripts/bootstrap.sh --mode=local.
+# (The kind Terraform module can also render this; this committed copy lets the
+# bootstrap script run without Terraform.)
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: platform-core
+nodes:
+  - role: control-plane
+    # Label + port mappings let ingress-nginx serve on the host's :80/:443,
+    # which the echo-service canary Ingress (echo.platform-core.local) relies on.
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+  - role: worker
+  - role: worker

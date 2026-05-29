@@ -1,0 +1,131 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: platform-core-alerts
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+
+    # ── Kubernetes health ────────────────────────────────────────────────────
+    - name: kubernetes.health
+      rules:
+        - alert: PodCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total[15m]) > 5
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash-looping"
+            description: "{{ $labels.pod }} in {{ $labels.namespace }} has restarted {{ $value | humanize }} times in the last 15 minutes."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/pod-crash-loop.md"
+
+        - alert: NodeMemoryPressure
+          expr: |
+            (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)
+              / node_memory_MemTotal_bytes > 0.90
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.node }} memory > 90%"
+            description: "Node {{ $labels.node }} has {{ $value | humanizePercentage }} memory utilisation."
+
+    # ── SLO burn rate ────────────────────────────────────────────────────────
+    - name: slo.burn_rate
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            (
+              sum(rate(http_requests_total{status=~"5.."}[1h]))
+              /
+              sum(rate(http_requests_total[1h]))
+            ) > 14 * 0.005
+          for: 1h
+          labels:
+            severity: critical
+          annotations:
+            summary: "High SLO burn rate — error budget at risk"
+            description: "Error rate burn rate is {{ $value | humanizePercentage }}, which exceeds 14× the 0.5% SLO threshold."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/high-error-rate.md"
+
+    # ── ArgoCD ───────────────────────────────────────────────────────────────
+    - name: argocd
+      rules:
+        - alert: ArgoCDSyncFailed
+          expr: |
+            argocd_app_info{health_status="Degraded"} == 1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ArgoCD application {{ $labels.name }} is degraded"
+            description: "Application {{ $labels.name }} in project {{ $labels.project }} has health status Degraded."
+
+    # ── Kafka ────────────────────────────────────────────────────────────────
+    - name: kafka
+      rules:
+        - alert: KafkaConsumerLagHigh
+          expr: |
+            kafka_consumergroup_lag_sum{group="worker-service"} > 100
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "worker-service Kafka consumer lag is high"
+            description: "Consumer group worker-service has a total lag of {{ $value }} messages across all partitions."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+        - alert: KafkaDLQNonEmpty
+          expr: |
+            kafka_consumergroup_lag{topic="jobs-dlq"} > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Messages in Kafka DLQ — processing failures detected"
+            description: "{{ $value }} messages in jobs-dlq. Investigate worker-service for processing errors."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+        - alert: KafkaBrokerDown
+          expr: |
+            count(kafka_server_replicamanager_leadercount) < 3
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Kafka broker count below expected"
+            description: "Only {{ $value }} Kafka brokers are reporting metrics. Expected 3."
+
+    # ── vLLM ─────────────────────────────────────────────────────────────────
+    - name: vllm
+      rules:
+        - alert: VllmLatencyBreach
+          expr: |
+            histogram_quantile(0.90,
+              rate(vllm:e2e_request_latency_seconds_bucket[5m])
+            ) > 5
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "vLLM p90 latency > 5 seconds"
+            description: "vLLM p90 request latency is {{ $value | humanizeDuration }}, breaching the 5 s SLO."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/vllm-inference-latency.md"
+
+        - alert: GpuNodeUnavailable
+          expr: |
+            kube_deployment_status_replicas{deployment="vllm-inference"} > 0
+            unless
+            kube_node_status_condition{condition="Ready",status="true"}
+              * on(node) group_left()
+              kube_node_labels{label_role="gpu"} == 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "vLLM replicas running but no GPU node is Ready"
+            description: "vLLM has {{ $value }} replicas but no GPU node is available. Pods will be pending."

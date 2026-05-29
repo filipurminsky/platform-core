@@ -1,0 +1,60 @@
+# KafkaUser CRs — one per service, minimal ACLs (principle of least privilege)
+# Strimzi generates a Kubernetes Secret per user containing SASL credentials.
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: worker-service
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: jobs
+          patternType: literal
+        operations: [Read, Describe]
+      - resource:
+          type: topic
+          name: jobs-dlq
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: group
+          name: worker-service
+          patternType: literal
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: llm-gateway
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: llm-requests
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: llm-responses
+          patternType: literal
+        operations: [Read, Describe]
+      - resource:
+          type: group
+          name: llm-gateway
+          patternType: literal
+        operations: [Read]

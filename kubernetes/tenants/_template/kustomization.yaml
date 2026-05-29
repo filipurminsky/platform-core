@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# Shared, identical-for-every-tenant policy objects.
+# Consumed by each tenant kustomization via `components:`. The calling
+# kustomization sets `namespace:`, so every resource below lands in the
+# tenant's own namespace automatically.
+resources:
+  - network-policies.yaml
+  - rbac-roles.yaml

@@ -1,0 +1,10 @@
+# Reduced resource limits for dev — keeps local kind cluster affordable.
+- op: replace
+  path: /spec/template/spec/containers/0/resources
+  value:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

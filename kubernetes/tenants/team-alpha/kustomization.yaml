@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Everything below is namespaced into tenant-alpha. The namespace transformer
+# also renames the Namespace object itself, so namespace.yaml and this field
+# stay in lockstep.
+namespace: tenant-alpha
+
+resources:
+  - namespace.yaml
+  - rolebindings.yaml
+
+# Shared policy template + chosen resource tier
+components:
+  - ../_template
+  - ../tiers/small
+
+# Stamp the tenant label onto every object (metadata only, not selectors)
+labels:
+  - pairs:
+      platform.io/tenant: alpha
+    includeSelectors: false

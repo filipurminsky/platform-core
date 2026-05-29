@@ -1,0 +1,107 @@
+name: Docker Build, Scan, Sign & Push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/**"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-west-1
+
+# No static cloud credentials anywhere. id-token lets us:
+#   - federate into AWS via OIDC (configure-aws-credentials, role-to-assume)
+#   - sign images keyless with cosign (Fulcio/Rekor)
+permissions:
+  id-token: write
+  contents: write # commit the image-tag bump back to the repo
+  packages: read
+
+jobs:
+  build:
+    name: Build & sign ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [echo-service, worker-service, llm-gateway]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC, no static keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # Role ARN is an output of terraform/modules/github-oidc.
+          # Stored as a repo variable, not a secret (it is not sensitive).
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image reference
+        id: ref
+        run: |
+          SHA_SHORT=$(git rev-parse --short HEAD)
+          REGISTRY=${{ steps.login-ecr.outputs.registry }}
+          echo "repo=${REGISTRY}/platform-core/${{ matrix.app }}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push (with SBOM + SLSA provenance attestations)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/${{ matrix.app }}
+          push: true
+          tags: |
+            ${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }}
+            ${{ steps.ref.outputs.repo }}:latest
+          # BuildKit attaches an SPDX SBOM and max-mode SLSA provenance to the
+          # image index — verifiable later with `cosign verify-attestation`.
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Scan image for vulnerabilities (fail on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: ${{ steps.ref.outputs.repo }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless — identity bound to this workflow)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes "${{ steps.ref.outputs.repo }}@${DIGEST}"
+
+      - name: Update prod image tag (GitOps promotion)
+        run: |
+          curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/ 2>/dev/null || mv kustomize "$HOME/"
+          cd kustomize/overlays/prod
+          "${HOME}/kustomize" edit set image \
+            ${{ matrix.app }}=${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }} \
+            2>/dev/null || kustomize edit set image \
+            ${{ matrix.app }}=${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }}
+          cd -
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add kustomize/overlays/prod
+          git commit -m "chore(${{ matrix.app }}): promote ${{ steps.ref.outputs.sha }}" || exit 0
+          git push
