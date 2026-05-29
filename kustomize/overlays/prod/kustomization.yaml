@@ -29,6 +29,8 @@ configMapGenerator:
     literals:
       - ENVIRONMENT=prod
       - LOG_LEVEL=info
+generatorOptions:
+  disableNameSuffixHash: true
 
 # Updated by docker-build.yaml GitHub Actions workflow via:
 #   kustomize edit set image <name>=<ecr-url>:<sha>

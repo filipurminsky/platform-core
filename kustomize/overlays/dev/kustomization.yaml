@@ -45,6 +45,8 @@ configMapGenerator:
     literals:
       - ENVIRONMENT=dev
       - LOG_LEVEL=debug
+generatorOptions:
+  disableNameSuffixHash: true
 
 images:
   - name: echo-service
