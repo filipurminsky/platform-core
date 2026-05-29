@@ -13,14 +13,26 @@ spec:
     targetRevision: 4.10.1
     helm:
       values: |
+        # NOTE: kind/local-tuned. For EKS use service.type: LoadBalancer, drop
+        # hostPort/nodeSelector/tolerations, and re-enable admissionWebhooks.
         controller:
-          replicaCount: 2
+          replicaCount: 1
+          hostPort:
+            enabled: true            # bind :80/:443 on the node (kind maps these to localhost)
+          service:
+            type: NodePort
+          nodeSelector:
+            ingress-ready: "true"    # only the kind control-plane node has this label
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+          admissionWebhooks:
+            enabled: false           # self-signed webhook cert breaks ArgoCD's diff + Ingress creation on kind
           resources:
             requests:
               cpu: 100m
               memory: 90Mi
-          service:
-            type: LoadBalancer
           metrics:
             enabled: true
             serviceMonitor:

@@ -22,8 +22,23 @@ spec:
           enabled: true
         reportsController:
           enabled: true
+        policyReportsCleanup:
+          enabled: false
+        webhooksCleanup:
+          enabled: false
         cleanupController:
           enabled: false
+        cleanupJobs:
+          admissionReports:
+            enabled: false
+          clusterAdmissionReports:
+            enabled: false
+          updateRequests:
+            enabled: false
+          ephemeralReports:
+            enabled: false
+          clusterEphemeralReports:
+            enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: kyverno
