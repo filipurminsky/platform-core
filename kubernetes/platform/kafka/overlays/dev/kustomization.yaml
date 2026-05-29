@@ -12,3 +12,6 @@ patches:
   - path: patch-topics-dev.yaml
     target:
       kind: KafkaTopic
+
+  # Dev uses the unauthenticated internal Kafka listener.
+  - path: patch-users-dev.yaml

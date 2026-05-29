@@ -14,8 +14,6 @@ spec:
   pollingInterval: 15         # how often KEDA checks consumer lag
   triggers:
     - type: kafka
-      authenticationRef:
-        name: kafka-trigger-auth
       metadata:
         bootstrapServers: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
         consumerGroup: worker-service
@@ -23,5 +21,3 @@ spec:
         lagThreshold: "10"          # scale up when lag > 10 messages per partition
         activationLagThreshold: "1" # activate (scale from 0→1) when any lag exists
         offsetResetPolicy: latest
-        sasl: plaintext
-        tls: enable

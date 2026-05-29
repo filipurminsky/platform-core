@@ -1,0 +1,13 @@
+$patch: delete
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: worker-service
+  namespace: platform
+---
+$patch: delete
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: llm-gateway
+  namespace: platform
