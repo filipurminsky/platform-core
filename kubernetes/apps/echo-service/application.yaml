@@ -14,6 +14,17 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: apps
+  ignoreDifferences:
+    # Argo Rollouts injects rollouts-pod-template-hash into these Service
+    # selectors at runtime to steer stable/canary traffic.
+    - kind: Service
+      name: echo-service
+      jsonPointers:
+        - /spec/selector/rollouts-pod-template-hash
+    - kind: Service
+      name: echo-service-canary
+      jsonPointers:
+        - /spec/selector/rollouts-pod-template-hash
   syncPolicy:
     automated:
       prune: true
