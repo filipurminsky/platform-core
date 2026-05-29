@@ -1,0 +1,1 @@
+Backstage is a placeholder in this local platform stack.

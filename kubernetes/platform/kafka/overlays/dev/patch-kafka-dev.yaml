@@ -24,9 +24,8 @@
   value: standard
 
 # Disable TLS listener auth in dev (simplifies local testing)
-- op: replace
+- op: remove
   path: /spec/kafka/listeners/1/authentication
-  value: {}
 
 # Disable Kafka Exporter in dev (saves resources)
 - op: remove
