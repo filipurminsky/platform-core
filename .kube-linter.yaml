@@ -17,7 +17,7 @@ customChecks:
   - name: "required-label-owner"
     template: "required-label"
     params:
-      label: "app.kubernetes.io/part-of"
+      key: "app.kubernetes.io/part-of"
 
 ignoreFields:
   # Strimzi-generated pods use root; ignore operator-managed resources

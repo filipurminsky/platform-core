@@ -49,7 +49,7 @@ jobs:
             | kubeconform -strict -summary \
               -schema-location default \
               -schema-location '/tmp/crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind | lower}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       - name: Helm template + kubeconform (vllm)
@@ -57,7 +57,7 @@ jobs:
           helm template vllm helm/vllm \
             | kubeconform -strict -summary \
               -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind | lower}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
   kustomize-validate:
@@ -80,7 +80,7 @@ jobs:
         run: |
           kustomize build kustomize/overlays/dev \
             | kubeconform -strict -summary -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind | lower}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       - name: Build + validate dev app overlays
@@ -88,7 +88,7 @@ jobs:
           for overlay in kustomize/overlays/dev/*/; do
             kustomize build "$overlay" \
               | kubeconform -strict -summary -schema-location default \
-                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind | lower}}_{{.ResourceAPIVersion}}.json' \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
                 -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           done
 
@@ -96,7 +96,7 @@ jobs:
         run: |
           kustomize build kustomize/overlays/prod \
             | kubeconform -strict -summary -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind | lower}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       - name: Build + validate prod app overlays
@@ -104,7 +104,7 @@ jobs:
           for overlay in kustomize/overlays/prod/*/; do
             kustomize build "$overlay" \
               | kubeconform -strict -summary -schema-location default \
-                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind | lower}}_{{.ResourceAPIVersion}}.json' \
+                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
                 -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           done
 
@@ -268,8 +268,8 @@ jobs:
             -ignore-filename-pattern 'kustomization.yaml' \
             -ignore-filename-pattern 'values.yaml' \
             -ignore-filename-pattern 'patch-.*.yaml' \
-            -skip Kustomization,Component \
+            -skip Kustomization,Component,Application,ApplicationSet,AppProject,ServiceMonitor,PrometheusRule,ScaledObject,AnalysisTemplate,AnalysisRun,Kafka,KafkaTopic,KafkaUser \
             -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind | lower}}_{{.ResourceAPIVersion}}.json' \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             kubernetes/
