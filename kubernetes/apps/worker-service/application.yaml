@@ -13,7 +13,6 @@ spec:
     path: kubernetes/apps/worker-service
     # ArgoCD deploys the ScaledObject and TriggerAuthentication from this directory.
     # The Deployment itself is managed via the kustomize overlay (echo-service Application).
-    kustomize: {}
   destination:
     server: https://kubernetes.default.svc
     namespace: apps
