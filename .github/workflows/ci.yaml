@@ -239,6 +239,11 @@ jobs:
           framework: terraform
           soft_fail: false
           output_format: cli
+          # CKV_TF_1 wants module sources pinned to a git commit hash. Our modules
+          # come from the Terraform Registry pinned with semver (~> X.0); commit-hash
+          # pinning is not applicable to registry sources, and CKV_TF_2 (version tag
+          # present) already passes. Skip only this one check.
+          skip_check: CKV_TF_1
 
   trivy-iac:
     name: Trivy IaC + Dockerfile misconfig scan
@@ -250,15 +255,21 @@ jobs:
       # Dockerfiles (privileged pods, missing securityContext, broad IAM, etc.)
       - name: Trivy config scan
         uses: aquasecurity/trivy-action@v0.20.0
+        # Reviewed, justified exceptions (third-party module / false positive /
+        # intentional design) live in .trivyignore.yaml. We point Trivy at it via
+        # TRIVY_IGNOREFILE rather than the action's `trivyignores` input: that
+        # input cats the file into an extension-less `./trivyignores`, which Trivy
+        # then parses with the *plain* (one-id-per-line) parser, silently dropping
+        # the YAML structure and all path scoping. The env var preserves the .yaml
+        # extension so the structured, path-scoped parser is used.
+        env:
+          TRIVY_IGNOREFILE: .trivyignore.yaml
         with:
           scan-type: config
           scan-ref: .
           exit-code: "1"
           severity: HIGH,CRITICAL
           skip-dirs: ".github"
-          # Reviewed, justified exceptions (third-party module / false positive /
-          # intentional design). Trivy 0.50 won't auto-load *.yaml ignore files.
-          trivyignores: .trivyignore.yaml
 
   kubernetes-validate:
     name: Validate Kubernetes manifests

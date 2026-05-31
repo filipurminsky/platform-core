@@ -1,8 +1,9 @@
 # Trivy misconfiguration ignore list.
 #
 # Every entry below is a deliberate, reviewed exception — not a blanket mute.
-# Wired into CI via the `trivyignores` input on the trivy-iac job in
-# .github/workflows/ci.yaml (Trivy 0.50 does not auto-load *.yaml ignore files).
+# Wired into CI via the TRIVY_IGNOREFILE env var on the trivy-iac job in
+# .github/workflows/ci.yaml (Trivy 0.50 does not auto-load *.yaml ignore files,
+# and the action's `trivyignores` input mangles the .yaml extension).
 # Findings that CAN be fixed in-repo are fixed in the manifests, not listed here.
 
 misconfigurations:
