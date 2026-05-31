@@ -30,10 +30,19 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
           volumeMounts:
             - name: script
               mountPath: /scripts
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: script
           configMap:
             name: k6-echo-script
+        - name: tmp
+          emptyDir: {}

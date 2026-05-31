@@ -128,7 +128,11 @@ jobs:
 
       - name: Set up conftest
         run: |
-          curl -sSL https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz \
+          # conftest release assets embed the version in the filename
+          # (conftest_<ver>_Linux_x86_64.tar.gz), so the version-less
+          # /latest/download/ URL 404s. Pin an explicit version instead.
+          CONFTEST_VERSION=0.56.0
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
             | tar -xz && sudo mv conftest /usr/local/bin/
 
       - name: Set up kustomize
@@ -250,6 +254,9 @@ jobs:
           exit-code: "1"
           severity: HIGH,CRITICAL
           skip-dirs: ".github"
+          # Reviewed, justified exceptions (third-party module / false positive /
+          # intentional design). Trivy 0.50 won't auto-load *.yaml ignore files.
+          trivyignores: .trivyignore.yaml
 
   kubernetes-validate:
     name: Validate Kubernetes manifests

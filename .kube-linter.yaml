@@ -4,7 +4,7 @@ checks:
     # vLLM legitimately needs privileged GPU access; exclude it from this check
     - "no-privilege-escalation-container"
   include:
-    - "required-label-owner"
+    - "require-part-of-label"
     - "resource-requests"
     - "resource-limits"
     - "liveness-probe"
@@ -14,7 +14,9 @@ checks:
     - "drop-net-raw-capability"
 
 customChecks:
-  - name: "required-label-owner"
+  # Renamed from "required-label-owner" — that name now collides with a
+  # built-in check in newer kube-linter releases (duplicate check name).
+  - name: "require-part-of-label"
     template: "required-label"
     params:
       key: "app.kubernetes.io/part-of"

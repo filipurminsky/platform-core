@@ -1,0 +1,58 @@
+# Trivy misconfiguration ignore list.
+#
+# Every entry below is a deliberate, reviewed exception — not a blanket mute.
+# Wired into CI via the `trivyignores` input on the trivy-iac job in
+# .github/workflows/ci.yaml (Trivy 0.50 does not auto-load *.yaml ignore files).
+# Findings that CAN be fixed in-repo are fixed in the manifests, not listed here.
+
+misconfigurations:
+  # KSV014 (readOnlyRootFilesystem) — the vLLM serving container writes model
+  # weights, HuggingFace metadata and Torch/Triton compile caches to $HOME and
+  # /tmp at runtime, so an immutable root filesystem would break model loads.
+  # vLLM is already special-cased for GPU/privilege in .kube-linter.yaml; the
+  # same exception is accepted here. The busybox init container in these files
+  # IS hardened (readOnlyRootFilesystem: true) — only the serving container is
+  # exempted.
+  - id: AVD-KSV-0014
+    paths:
+      - "helm/vllm/templates/deployment.yaml"
+      - "kustomize/base/vllm-inference/deployment.yaml"
+
+  # KSV053 (no pods/exec) & KSV056 (no service/network control) — tenant-admin
+  # is intentionally a "full control over workload resources" role: teams need
+  # kubectl exec/port-forward to debug their pods and must manage their own
+  # Services and Ingresses. The platform-owned guardrails (ResourceQuota,
+  # LimitRange, NetworkPolicy, RBAC) remain read-only to tenants — that is the
+  # boundary that actually matters, and it is enforced.
+  - id: AVD-KSV-0053
+    paths:
+      - "kubernetes/tenants/_template/rbac-roles.yaml"
+  - id: AVD-KSV-0056
+    paths:
+      - "kubernetes/tenants/_template/rbac-roles.yaml"
+
+  # KSV112 (don't manage all resources in a namespace) — fires on the
+  # tenant-viewer wildcard rule, but its verbs are strictly get/list/watch.
+  # The wildcard is intentional so new workload kinds become visible without
+  # editing RBAC; no mutating access is granted.
+  - id: AVD-KSV-0112
+    paths:
+      - "kubernetes/tenants/_template/rbac-roles.yaml"
+
+  # KSV109 (secrets stored in ConfigMaps) — false positive. The flagged value
+  # `serviceAccountToken: ${K8S_SA_TOKEN}` is a Backstage env-var placeholder
+  # interpolated at runtime from the backstage-k8s-token Secret (see the
+  # secretKeyRef in helm/backstage/templates/deployment.yaml). No secret
+  # material is stored in the ConfigMap.
+  - id: AVD-KSV-0109
+    paths:
+      - "helm/backstage/templates/configmap.yaml"
+
+  # AWS-0130 (IMDSv2 token required) & AWS-0104 (egress to public internet) —
+  # both originate inside the upstream terraform-aws-modules/eks module that
+  # Trivy downloads and scans; they are not our source and are not configurable
+  # from the module call site without forking it. Worker-node egress to the
+  # internet is required to pull container images and reach the EKS API.
+  # Accepted as third-party module risk.
+  - id: AVD-AWS-0130
+  - id: AVD-AWS-0104
