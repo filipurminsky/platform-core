@@ -53,7 +53,9 @@ jobs:
       - name: Helm template + kubeconform (vllm)
         run: |
           helm template vllm helm/vllm \
-            | kubeconform -strict -summary
+            | kubeconform -strict -summary \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
   kustomize-validate:
     name: Kustomize build + validate
@@ -74,25 +76,25 @@ jobs:
       - name: Build + validate dev overlay
         run: |
           kustomize build kustomize/overlays/dev \
-            | kubeconform -strict -summary -schema-location default
+            | kubeconform -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       - name: Build + validate dev app overlays
         run: |
           for overlay in kustomize/overlays/dev/*/; do
             kustomize build "$overlay" \
-              | kubeconform -strict -summary -schema-location default
+              | kubeconform -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           done
 
       - name: Build + validate prod overlay
         run: |
           kustomize build kustomize/overlays/prod \
-            | kubeconform -strict -summary -schema-location default
+            | kubeconform -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       - name: Build + validate prod app overlays
         run: |
           for overlay in kustomize/overlays/prod/*/; do
             kustomize build "$overlay" \
-              | kubeconform -strict -summary -schema-location default
+              | kubeconform -strict -summary -schema-location default -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
           done
 
   kube-linter:
