@@ -50,6 +50,9 @@ spec:
                 secretKeyRef:
                   name: {{ required "argocd.tokenSecret is required when argocd.enabled" .Values.argocd.tokenSecret }}
                   key: token
+                  # Optional so the pod boots before the token secret is
+                  # provisioned; the ArgoCD plugin stays inert until it exists.
+                  optional: true
 {{- end }}
 {{- if .Values.grafana.enabled }}
             - name: GRAFANA_TOKEN
@@ -57,6 +60,9 @@ spec:
                 secretKeyRef:
                   name: {{ required "grafana.tokenSecret is required when grafana.enabled" .Values.grafana.tokenSecret }}
                   key: token
+                  # Optional so the pod boots before the token secret is
+                  # provisioned; the Grafana plugin stays inert until it exists.
+                  optional: true
 {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
