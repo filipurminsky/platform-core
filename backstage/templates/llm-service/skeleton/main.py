@@ -17,9 +17,11 @@ log = structlog.get_logger()
 app = FastAPI(title="${{ values.name }}", version="0.1.0")
 client = AsyncOpenAI(base_url=GATEWAY_URL, api_key="not-needed")
 
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
 
 @app.post("/chat")
 async def chat(prompt: str):

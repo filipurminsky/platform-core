@@ -12,8 +12,8 @@ resource "aws_eks_node_group" "gpu" {
   ami_type       = "AL2_x86_64_GPU"      # Amazon Linux 2 with NVIDIA drivers
 
   scaling_config {
-    desired_size = 0          # start at zero; Cluster Autoscaler will expand
-    min_size     = 0
+    desired_size = var.min_size  # start at min; Cluster Autoscaler will expand
+    min_size     = var.min_size
     max_size     = var.max_size
   }
 

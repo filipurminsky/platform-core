@@ -58,9 +58,7 @@ async def metrics_middleware(request: Request, call_next):
     elapsed = time.perf_counter() - start
 
     path = request.url.path
-    REQUEST_COUNT.labels(
-        method=request.method, path=path, status=response.status_code
-    ).inc()
+    REQUEST_COUNT.labels(method=request.method, path=path, status=response.status_code).inc()
     REQUEST_LATENCY.labels(method=request.method, path=path).observe(elapsed)
 
     log.info(

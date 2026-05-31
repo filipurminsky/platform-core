@@ -64,6 +64,7 @@ RATE_LIMITED = Counter(
     "Requests rejected by the rate limiter",
 )
 
+
 # ---------------------------------------------------------------------------
 # Rate limiter — sliding-window per client IP (good enough for demo scale)
 # ---------------------------------------------------------------------------
@@ -189,9 +190,7 @@ async def proxy(path: str, request: Request):
 
     body = await request.body()
     upstream_headers = {
-        k: v
-        for k, v in request.headers.items()
-        if k.lower() not in ("host", "content-length")
+        k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")
     }
 
     start = time.perf_counter()

@@ -81,9 +81,11 @@ _HANDLERS: dict[str, Callable[[dict], dict]] = {}
 
 def register(job_type: str):
     """Decorator: register a handler for a job type."""
+
     def decorator(fn: Callable[[dict], dict]):
         _HANDLERS[job_type] = fn
         return fn
+
     return decorator
 
 
@@ -188,7 +190,9 @@ def update_lag(consumer: Consumer) -> None:
         for tp in consumer.assignment():
             low, high = consumer.get_watermark_offsets(tp, timeout=1.0, cached=True)
             committed = consumer.committed([tp], timeout=1.0)
-            committed_offset = committed[0].offset if committed and committed[0].offset >= 0 else low
+            committed_offset = (
+                committed[0].offset if committed and committed[0].offset >= 0 else low
+            )
             lag = max(0, high - committed_offset)
             CONSUMER_LAG.labels(partition=str(tp.partition)).set(lag)
     except Exception as exc:
