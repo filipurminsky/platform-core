@@ -37,7 +37,8 @@ resources:
     memory: 768Mi
 
 livenessProbe:
-  tcpSocket:
+  httpGet:
+    path: /.backstage/health/v1/liveness
     port: http
   initialDelaySeconds: 60
   periodSeconds: 20
@@ -45,7 +46,8 @@ livenessProbe:
   failureThreshold: 6
 
 readinessProbe:
-  tcpSocket:
+  httpGet:
+    path: /.backstage/health/v1/readiness
     port: http
   initialDelaySeconds: 20
   periodSeconds: 10
