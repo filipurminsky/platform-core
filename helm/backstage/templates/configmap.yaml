@@ -26,7 +26,8 @@ data:
         credentials: true
       database:
         client: better-sqlite3
-        connection: /tmp/backstage.sqlite
+        connection:
+          directory: /tmp
 
     auth:
       environment: development

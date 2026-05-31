@@ -37,8 +37,7 @@ resources:
     memory: 768Mi
 
 livenessProbe:
-  httpGet:
-    path: /healthcheck
+  tcpSocket:
     port: http
   initialDelaySeconds: 60
   periodSeconds: 20
@@ -46,8 +45,7 @@ livenessProbe:
   failureThreshold: 6
 
 readinessProbe:
-  httpGet:
-    path: /healthcheck
+  tcpSocket:
     port: http
   initialDelaySeconds: 20
   periodSeconds: 10
