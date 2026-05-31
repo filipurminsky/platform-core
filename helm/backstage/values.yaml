@@ -1,2 +1,77 @@
-# Backstage is intentionally stubbed for the local platform stack.
-enabled: false
+replicaCount: 1
+
+image:
+  repository: ghcr.io/backstage/backstage
+  tag: "1.45.2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 7007
+  targetPort: http
+
+ingress:
+  enabled: true
+  className: nginx
+  host: backstage.platform-core.local
+  annotations: {}
+
+app:
+  title: Platform Core
+  baseUrl: http://backstage.platform-core.local
+  backendBaseUrl: http://backstage.platform-core.local
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 384Mi
+  limits:
+    cpu: 500m
+    memory: 768Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthcheck
+    port: http
+  initialDelaySeconds: 60
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+readinessProbe:
+  httpGet:
+    path: /healthcheck
+    port: http
+  initialDelaySeconds: 20
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 12
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: [ALL]
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/path: /metrics
+  prometheus.io/port: "7007"
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

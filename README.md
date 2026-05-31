@@ -90,7 +90,7 @@ cd platform-core
 ./scripts/bootstrap.sh --mode=local
 
 # Services available at:
-#   Backstage    →  http://localhost:7007
+#   Backstage    →  http://backstage.platform-core.local
 #   ArgoCD       →  http://localhost:8080
 #   Grafana      →  http://localhost:3000
 #   vLLM API     →  http://localhost:8000/v1

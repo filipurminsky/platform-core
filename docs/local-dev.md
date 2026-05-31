@@ -76,9 +76,11 @@ Apps are served through ingress-nginx on `http://localhost`. Add to `/etc/hosts`
 
 ```
 127.0.0.1  echo.platform-core.local
+127.0.0.1  backstage.platform-core.local
 ```
 ```bash
 curl -H 'Host: echo.platform-core.local' http://localhost/
+open http://backstage.platform-core.local
 ```
 
 ### Demos
@@ -112,7 +114,7 @@ The platform is modular — drop the heavy pieces and use Option A for app dev:
 ```bash
 # after bootstrap, remove what you don't need
 kubectl delete application kafka strimzi-operator -n argocd   # ~2-3 GB
-kubectl delete application backstage -n argocd                # stub anyway
+kubectl delete application backstage -n argocd                # developer portal
 kubectl delete application vllm-inference -n argocd           # model download is large
 ```
 
@@ -120,8 +122,9 @@ kubectl delete application vllm-inference -n argocd           # model download i
 
 ## Known caveats (honest)
 
-- **Backstage** (`helm/backstage`) is currently a **stub** — its Application will
-  show `Degraded`/`Missing`. It's optional for local dev and doesn't block anything.
+- **Backstage** (`helm/backstage`) runs the published Backstage container with a
+  local ConfigMap-backed catalog. It is enough for browsing the service catalog,
+  but deeper plugin integrations should move into a custom Backstage app image.
 - **vLLM** scales from zero and pulls a model on first request (TinyLlama on CPU in
   dev) — the first inference is slow and memory-hungry.
 - **kafka** runs the dev overlay (1 broker, 1 ZK, no TLS). It still needs the

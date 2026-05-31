@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "backstage.fullname" . }}-config
+  labels:
+    {{- include "backstage.labels" . | nindent 4 }}
+data:
+  app-config.local.yaml: |
+    app:
+      title: {{ .Values.app.title | quote }}
+      baseUrl: {{ .Values.app.baseUrl | quote }}
+
+    organization:
+      name: Platform Core
+
+    backend:
+      baseUrl: {{ .Values.app.backendBaseUrl | quote }}
+      listen:
+        host: 0.0.0.0
+        port: 7007
+      csp:
+        connect-src: ["'self'", "http:", "https:"]
+      cors:
+        origin: {{ .Values.app.baseUrl | quote }}
+        methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
+        credentials: true
+      database:
+        client: better-sqlite3
+        connection: /tmp/backstage.sqlite
+
+    auth:
+      environment: development
+      providers:
+        guest: {}
+
+    integrations:
+      github:
+        - host: github.com
+
+    catalog:
+      rules:
+        - allow: [Component, System, API, Resource, Group, User, Template]
+      locations:
+        - type: file
+          target: /app/catalog/entities.yaml
+        - type: file
+          target: /app/catalog/components.yaml
+
+    techdocs:
+      builder: local
+      generator:
+        runIn: local
+      publisher:
+        type: local
+
+  entities.yaml: |
+{{ .Files.Get "files/catalog/entities.yaml" | indent 4 }}
+  components.yaml: |
+{{ .Files.Get "files/catalog/components.yaml" | indent 4 }}

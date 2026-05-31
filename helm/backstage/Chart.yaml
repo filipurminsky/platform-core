@@ -1,6 +1,6 @@
 apiVersion: v2
 name: backstage
-description: Placeholder Backstage chart for local platform installs.
+description: Backstage developer portal for the platform-core IDP.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "1.45.2"

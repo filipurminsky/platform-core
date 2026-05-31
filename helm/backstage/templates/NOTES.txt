@@ -1,1 +1,11 @@
-Backstage is a placeholder in this local platform stack.
+Backstage is available inside the cluster at:
+
+  http://{{ include "backstage.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+For local kind ingress, add this host entry:
+
+  127.0.0.1 {{ .Values.ingress.host }}
+
+Then open:
+
+  {{ .Values.app.baseUrl }}

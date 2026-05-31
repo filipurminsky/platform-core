@@ -1,0 +1,114 @@
+apiVersion: backstage.io/v1alpha1
+kind: Group
+metadata:
+  name: platform-team
+  description: Team owning the platform-core internal developer platform
+spec:
+  type: team
+  profile:
+    displayName: Platform Team
+  children: []
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: guest
+spec:
+  profile:
+    displayName: Guest
+  memberOf: [platform-team]
+---
+apiVersion: backstage.io/v1alpha1
+kind: System
+metadata:
+  name: platform-core
+  description: Local-first internal developer platform reference stack
+spec:
+  owner: platform-team
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: echo-api
+  description: HTTP API exposed by echo-service
+spec:
+  type: openapi
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  definition: |
+    openapi: 3.0.0
+    info:
+      title: Echo API
+      version: 1.0.0
+    paths:
+      /:
+        get:
+          responses:
+            "200":
+              description: Echo response
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: llm-gateway-api
+  description: OpenAI-compatible gateway API for LLM requests
+spec:
+  type: openapi
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  definition: |
+    openapi: 3.0.0
+    info:
+      title: LLM Gateway API
+      version: 1.0.0
+    paths:
+      /v1/chat/completions:
+        post:
+          responses:
+            "200":
+              description: Completion response
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: vllm-inference-api
+  description: OpenAI-compatible vLLM inference API
+spec:
+  type: openapi
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  definition: |
+    openapi: 3.0.0
+    info:
+      title: vLLM Inference API
+      version: 1.0.0
+    paths:
+      /v1/completions:
+        post:
+          responses:
+            "200":
+              description: Completion response
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: kafka-jobs-topic
+  description: Kafka jobs topic contract consumed by worker-service
+spec:
+  type: asyncapi
+  lifecycle: production
+  owner: platform-team
+  system: platform-core
+  definition: |
+    asyncapi: 2.6.0
+    info:
+      title: Jobs Topic
+      version: 1.0.0
+    channels:
+      jobs:
+        publish:
+          message:
+            name: Job
