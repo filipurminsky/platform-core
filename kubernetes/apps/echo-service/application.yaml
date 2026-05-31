@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/filipurminsky/platform-core.git
     targetRevision: main
-    path: kustomize/overlays/dev    # change to overlays/prod for production
+    path: kustomize/overlays/dev/echo-service    # change to overlays/prod/echo-service for production
   destination:
     server: https://kubernetes.default.svc
     namespace: apps

@@ -4,5 +4,6 @@ resources:
   - serviceaccount.yaml
   - deployment.yaml
   - service.yaml
+  - scaledobject.yaml
   - networkpolicy.yaml
   - servicemonitor.yaml

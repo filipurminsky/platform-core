@@ -10,7 +10,7 @@ spec:
     name: vllm-inference
   minReplicaCount: 0          # scale to zero when idle
   maxReplicaCount: 4
-  cooldownPeriod: 300         # 5 min — model loading takes time; don't thrash
+  cooldownPeriod: 300         # 5 min; model loading takes time, don't thrash
   pollingInterval: 30
   triggers:
     - type: prometheus
@@ -19,4 +19,4 @@ spec:
         metricName: vllm_num_requests_waiting
         query: vllm:num_requests_waiting
         threshold: "5"              # scale up when >5 requests queued
-        activationThreshold: "1"    # activate (0→1) when any request queued
+        activationThreshold: "1"    # activate (0->1) when any request queued

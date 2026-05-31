@@ -6,13 +6,11 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: platform-apps
   source:
     repoURL: https://github.com/filipurminsky/platform-core.git
     targetRevision: main
-    path: kubernetes/apps/worker-service
-    # ArgoCD deploys the ScaledObject and TriggerAuthentication from this directory.
-    # The Deployment itself is managed via the kustomize overlay (echo-service Application).
+    path: kustomize/overlays/dev/worker-service    # change to overlays/prod/worker-service for production
   destination:
     server: https://kubernetes.default.svc
     namespace: apps

@@ -6,11 +6,11 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: platform-apps
   source:
     repoURL: https://github.com/filipurminsky/platform-core.git
     targetRevision: main
-    path: kubernetes/apps/vllm-inference
+    path: kustomize/overlays/dev/vllm-inference    # change to overlays/prod/vllm-inference for production
   destination:
     server: https://kubernetes.default.svc
     namespace: apps

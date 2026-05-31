@@ -76,10 +76,24 @@ jobs:
           kustomize build kustomize/overlays/dev \
             | kubeconform -strict -summary -schema-location default
 
+      - name: Build + validate dev app overlays
+        run: |
+          for overlay in kustomize/overlays/dev/*/; do
+            kustomize build "$overlay" \
+              | kubeconform -strict -summary -schema-location default
+          done
+
       - name: Build + validate prod overlay
         run: |
           kustomize build kustomize/overlays/prod \
             | kubeconform -strict -summary -schema-location default
+
+      - name: Build + validate prod app overlays
+        run: |
+          for overlay in kustomize/overlays/prod/*/; do
+            kustomize build "$overlay" \
+              | kubeconform -strict -summary -schema-location default
+          done
 
   kube-linter:
     name: kube-linter best-practice checks
