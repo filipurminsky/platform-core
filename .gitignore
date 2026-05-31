@@ -12,6 +12,13 @@ terraform.tfvars        # contains real values — use terraform.tfvars.example
 kubeconfig
 .env
 
+# Python (apps + tests)
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+
 # OS
 .DS_Store
 Thumbs.db

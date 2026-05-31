@@ -132,6 +132,7 @@ kubectl delete application vllm-inference -n argocd           # model download i
 - The canary's traffic split needs ingress-nginx healthy on kind; if the host
   ports aren't reachable, you can still watch the rollout progress via the
   `kubectl argo rollouts` plugin (analysis runs against in-cluster Prometheus).
-- `dev`/`prod` overlay selection for some Applications (e.g. `kafka`) is set in the
-  Application `path:` — local uses the `dev` overlay; flipping to EKS means pointing
-  those at `overlays/prod`.
+- `dev`/`prod` overlay selection is driven by the `environment` label on the
+  `in-cluster` ArgoCD cluster secret (set by `bootstrap.sh`: `dev` for `--mode=local`,
+  `prod` for `--mode=aws`). The app/kafka ApplicationSets template the overlay path
+  from that label, so flipping environments is a relabel, not a manifest edit.

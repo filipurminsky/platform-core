@@ -19,8 +19,35 @@ permissions:
   packages: read
 
 jobs:
+  # Gate: never build, sign, or promote an image whose app tests are failing.
+  test:
+    name: Test ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [echo-service, worker-service, llm-gateway]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: apps/${{ matrix.app }}/requirements-dev.txt
+
+      - name: Install deps (runtime + test)
+        run: |
+          pip install pytest
+          pip install -r apps/${{ matrix.app }}/requirements-dev.txt
+
+      - name: Run pytest
+        working-directory: apps/${{ matrix.app }}
+        run: pytest -q
+
   build:
     name: Build & sign ${{ matrix.app }}
+    needs: test
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

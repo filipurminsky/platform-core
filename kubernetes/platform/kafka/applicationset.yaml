@@ -1,0 +1,42 @@
+# Kafka is environment-selected via the cluster generator: the destination
+# cluster's `environment` label (set by bootstrap.sh — dev for kind, prod for
+# EKS) drives the overlay path. dev = 1 broker/1 ZK, no TLS/SCRAM, standard
+# storage; prod = HA brokers, SCRAM auth, gp3. Switching never edits this file.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kafka
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: kafka
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        # Kafka CRs need the Strimzi operator + CRDs first (strimzi app is wave -1)
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kubernetes/platform/kafka/overlays/{{.metadata.labels.environment}}
+      destination:
+        server: "{{.server}}"
+        namespace: platform
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

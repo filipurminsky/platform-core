@@ -205,6 +205,31 @@ jobs:
       - name: Ruff format check
         run: ruff format --check apps/${{ matrix.app }}/main.py
 
+  app-test:
+    name: Python tests (apps)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [echo-service, worker-service, llm-gateway]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: apps/${{ matrix.app }}/requirements-dev.txt
+
+      - name: Install deps (runtime + test)
+        run: |
+          pip install pytest
+          pip install -r apps/${{ matrix.app }}/requirements-dev.txt
+
+      - name: Run pytest
+        working-directory: apps/${{ matrix.app }}
+        run: pytest -q
+
   app-build:
     name: Docker build (apps)
     runs-on: ubuntu-latest

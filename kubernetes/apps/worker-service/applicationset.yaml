@@ -1,0 +1,37 @@
+# Environment-selected via the cluster generator (see echo-service for details):
+# the destination cluster's `environment` label drives the overlay path.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: worker-service
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: worker-service
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform-apps
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kustomize/overlays/{{.metadata.labels.environment}}/worker-service
+      destination:
+        server: "{{.server}}"
+        namespace: apps
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

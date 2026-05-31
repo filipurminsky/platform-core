@@ -59,15 +59,27 @@ There are **two independent kustomize hierarchies** — confusing them is the mo
 
 | Tree | Purpose | ArgoCD points here? |
 |------|---------|---------------------|
-| `kustomize/base/` + `kustomize/overlays/{dev,prod}/` | App Deployments, Services, PDBs, NetworkPolicies, ServiceMonitors | Yes — via `echo-service` Application |
-| `kubernetes/platform/kafka/base/` + `overlays/{dev,prod}/` | Strimzi Kafka, KafkaTopic, KafkaUser CRs | Yes — via `kafka` Application |
+| `kustomize/base/` + `kustomize/overlays/{dev,prod}/` | App Deployments, Services, PDBs, NetworkPolicies, ServiceMonitors | Yes — via the `echo-service`/`worker-service`/`vllm-inference` ApplicationSets |
+| `kubernetes/platform/kafka/base/` + `overlays/{dev,prod}/` | Strimzi Kafka, KafkaTopic, KafkaUser CRs | Yes — via the `kafka` ApplicationSet |
 | `kubernetes/tenants/team-*/` | Per-team Namespace, ResourceQuota, LimitRange, NetworkPolicies, RBAC | Yes — via `tenants` ApplicationSet |
 
-The Kafka overlay is **hardcoded to `overlays/prod`** in `kubernetes/platform/kafka/application.yaml`. Change it to `overlays/dev` when working on a kind cluster.
+### Environment (dev vs prod) is cluster-labelled, not hardcoded
+
+The app/kafka manifests are **ApplicationSets** with a **cluster generator** (`kubernetes/apps/*/applicationset.yaml`, `kubernetes/platform/kafka/applicationset.yaml`). Each templates the overlay path from the destination cluster's `environment` label:
+
+```
+path: kustomize/overlays/{{.metadata.labels.environment}}/echo-service
+```
+
+`bootstrap.sh` sets that label by declaring an `in-cluster` cluster Secret: `--mode=local` → `environment=dev`, `--mode=aws` → `environment=prod`. **Switching environments never requires editing a manifest** — and the generator's `environment Exists` selector means no apps sync until the cluster is labelled. To flip a running cluster, relabel the secret:
+
+```bash
+kubectl label secret in-cluster -n argocd environment=prod --overwrite
+```
 
 ### Where Kubernetes manifests actually live
 
-- **`kubernetes/apps/`** — ArgoCD Application CRs and KEDA ScaledObjects/TriggerAuthentications only. **No Deployments or Services here.**
+- **`kubernetes/apps/`** — ArgoCD ApplicationSets and KEDA ScaledObjects/TriggerAuthentications only. **No Deployments or Services here.**
 - **`kustomize/base/{echo-service,worker-service,vllm-inference}/`** — the real Kubernetes manifests for the three demo apps.
 - **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, backstage). Each points to its upstream Helm chart.
 

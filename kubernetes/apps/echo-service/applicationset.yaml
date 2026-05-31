@@ -1,0 +1,49 @@
+# echo-service is environment-selected, not hardcoded. The cluster generator
+# reads the `environment` label off the destination cluster's ArgoCD secret
+# (set by bootstrap.sh: dev for kind, prod for EKS) and templates it into the
+# overlay path. Switching environments never requires editing this file.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: echo-service
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: echo-service
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform-apps            # governed promotion (sync window) — see kubernetes/platform/argocd/appproject-apps.yaml
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kustomize/overlays/{{.metadata.labels.environment}}/echo-service
+      destination:
+        server: "{{.server}}"
+        namespace: apps
+      ignoreDifferences:
+        # Argo Rollouts injects rollouts-pod-template-hash into these Service
+        # selectors at runtime to steer stable/canary traffic.
+        - kind: Service
+          name: echo-service
+          jsonPointers:
+            - /spec/selector/rollouts-pod-template-hash
+        - kind: Service
+          name: echo-service-canary
+          jsonPointers:
+            - /spec/selector/rollouts-pod-template-hash
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

@@ -11,6 +11,7 @@ MODE="local"
 ARGOCD_NAMESPACE="argocd"
 PLATFORM_NAMESPACE="platform"
 CLUSTER_NAME="platform-core"
+ENVIRONMENT=""   # derived from MODE below: local→dev, aws→prod
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
 for arg in "$@"; do
@@ -19,6 +20,13 @@ for arg in "$@"; do
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
+
+# Map deployment mode → ArgoCD overlay environment.
+case "$MODE" in
+  local) ENVIRONMENT="dev"  ;;
+  aws)   ENVIRONMENT="prod" ;;
+  *)     echo "Unknown mode: $MODE (expected local|aws)"; exit 1 ;;
+esac
 
 log()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
@@ -68,6 +76,28 @@ helm upgrade --install argocd argo/argo-cd \
   --wait --timeout 5m
 
 ok "ArgoCD installed"
+
+# ─── Label the destination cluster with its environment ──────────────────────
+# The app ApplicationSets use a cluster generator that reads this `environment`
+# label to pick the dev vs prod overlay (kustomize/overlays/<env>/...). Declaring
+# a secret for the in-cluster server lets us attach that label to the local
+# cluster. Without it the generator matches nothing and no apps are created.
+log "Labelling in-cluster as environment=$ENVIRONMENT"
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: in-cluster
+  namespace: $ARGOCD_NAMESPACE
+  labels:
+    argocd.argoproj.io/secret-type: cluster
+    environment: $ENVIRONMENT
+stringData:
+  name: in-cluster
+  server: https://kubernetes.default.svc
+  config: '{"tlsClientConfig":{"insecure":false}}'
+EOF
+ok "Cluster labelled environment=$ENVIRONMENT"
 
 # ─── Bootstrap App-of-Apps ───────────────────────────────────────────────────
 # The AppProject must exist first — the echo-service Application references it.
