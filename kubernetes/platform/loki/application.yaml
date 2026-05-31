@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Deploy after CRDs / monitoring stack so Grafana can pick up the datasource.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: loki-stack
+    targetRevision: 2.10.2
+    helm:
+      # Single-binary Loki + Promtail only. Grafana and Prometheus are already
+      # provided by the kube-prometheus-stack `monitoring` Application — enabling
+      # them here would create duplicates. Promtail tails every pod's stdout and
+      # ships it to Loki; the Loki datasource is wired into Grafana in the
+      # monitoring Application's values.
+      values: |
+        loki:
+          enabled: true
+          isDefault: false
+          persistence:
+            enabled: false
+          config:
+            limits_config:
+              retention_period: 24h
+            table_manager:
+              retention_deletes_enabled: true
+              retention_period: 24h
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+        promtail:
+          enabled: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+        grafana:
+          enabled: false
+        prometheus:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,8 +1,7 @@
-# Dev: 1 partition and 1 replica per topic
+# Dev: 1 partition, 1 replica per topic (single broker)
 - op: replace
   path: /spec/partitions
   value: 1
-
 - op: replace
   path: /spec/replicas
   value: 1

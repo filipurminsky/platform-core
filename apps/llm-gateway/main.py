@@ -13,15 +13,14 @@ Upstream: env VLLM_BASE_URL (default http://vllm-inference:8000).
 """
 
 import asyncio
+import collections
 import os
 import time
-import collections
-import structlog
-import httpx
 
-from fastapi import FastAPI, Request, Response, HTTPException
-from fastapi.responses import StreamingResponse
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+import httpx
+import structlog
+from fastapi import FastAPI, HTTPException, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 # ---------------------------------------------------------------------------
 # Config
@@ -149,7 +148,7 @@ async def readyz():
         raise HTTPException(status_code=503, detail="upstream not ready")
     except httpx.RequestError as exc:
         log.warning("readyz_upstream_unreachable", error=str(exc))
-        raise HTTPException(status_code=503, detail="upstream unreachable")
+        raise HTTPException(status_code=503, detail="upstream unreachable") from exc
 
 
 @app.get("/metrics")
@@ -203,14 +202,14 @@ async def proxy(path: str, request: Request):
             headers=upstream_headers,
             content=body,
         )
-    except httpx.TimeoutException:
+    except httpx.TimeoutException as exc:
         UPSTREAM_ERRORS.inc()
         log.error("upstream_timeout", path=upstream_path, timeout=REQUEST_TIMEOUT)
-        raise HTTPException(status_code=504, detail="upstream timeout")
+        raise HTTPException(status_code=504, detail="upstream timeout") from exc
     except httpx.RequestError as exc:
         UPSTREAM_ERRORS.inc()
         log.error("upstream_error", path=upstream_path, error=str(exc))
-        raise HTTPException(status_code=502, detail="upstream error")
+        raise HTTPException(status_code=502, detail="upstream error") from exc
 
     elapsed = time.perf_counter() - start
     PROXY_REQUESTS.labels(

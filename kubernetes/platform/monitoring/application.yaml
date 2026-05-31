@@ -35,6 +35,30 @@ spec:
           fullnameOverride: grafana   # bootstrap.sh port-forwards svc/grafana
           adminPassword: admin
           defaultDashboardsEnabled: true
+          # Discover dashboard ConfigMaps (labelled grafana_dashboard) from any
+          # namespace — the platform-core dashboards ship via the
+          # grafana-dashboards Application as labelled ConfigMaps in `monitoring`.
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              labelValue: "1"
+              searchNamespace: ALL
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
+            datasources:
+              enabled: true
+          # Loki is deployed by the `loki` Application in this namespace; wire it
+          # as a datasource so logs are queryable alongside metrics (LGTM).
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              access: proxy
+              url: http://loki.monitoring.svc.cluster.local:3100
+              isDefault: false
+              jsonData:
+                maxLines: 1000
           resources:
             requests:
               cpu: 50m

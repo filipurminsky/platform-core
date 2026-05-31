@@ -40,12 +40,27 @@ data:
 
     catalog:
       rules:
-        - allow: [Component, System, API, Resource, Group, User, Template]
+        - allow: [Component, System, API, Resource, Group, User, Template, Location]
       locations:
         - type: file
           target: /app/catalog/entities.yaml
         - type: file
           target: /app/catalog/components.yaml
+        # Self-service scaffolder templates — loaded from Git so each template's
+        # skeleton resolves relative to its template.yaml. Public repo, so the
+        # unauthenticated GitHub integration can read them.
+        - type: url
+          target: https://github.com/filipurminsky/platform-core/blob/main/backstage/templates/microservice/template.yaml
+          rules:
+            - allow: [Template]
+        - type: url
+          target: https://github.com/filipurminsky/platform-core/blob/main/backstage/templates/platform-app/template.yaml
+          rules:
+            - allow: [Template]
+        - type: url
+          target: https://github.com/filipurminsky/platform-core/blob/main/backstage/templates/llm-service/template.yaml
+          rules:
+            - allow: [Template]
 
     techdocs:
       builder: local
@@ -53,6 +68,59 @@ data:
         runIn: local
       publisher:
         type: local
+{{- if .Values.kubernetes.enabled }}
+
+    # Kubernetes plugin — live pod/deployment status per catalog component
+    # (matched via the backstage.io/kubernetes-id annotation). The stock image
+    # ships the kubernetes backend; RBAC + a SA token are provided by rbac.yaml.
+    kubernetes:
+      serviceLocatorMethod:
+        type: multiTenant
+      clusterLocatorMethods:
+        - type: config
+          clusters:
+            - name: {{ .Values.kubernetes.clusterName | default "local" }}
+              url: {{ .Values.kubernetes.url | default "https://kubernetes.default.svc" }}
+              authProvider: serviceAccount
+              skipTLSVerify: true
+              serviceAccountToken: ${K8S_SA_TOKEN}
+{{- end }}
+{{- if .Values.argocd.enabled }}
+
+    # ArgoCD plugin — requires a custom image (frontend plugin not in stock).
+    argocd:
+      appLocatorMethods:
+        - type: config
+          instances:
+            - name: in-cluster
+              url: {{ .Values.argocd.url | quote }}
+{{- end }}
+{{- if .Values.grafana.enabled }}
+
+    # Grafana plugin — requires a custom image (frontend plugin not in stock).
+    grafana:
+      domain: {{ .Values.grafana.url | quote }}
+      unifiedAlerting: false
+{{- end }}
+{{- if or .Values.argocd.enabled .Values.grafana.enabled }}
+
+    proxy:
+      endpoints:
+{{- if .Values.argocd.enabled }}
+        "/argocd/api":
+          target: {{ .Values.argocd.url | quote }}
+          changeOrigin: true
+          secure: false
+          headers:
+            Cookie: ${ARGOCD_AUTH_TOKEN}
+{{- end }}
+{{- if .Values.grafana.enabled }}
+        "/grafana/api":
+          target: {{ .Values.grafana.url | quote }}
+          headers:
+            Authorization: Bearer ${GRAFANA_TOKEN}
+{{- end }}
+{{- end }}
 
   entities.yaml: |
 {{ .Files.Get "files/catalog/entities.yaml" | indent 4 }}

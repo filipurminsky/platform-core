@@ -1,0 +1,19 @@
+# demo-app Helm values for ${{ values.name }}.
+# Consumed by the ArgoCD Application in application.yaml.
+nameOverride: ${{ values.name }}
+
+image:
+  repository: ${{ values.imageRepository }}
+  tag: "${{ values.imageTag }}"
+
+replicaCount: 2
+
+service:
+  port: 8000
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi

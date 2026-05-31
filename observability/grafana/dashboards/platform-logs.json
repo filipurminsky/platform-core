@@ -1,0 +1,63 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "tags": ["platform-core", "logs", "loki"],
+  "templating": {
+    "list": [
+      {
+        "name": "loki",
+        "type": "datasource",
+        "query": "loki",
+        "current": {},
+        "hide": 0,
+        "refresh": 1
+      },
+      {
+        "name": "namespace",
+        "type": "custom",
+        "query": "apps,platform,monitoring,argocd",
+        "current": { "text": "apps", "value": "apps" },
+        "includeAll": false,
+        "hide": 0
+      }
+    ]
+  },
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "title": "Platform Logs (Loki)",
+  "uid": "platform-logs",
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Log Volume by Pod",
+      "datasource": { "type": "loki", "uid": "${loki}" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "fillOpacity": 50, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [{ "refId": "A", "datasource": { "type": "loki", "uid": "${loki}" }, "expr": "sum by (pod) (rate({namespace=\"$namespace\"}[1m]))", "legendFormat": "{{pod}}" }]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Error / Warning Log Rate",
+      "datasource": { "type": "loki", "uid": "${loki}" },
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 7 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "loki", "uid": "${loki}" }, "expr": "sum(rate({namespace=\"$namespace\"} |~ \"(?i)error\" [1m]))", "legendFormat": "error" },
+        { "refId": "B", "datasource": { "type": "loki", "uid": "${loki}" }, "expr": "sum(rate({namespace=\"$namespace\"} |~ \"(?i)warn\" [1m]))", "legendFormat": "warn" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "logs",
+      "title": "Logs — $namespace",
+      "datasource": { "type": "loki", "uid": "${loki}" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 14 },
+      "options": { "showTime": true, "wrapLogMessage": true, "enableLogDetails": true, "dedupStrategy": "none", "sortOrder": "Descending" },
+      "targets": [{ "refId": "A", "datasource": { "type": "loki", "uid": "${loki}" }, "expr": "{namespace=\"$namespace\"}" }]
+    }
+  ]
+}

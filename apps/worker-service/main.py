@@ -18,15 +18,15 @@ Prometheus metrics exposed on :9090/metrics:
 import json
 import os
 import signal
-import time
 import socket
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from typing import Callable
+import time
+from collections.abc import Callable
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import structlog
-from confluent_kafka import Consumer, Producer, KafkaError, KafkaException, TopicPartition
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 # ---------------------------------------------------------------------------
 # Config (environment-driven, safe defaults for local dev)

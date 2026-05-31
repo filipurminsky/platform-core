@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Wrap each dashboard JSON in a ConfigMap labelled `grafana_dashboard: "1"` so the
+# kube-prometheus-stack Grafana sidecar auto-imports it into the "Platform Core"
+# folder. Deployed by the grafana-dashboards ArgoCD Application.
+namespace: monitoring
+
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: Platform Core
+
+configMapGenerator:
+  - name: dashboard-platform-overview
+    files:
+      - platform-overview.json
+  - name: dashboard-slo-error-budget
+    files:
+      - slo-error-budget.json
+  - name: dashboard-gitops-status
+    files:
+      - gitops-status.json
+  - name: dashboard-kafka-cluster
+    files:
+      - kafka-cluster.json
+  - name: dashboard-vllm-inference
+    files:
+      - vllm-inference.json
+  - name: dashboard-platform-logs
+    files:
+      - platform-logs.json
+  - name: dashboard-cluster-health
+    files:
+      - cluster-health.json

@@ -1,3 +1,4 @@
+# Dev uses the unauthenticated internal listener, so drop the SCRAM KafkaUsers.
 $patch: delete
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaUser

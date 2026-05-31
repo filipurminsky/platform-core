@@ -37,6 +37,27 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+{{- if .Values.kubernetes.enabled }}
+            - name: K8S_SA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "backstage.fullname" . }}-k8s-token
+                  key: token
+{{- end }}
+{{- if .Values.argocd.enabled }}
+            - name: ARGOCD_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "argocd.tokenSecret is required when argocd.enabled" .Values.argocd.tokenSecret }}
+                  key: token
+{{- end }}
+{{- if .Values.grafana.enabled }}
+            - name: GRAFANA_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "grafana.tokenSecret is required when grafana.enabled" .Values.grafana.tokenSecret }}
+                  key: token
+{{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

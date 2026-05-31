@@ -1,0 +1,28 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: loki-alerts
+  namespace: monitoring
+  labels:
+    prometheus: k8s
+    role: alert-rules
+spec:
+  groups:
+    - name: loki.rules
+      rules:
+        - alert: LokiRequestErrors
+          expr: 100 * sum(rate(loki_request_duration_seconds_count{status_code=~"5.."}[1m])) / sum(rate(loki_request_duration_seconds_count[1m])) > 10
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Loki high error rate"
+            description: "Loki is returning 5xx errors for > 10% of requests."
+        - alert: PromtailRequestErrors
+          expr: rate(promtail_request_errors_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Promtail failing to ship logs"
+            description: "Promtail is encountering errors when sending logs to Loki."

@@ -1,0 +1,81 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: llm-service
+  title: New AI Service (vLLM)
+  description: |
+    Scaffold a Python service pre-configured to talk to the platform's vLLM
+    inference endpoint. Includes OpenAI-compatible client, streaming support,
+    structured logging, and Kubernetes manifests for delivery.
+  tags: [recommended, python, ai, vllm]
+spec:
+  owner: platform-team
+  type: service
+  parameters:
+    - title: Service details
+      required: [name, owner, model]
+      properties:
+        name:
+          title: Name
+          type: string
+          description: Unique service name (lowercase, kebab-case)
+          pattern: "^[a-z][a-z0-9-]+$"
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+        owner:
+          title: Owner
+          type: string
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+        model:
+          title: LLM Model
+          type: string
+          default: "mistralai/Mistral-7B-Instruct-v0.2"
+          enum:
+            - "mistralai/Mistral-7B-Instruct-v0.2"
+            - "meta-llama/Llama-2-7b-chat-hf"
+            - "tiiuae/falcon-7b-instruct"
+    - title: Repository
+      required: [repoUrl]
+      properties:
+        repoUrl:
+          title: Repository Location
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts: [github.com]
+  steps:
+    - id: fetch
+      name: Fetch skeleton
+      action: fetch:template
+      input:
+        url: ./skeleton
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          model: ${{ parameters.model }}
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        repoUrl: ${{ parameters.repoUrl }}
+        description: ${{ parameters.description }}
+        defaultBranch: main
+    - id: register
+      name: Register in catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: /catalog-info.yaml
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}

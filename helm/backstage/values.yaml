@@ -75,3 +75,24 @@ podAnnotations:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# ─── Plugins ──────────────────────────────────────────────────────────────────
+# Kubernetes plugin — live workload status per catalog component. Works with the
+# stock Backstage image (kubernetes backend is bundled). rbac.yaml grants the
+# read-only ClusterRole and a stable SA token consumed via K8S_SA_TOKEN.
+kubernetes:
+  enabled: true
+  clusterName: local
+  url: https://kubernetes.default.svc
+
+# ArgoCD plugin — deployment status in the catalog.
+argocd:
+  enabled: true
+  url: https://argocd.platform-core.local
+  tokenSecret: "argocd-token"
+
+# Grafana plugin — dashboards embedded in the catalog.
+grafana:
+  enabled: true
+  url: http://grafana.monitoring.svc
+  tokenSecret: "grafana-token"

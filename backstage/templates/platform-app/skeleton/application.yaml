@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{ values.name }}
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    # The reusable demo-app chart lives in the platform-core repo.
+    - repoURL: https://github.com/filipurminsky/platform-core.git
+      targetRevision: main
+      path: helm/demo-app
+      helm:
+        valueFiles:
+          - $values/values.yaml
+    # This repo provides the per-app values.yaml.
+    - repoURL: https://github.com/filipurminsky/${{ values.name }}.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ${{ values.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
