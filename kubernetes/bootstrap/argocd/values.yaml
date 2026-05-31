@@ -36,6 +36,37 @@ configs:
       hs.status = "Progressing"
       hs.message = "Waiting for Rollout status"
       return hs
+    resource.customizations.health._PersistentVolumeClaim: |
+      hs = {}
+      local phase = ""
+      if obj.status ~= nil and obj.status.phase ~= nil then
+        phase = obj.status.phase
+      end
+
+      if phase == "Bound" then
+        hs.status = "Healthy"
+        return hs
+      end
+
+      if phase == "Lost" then
+        hs.status = "Degraded"
+        hs.message = "PersistentVolumeClaim lost its bound volume"
+        return hs
+      end
+
+      local labels = {}
+      if obj.metadata ~= nil and obj.metadata.labels ~= nil then
+        labels = obj.metadata.labels
+      end
+      if phase == "Pending" and labels["app"] == "vllm-inference" then
+        hs.status = "Healthy"
+        hs.message = "Waiting for first consumer while vLLM is scaled to zero"
+        return hs
+      end
+
+      hs.status = "Progressing"
+      hs.message = "Waiting for PersistentVolumeClaim to bind"
+      return hs
 
 # Trim resources so the whole stack fits on a laptop kind cluster
 controller:
