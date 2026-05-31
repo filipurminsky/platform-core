@@ -50,12 +50,12 @@ module "gpu_nodegroup" {
   source = "../gpu-nodegroup"
   count  = var.enable_gpu_nodegroup ? 1 : 0
 
-  cluster_name    = module.eks.cluster_name
-  node_role_arn   = module.eks.eks_managed_node_groups["platform"].iam_role_arn
-  subnet_ids      = var.private_subnet_ids
+  cluster_name  = module.eks.cluster_name
+  node_role_arn = module.eks.eks_managed_node_groups["platform"].iam_role_arn
+  subnet_ids    = var.private_subnet_ids
 
-  instance_type = var.gpu_instance_type   # default: g4dn.xlarge
-  min_size      = 0                        # scale-to-zero when idle
+  instance_type = var.gpu_instance_type # default: g4dn.xlarge
+  min_size      = 0                     # scale-to-zero when idle
   max_size      = 2
   tags          = local.common_tags
 }

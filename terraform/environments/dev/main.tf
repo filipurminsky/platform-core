@@ -36,22 +36,22 @@ module "eks" {
   vpc_id             = module.networking.vpc_id
   private_subnet_ids = module.networking.private_subnet_ids
 
-  kubernetes_version   = "1.29"
-  node_instance_types  = ["m5.large"]
-  node_min             = 2
-  node_max             = 4
-  node_desired         = 2
+  kubernetes_version  = "1.29"
+  node_instance_types = ["m5.large"]
+  node_min            = 2
+  node_max            = 4
+  node_desired        = 2
 
-  enable_gpu_nodegroup = false    # GPU disabled in dev — use CPU vLLM model
+  enable_gpu_nodegroup = false # GPU disabled in dev — use CPU vLLM model
 }
 
 module "iam" {
-  source         = "../../modules/iam"
-  project        = "platform-core"
-  environment    = "dev"
-  aws_region     = var.aws_region
-  aws_account_id = data.aws_caller_identity.current.account_id
-  cluster_name   = module.eks.cluster_name
+  source            = "../../modules/iam"
+  project           = "platform-core"
+  environment       = "dev"
+  aws_region        = var.aws_region
+  aws_account_id    = data.aws_caller_identity.current.account_id
+  cluster_name      = module.eks.cluster_name
   oidc_provider_arn = module.eks.oidc_provider_arn
 }
 
@@ -62,5 +62,5 @@ variable "aws_region" {
   default = "eu-west-1"
 }
 
-output "cluster_name"     { value = module.eks.cluster_name }
+output "cluster_name" { value = module.eks.cluster_name }
 output "cluster_endpoint" { value = module.eks.cluster_endpoint }

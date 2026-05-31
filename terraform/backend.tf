@@ -20,7 +20,7 @@ terraform {
   # Bootstrap: run scripts/bootstrap-state.sh once before terraform init
   backend "s3" {
     bucket         = "platform-core-tfstate"
-    key            = "terraform.tfstate"      # overridden per environment
+    key            = "terraform.tfstate" # overridden per environment
     region         = "eu-west-1"
     encrypt        = true
     dynamodb_table = "platform-core-tflock"
