@@ -100,7 +100,7 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
       - name: Scan image for vulnerabilities (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0.20.0
         with:
           image-ref: ${{ steps.ref.outputs.repo }}@${{ steps.build.outputs.digest }}
           format: table
