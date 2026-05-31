@@ -1,14 +1,17 @@
 checks:
-  addAllBuiltIn: true
+  # Curated security baseline — only the checks in `include` below run.
+  # (Previously `true`, which contradicts an explicit include list and pulls in
+  # noisy checks like dangling-networkpolicy/wildcard-in-rules on tenant manifests.)
+  addAllBuiltIn: false
   exclude:
     # vLLM legitimately needs privileged GPU access; exclude it from this check
-    - "no-privilege-escalation-container"
+    - "privilege-escalation-container"
   include:
     - "require-part-of-label"
-    - "resource-requests"
-    - "resource-limits"
-    - "liveness-probe"
-    - "readiness-probe"
+    - "unset-cpu-requirements"
+    - "unset-memory-requirements"
+    - "no-liveness-probe"
+    - "no-readiness-probe"
     - "no-read-only-root-fs"
     - "run-as-non-root"
     - "drop-net-raw-capability"
@@ -18,6 +21,11 @@ customChecks:
   # built-in check in newer kube-linter releases (duplicate check name).
   - name: "require-part-of-label"
     template: "required-label"
+    # Scope to workloads — Roles, NetworkPolicies, ResourceQuotas and
+    # LimitRanges legitimately don't carry an app part-of label.
+    scope:
+      objectKinds:
+        - DeploymentLike
     params:
       key: "app.kubernetes.io/part-of"
 
@@ -28,4 +36,4 @@ ignoreFields:
       apiGroups: ["kafka.strimzi.io"]
     fieldMatchers:
       - "run-as-non-root"
-      - "no-privilege-escalation-container"
+      - "privilege-escalation-container"
