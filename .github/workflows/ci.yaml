@@ -240,19 +240,21 @@ jobs:
           severity: HIGH,CRITICAL
           skip-dirs: ".github"
 
-  kyverno-policy-test:
-    name: Validate Kyverno policies
+  kubernetes-validate:
+    name: Validate Kubernetes manifests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Kyverno CLI
+      - name: Set up kubeconform
         run: |
-          VERSION=1.12.1
-          curl -sSL "https://github.com/kyverno/kyverno/releases/download/v${VERSION}/kyverno-cli_v${VERSION}_linux_x86_64.tar.gz" \
-            | tar -xz && sudo mv kyverno /usr/local/bin/
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | tar -xz && sudo mv kubeconform /usr/local/bin/
 
-      # Static validation that every ClusterPolicy is well-formed
-      - name: kyverno validate
+      - name: Validate all manifests in kubernetes/
         run: |
-          kyverno validate kubernetes/platform/kyverno-policies/policies/
+          kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            kubernetes/
+
