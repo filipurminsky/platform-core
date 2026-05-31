@@ -243,7 +243,7 @@ jobs:
       # Catches misconfigurations across Terraform, Kubernetes manifests and
       # Dockerfiles (privileged pods, missing securityContext, broad IAM, etc.)
       - name: Trivy config scan
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0.20.0
         with:
           scan-type: config
           scan-ref: .
