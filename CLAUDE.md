@@ -29,8 +29,8 @@ kustomize build kustomize/overlays/dev | conftest test --policy policy/ -
 # kube-linter
 kube-linter lint kubernetes/ --config .kube-linter.yaml
 
-# Kyverno — validate admission policies are well-formed
-kyverno validate kubernetes/platform/kyverno-policies/policies/
+# Kyverno — check policies are well-formed (dry-run apply)
+kyverno apply kubernetes/platform/kyverno-policies/policies/
 
 # Argo Rollouts — watch / drive a canary (needs the kubectl plugin)
 kubectl -n apps argo rollouts get rollout echo-service --watch
