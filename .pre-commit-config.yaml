@@ -1,0 +1,62 @@
+# Pre-commit hooks for platform-core. Mirrors the fast layer of CI so problems
+# surface locally instead of after a push (see .github/workflows/ci.yaml).
+#
+# Setup (one-time):
+#   uvx pre-commit install                 # wires the commit + push hooks
+# Run manually:
+#   uvx pre-commit run --all-files
+#
+# Tiering: fast, universally-available checks run on every commit; the slower
+# test suite runs on pre-push. Manifest validation (kubeconform/conftest/helm/
+# kyverno) is intentionally left to CI to avoid requiring those CLIs locally.
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  # ── File hygiene ──────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-json
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # Helm chart templates and the Backstage scaffolder skeleton contain
+        # Go/Jinja templating that is not valid standalone YAML.
+        exclude: ^(helm/[^/]+/templates/|backstage/templates/)
+
+  # ── Python: ruff lint + format (config in repo-root pyproject.toml) ─────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.15
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # ── Terraform formatting ──────────────────────────────────────────────────
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.106.0
+    hooks:
+      - id: terraform_fmt
+
+  # ── Local hooks (need uv on PATH) ─────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: uv-lock-check
+        name: uv.lock in sync with pyproject.toml
+        entry: bash -c 'for a in apps/echo-service apps/worker-service apps/llm-gateway; do (cd "$a" && uv lock --check) || exit 1; done'
+        language: system
+        files: ^apps/.*/(pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+
+      - id: pytest
+        name: app unit tests (uv run pytest)
+        entry: bash -c 'for a in apps/echo-service apps/worker-service apps/llm-gateway; do echo "== $a =="; (cd "$a" && uv run --frozen pytest -q) || exit 1; done'
+        language: system
+        files: ^apps/
+        pass_filenames: false
+        stages: [pre-push]

@@ -1,0 +1,94 @@
+{
+  // Renovate keeps the pinned dependencies in this repo current via PRs.
+  // Enable by installing the Mend Renovate GitHub App on the repo (it reads
+  // this file automatically). Every update lands as a PR that must pass CI
+  // (.github/workflows/ci.yaml) before merge — nothing here auto-merges.
+  //
+  // What it covers (the things that were pinned with no update path):
+  //   - GitHub Actions  (uses: …@vN)            built-in github-actions manager
+  //   - Python deps     (apps/*/pyproject.toml) built-in pep621 manager (uv.lock kept in sync)
+  //   - App base images (apps/*/Dockerfile)     built-in dockerfile manager (incl. the uv tag)
+  //   - Helm charts     (ArgoCD Applications)   argocd manager (opt-in below)
+  //   - Crossplane providers/functions          custom regex (xpkg OCI packages)
+  //   - kindest/node    (kind + CI)             custom regex
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended"],
+
+  // The pre-commit manager is opt-in — enable it so .pre-commit-config.yaml hook
+  // revs (ruff, terraform, pre-commit-hooks) are kept current too.
+  "pre-commit": { enabled: true },
+
+  // Keep the noise down: one batch, start of the week, surfaced on the
+  // dependency dashboard issue (enabled by config:recommended).
+  timezone: "Europe/London",
+  schedule: ["before 9am on monday"],
+  labels: ["dependencies"],
+  prConcurrentLimit: 5,
+  prHourlyLimit: 2,
+
+  // The argocd manager is not enabled by default — point it at the platform
+  // Applications/ApplicationSets so chart targetRevisions get tracked.
+  // Self-referencing git sources (targetRevision: main/HEAD to this repo) have
+  // no datasource and are correctly ignored; only the Helm chart repos
+  // (cert-manager, keda, kube-prometheus-stack, ingress-nginx, loki,
+  // external-secrets, argo-rollouts, kyverno, crossplane) produce updates.
+  argocd: {
+    managerFilePatterns: ["/^kubernetes/platform/.+\\.ya?ml$/"],
+  },
+
+  // The kustomize prod overlay pins private-ECR images to :latest; those tags
+  // are owned by the GitOps image-promotion flow in docker-build.yaml, and
+  // Renovate cannot auth to private ECR. Disable rather than let it warn.
+  kustomize: { enabled: false },
+
+  // Refresh transitive deps in the committed uv.lock files on a schedule, even
+  // when no direct dependency in pyproject.toml changed.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 9am on the first day of the month"],
+  },
+
+  packageRules: [
+    {
+      description: "Batch GitHub Actions minor/patch bumps into one PR",
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["minor", "patch", "digest"],
+      groupName: "github-actions",
+    },
+    {
+      description: "Batch Python (runtime + test) minor/patch bumps into one PR",
+      matchManagers: ["pep621"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "python deps",
+    },
+    {
+      description: "Flag major platform/chart upgrades for manual review",
+      matchManagers: ["argocd", "custom.regex"],
+      matchUpdateTypes: ["major"],
+      addLabels: ["needs-review"],
+    },
+  ],
+
+  customManagers: [
+    {
+      customType: "regex",
+      description: "Crossplane providers & functions (xpkg.upbound.io OCI packages)",
+      managerFilePatterns: ["/^kubernetes/platform/crossplane/config/.+\\.ya?ml$/"],
+      matchStrings: [
+        "package:\\s*(?<depName>xpkg\\.upbound\\.io/[^:\\s]+):(?<currentValue>v[0-9][^\\s]*)",
+      ],
+      datasourceTemplate: "docker",
+    },
+    {
+      customType: "regex",
+      description: "kindest/node image (terraform kind module + CI kind cluster)",
+      managerFilePatterns: [
+        "/^terraform/modules/kind/kind-config\\.yaml$/",
+        "/^\\.github/workflows/ci\\.yaml$/",
+      ],
+      matchStrings: ["kindest/node:(?<currentValue>v[0-9][^\\s\"']*)"],
+      depNameTemplate: "kindest/node",
+      datasourceTemplate: "docker",
+    },
+  ],
+}

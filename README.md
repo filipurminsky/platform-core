@@ -59,6 +59,7 @@ Developer → Backstage Portal → Git Repository
 | Observability | Prometheus + Grafana + Loki + structured alerting |
 | Progressive delivery | Argo Rollouts canary + Prometheus SLO analysis + automatic rollback on error-budget burn |
 | Supply chain security | cosign keyless signing + SBOM + SLSA provenance + Trivy scan + GitHub OIDC (no static keys) |
+| Dependency hygiene | Renovate keeps Actions, Python deps, base images, Helm charts, Crossplane providers & `kindest/node` current via CI-gated PRs |
 | Policy as code | Kyverno admission control (verify image signatures, pod standards) — graduated enforcement |
 | Security | RBAC + Network Policies + IRSA + Kafka SCRAM-SHA-512 + External Secrets + image signing |
 
@@ -84,7 +85,9 @@ Developer → Backstage Portal → Git Repository
 
 > Common tasks are wrapped in a `Makefile` — run `make help` to list them
 > (`make validate` runs the full local check suite, `make up` bootstraps a local
-> kind cluster, `make test` runs the app unit tests).
+> kind cluster, `make test` runs the app unit tests). Contributors: run
+> `make hooks` once to install the pre-commit/pre-push git hooks
+> (`.pre-commit-config.yaml`) so lint/format/test issues surface before CI.
 
 ### Local — no AWS cost
 
