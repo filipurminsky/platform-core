@@ -318,3 +318,74 @@ jobs:
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             kubernetes/
+
+  e2e-smoke:
+    name: e2e smoke (echo-service on kind)
+    runs-on: ubuntu-latest
+    # Real-cluster smoke: build the image, load it into kind, apply the actual
+    # dev overlay, and prove echo-service rolls out and serves traffic. Catches
+    # the API-server/CRD-schema and rollout issues that static validation
+    # (kubeconform skips CRDs) can't.
+    env:
+      KIND_CLUSTER: e2e
+      ROLLOUTS_VERSION: v1.7.2
+      PROM_OPERATOR_VERSION: v0.76.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          version: v0.23.0
+          node_image: kindest/node:v1.30.0
+          cluster_name: e2e
+
+      - name: Install Argo Rollouts (controller + CRDs)
+        run: |
+          kubectl create namespace argo-rollouts
+          kubectl apply -n argo-rollouts \
+            -f "https://github.com/argoproj/argo-rollouts/releases/download/${ROLLOUTS_VERSION}/install.yaml"
+          kubectl -n argo-rollouts rollout status deploy/argo-rollouts --timeout=180s
+
+      - name: Install ServiceMonitor CRD (so the overlay applies)
+        run: |
+          kubectl apply -f "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/${PROM_OPERATOR_VERSION}/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml"
+
+      - name: Build + load echo-service image
+        run: |
+          docker build -t echo-service:latest apps/echo-service
+          kind load docker-image echo-service:latest --name "${KIND_CLUSTER}"
+
+      - name: Deploy echo-service (dev overlay)
+        run: |
+          kubectl create namespace apps
+          kubectl apply -k kustomize/overlays/dev/echo-service
+
+      - name: Install kubectl-argo-rollouts plugin
+        run: |
+          curl -sSL -o kubectl-argo-rollouts \
+            "https://github.com/argoproj/argo-rollouts/releases/download/${ROLLOUTS_VERSION}/kubectl-argo-rollouts-linux-amd64"
+          chmod +x kubectl-argo-rollouts && sudo mv kubectl-argo-rollouts /usr/local/bin/
+
+      - name: Wait for the rollout to be healthy
+        run: kubectl argo rollouts status echo-service -n apps --timeout 240s
+
+      - name: Smoke test /healthz and /
+        run: |
+          kubectl -n apps port-forward svc/echo-service 18080:80 &
+          trap 'kill %1 2>/dev/null || true' EXIT
+          ok=""
+          for _ in $(seq 1 30); do
+            if curl -sf http://localhost:18080/healthz; then ok=1; break; fi
+            sleep 3
+          done
+          [ -n "$ok" ] || { echo "::error::/healthz never returned 200"; exit 1; }
+          curl -sf http://localhost:18080/ | grep -q 'echo-service'
+
+      - name: Diagnostics (on failure)
+        if: failure()
+        run: |
+          kubectl get pods -A || true
+          kubectl describe rollout echo-service -n apps || true
+          kubectl logs -n apps -l app=echo-service --tail=80 || true
+          kubectl get events -n apps --sort-by=.lastTimestamp | tail -40 || true

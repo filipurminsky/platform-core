@@ -48,6 +48,12 @@ jobs:
   build:
     name: Build & sign ${{ matrix.app }}
     needs: test
+    # Build/push/scan/sign/promote all require AWS (ECR + OIDC). Skip the whole
+    # job when AWS_OIDC_ROLE_ARN isn't configured (e.g. forks, or before the
+    # github-oidc Terraform module is applied) so the workflow is green rather
+    # than red-by-default. The `test` gate above always runs. Dockerfiles are
+    # still build-validated on every push by the `app-build` job in ci.yaml.
+    if: ${{ vars.AWS_OIDC_ROLE_ARN != '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
