@@ -71,3 +71,35 @@ spec:
         - record: kafka:worker_service_lag:max_partition
           expr: |
             max(kafka_consumergroup_lag{group="worker-service"})
+
+    # ── Audio AI Pipeline SLOs ────────────────────────────────────────────────
+    - name: audio.pipeline
+      interval: 30s
+      rules:
+        - record: audio:pipeline_e2e_p95:rate5m
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(pipeline_end_to_end_duration_seconds_bucket[5m]))
+            )
+
+        - record: audio:pipeline_e2e_p50:rate5m
+          expr: |
+            histogram_quantile(0.50,
+              sum by (le) (rate(pipeline_end_to_end_duration_seconds_bucket[5m]))
+            )
+
+        - record: audio:stt_throughput:rate5m
+          expr: |
+            sum(rate(stt_jobs_total[5m]))
+
+        - record: audio:llm_throughput:rate5m
+          expr: |
+            sum(rate(llm_jobs_total[5m]))
+
+        - record: audio:tts_throughput:rate5m
+          expr: |
+            sum(rate(tts_jobs_total[5m]))
+
+        - record: audio:pipeline_failure_rate:rate5m
+          expr: |
+            sum(rate(pipeline_jobs_failed_total[5m]))

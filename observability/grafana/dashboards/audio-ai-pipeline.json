@@ -1,0 +1,161 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "tags": ["platform-core", "audio", "ai", "pipeline"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0,
+        "refresh": 1
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "title": "Audio AI Pipeline",
+  "uid": "audio-ai-pipeline",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Pipeline Completed (5m rate)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "blue", "value": null }] } }, "overrides": [] },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(pipeline_jobs_completed_total[5m]))" }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "STT DLQ Depth",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.stt-dlq\"})" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "LLM DLQ Depth",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.llm-dlq\"})" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "TTS DLQ Depth",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.tts-dlq\"})" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Stage Throughput (jobs/s)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(stt_jobs_total[5m]))", "legendFormat": "STT" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(llm_jobs_total[5m]))", "legendFormat": "LLM" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(tts_jobs_total[5m]))", "legendFormat": "TTS" },
+        { "refId": "D", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(pipeline_jobs_completed_total[5m]))", "legendFormat": "Pipeline Completed" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Stage Latency p95 (s)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(stt_job_duration_seconds_bucket[5m])) by (le))", "legendFormat": "STT p95" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(llm_request_duration_seconds_bucket[5m])) by (le))", "legendFormat": "LLM p95" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(tts_generation_duration_seconds_bucket[5m])) by (le))", "legendFormat": "TTS p95" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "End-to-End Latency p50 / p95 (s)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.50, sum(rate(pipeline_end_to_end_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(pipeline_end_to_end_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Kafka Consumer Lag by Topic",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.jobs\"}) by (topic)", "legendFormat": "audio.jobs" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.transcripts\"}) by (topic)", "legendFormat": "audio.transcripts" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.summaries\"}) by (topic)", "legendFormat": "audio.summaries" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Pipeline Failure Rate by Stage (jobs/s)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "drawStyle": "line", "fillOpacity": 20, "stacking": { "mode": "normal" } } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(pipeline_jobs_failed_total[5m])) by (stage)", "legendFormat": "{{stage}}" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "DLQ Depths Over Time",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.stt-dlq\"})", "legendFormat": "STT DLQ" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.llm-dlq\"})", "legendFormat": "LLM DLQ" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kafka_consumergroup_lag{topic=\"audio.tts-dlq\"})", "legendFormat": "TTS DLQ" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Worker Replica Counts (KEDA)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kube_deployment_status_replicas{deployment=\"stt-worker\"})", "legendFormat": "stt-worker" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kube_deployment_status_replicas{deployment=\"llm-worker\"})", "legendFormat": "llm-worker" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kube_deployment_status_replicas{deployment=\"tts-worker\"})", "legendFormat": "tts-worker" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "LLM Tokens Generated (tokens/s)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(llm_tokens_generated_total[5m]))", "legendFormat": "tokens/s" }
+      ]
+    }
+  ]
+}

@@ -129,3 +129,50 @@ spec:
           annotations:
             summary: "vLLM replicas running but no GPU node is Ready"
             description: "vLLM has {{ $value }} replicas but no GPU node is available. Pods will be pending."
+
+    # ── Audio AI Pipeline ────────────────────────────────────────────────────
+    - name: audio.pipeline
+      rules:
+        - alert: AudioSTTDLQNonEmpty
+          expr: |
+            kafka_consumergroup_lag{topic="audio.stt-dlq"} > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Messages in STT DLQ — stt-worker processing failures detected"
+            description: "{{ $value }} messages in audio.stt-dlq. Investigate stt-worker for processing errors."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+        - alert: AudioLLMDLQNonEmpty
+          expr: |
+            kafka_consumergroup_lag{topic="audio.llm-dlq"} > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Messages in LLM DLQ — llm-worker processing failures detected"
+            description: "{{ $value }} messages in audio.llm-dlq. Investigate llm-worker for processing errors."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+        - alert: AudioTTSDLQNonEmpty
+          expr: |
+            kafka_consumergroup_lag{topic="audio.tts-dlq"} > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Messages in TTS DLQ — tts-worker processing failures detected"
+            description: "{{ $value }} messages in audio.tts-dlq. Investigate tts-worker for processing errors."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
+
+        - alert: AudioPipelineHighFailureRate
+          expr: |
+            sum(rate(pipeline_jobs_failed_total[15m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Audio pipeline is experiencing sustained job failures"
+            description: "pipeline_jobs_failed_total is increasing at {{ $value | humanize }} jobs/s over the last 15 minutes. Check DLQ depths and worker logs."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"

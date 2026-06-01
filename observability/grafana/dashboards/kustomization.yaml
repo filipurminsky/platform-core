@@ -38,3 +38,6 @@ configMapGenerator:
   - name: dashboard-cost-finops
     files:
       - cost-finops.json
+  - name: dashboard-audio-ai-pipeline
+    files:
+      - audio-ai-pipeline.json
