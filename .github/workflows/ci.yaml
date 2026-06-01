@@ -67,9 +67,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up kustomize
+        # Pinned direct download — the upstream install_kustomize.sh script breaks
+        # intermittently (its release-asset glob fails to find the tarball).
+        env:
+          KUSTOMIZE_VERSION: "5.4.3"
         run: |
-          curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s -- /tmp
-          sudo mv /tmp/kustomize /usr/local/bin/
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz && sudo mv kustomize /usr/local/bin/
 
       - name: Set up kubeconform
         run: |
@@ -138,9 +142,13 @@ jobs:
             | tar -xz && sudo mv conftest /usr/local/bin/
 
       - name: Set up kustomize
+        # Pinned direct download — the upstream install_kustomize.sh script breaks
+        # intermittently (its release-asset glob fails to find the tarball).
+        env:
+          KUSTOMIZE_VERSION: "5.4.3"
         run: |
-          curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s -- /tmp
-          sudo mv /tmp/kustomize /usr/local/bin/
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz && sudo mv kustomize /usr/local/bin/
 
       # --combine evaluates the whole rendered overlay as one set, so policies can
       # check RELATIONSHIPS (e.g. does a NetworkPolicy actually select each
@@ -341,7 +349,16 @@ jobs:
           kubectl create namespace argo-rollouts
           kubectl apply -n argo-rollouts \
             -f "https://github.com/argoproj/argo-rollouts/releases/download/${ROLLOUTS_VERSION}/install.yaml"
-          kubectl -n argo-rollouts rollout status deploy/argo-rollouts --timeout=180s
+          # Give the controller image pull headroom on cold runners (it pulls
+          # right after the kind node image). Surface pod state if it stalls.
+          kubectl -n argo-rollouts rollout status deploy/argo-rollouts --timeout=300s || {
+            echo "::group::argo-rollouts diagnostics"
+            kubectl -n argo-rollouts get pods -o wide
+            kubectl -n argo-rollouts describe deploy/argo-rollouts
+            kubectl -n argo-rollouts get events --sort-by=.lastTimestamp | tail -30
+            echo "::endgroup::"
+            exit 1
+          }
 
       - name: Install ServiceMonitor CRD (so the overlay applies)
         run: |

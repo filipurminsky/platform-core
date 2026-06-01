@@ -72,3 +72,16 @@ misconfigurations:
   - id: AVD-AWS-0057
     paths:
       - "terraform/modules/iam/main.tf"
+
+  # AWS-0057 — also fires inside the upstream Karpenter submodule
+  # (terraform-aws-modules/eks//modules/karpenter/policy.tf), which Trivy
+  # downloads and scans. The Karpenter controller MUST create/tag/get instance
+  # profiles whose names don't exist when the policy is written
+  # (iam:*InstanceProfile on instance-profile/*) and call
+  # arc-zonal-shift:GetManagedResource on * — these wildcards are irreducible and
+  # mirror AWS's own published Karpenter controller policy. Not configurable from
+  # our module call site; same accepted-upstream-module-risk basis as
+  # AWS-0130/0104 above.
+  - id: AVD-AWS-0057
+    paths:
+      - "**/modules/karpenter/policy.tf"

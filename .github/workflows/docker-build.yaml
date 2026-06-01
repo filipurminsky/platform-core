@@ -142,10 +142,13 @@ jobs:
       - name: Promote to prod overlay (pin by immutable digest)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
+          KUSTOMIZE_VERSION: "5.4.3"
         run: |
-          curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
-          sudo mv kustomize /usr/local/bin/ 2>/dev/null || mv kustomize "$HOME/"
-          KUSTOMIZE="$(command -v kustomize || echo "${HOME}/kustomize")"
+          # Pinned direct download — the upstream install_kustomize.sh script
+          # breaks intermittently (its release-asset glob fails to find the tarball).
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+            | tar -xz && sudo mv kustomize /usr/local/bin/
+          KUSTOMIZE="$(command -v kustomize)"
           ( cd kustomize/overlays/prod/${{ matrix.app }} \
             && "$KUSTOMIZE" edit set image "${{ matrix.app }}=${{ steps.ref.outputs.repo }}@${DIGEST}" )
           git config user.name "github-actions[bot]"
