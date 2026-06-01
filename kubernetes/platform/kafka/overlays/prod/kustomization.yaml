@@ -1,5 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Prod uses base as-is: 3 brokers, 3 ZooKeeper, 5 partitions, SCRAM auth, gp3 storage
+# Prod uses base as-is: 3 KRaft nodes (combined controller+broker), 5 partitions,
+# SCRAM auth, gp3 storage
 resources:
   - ../../base

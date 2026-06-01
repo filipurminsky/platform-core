@@ -1,12 +1,5 @@
-# Dev: 1 broker, 1 ZooKeeper node, no SCRAM auth, standard storage class
-- op: replace
-  path: /spec/kafka/replicas
-  value: 1
-
-- op: replace
-  path: /spec/zookeeper/replicas
-  value: 1
-
+# Dev: single KRaft node, no SCRAM auth, no Kafka Exporter. Node count and
+# storage class are patched on the KafkaNodePool (patch-nodepool-dev.yaml).
 - op: replace
   path: /spec/kafka/config/default.replication.factor
   value: "1"
@@ -26,14 +19,6 @@
 - op: add
   path: /spec/kafka/config/transaction.state.log.min.isr
   value: "1"
-
-- op: replace
-  path: /spec/kafka/storage/volumes/0/class
-  value: standard
-
-- op: replace
-  path: /spec/zookeeper/storage/class
-  value: standard
 
 # Disable listener auth in dev (simplifies local testing)
 - op: remove

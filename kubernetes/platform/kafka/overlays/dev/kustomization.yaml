@@ -3,11 +3,15 @@ kind: Kustomization
 resources:
   - ../../base
 patches:
-  # Single broker — minimal footprint on kind
+  # Single KRaft node — minimal footprint on kind
   - path: patch-kafka-dev.yaml
     target:
       kind: Kafka
       name: platform-kafka
+  - path: patch-nodepool-dev.yaml
+    target:
+      kind: KafkaNodePool
+      name: kafka
   # Single partition + single replica per topic
   - path: patch-topics-dev.yaml
     target:

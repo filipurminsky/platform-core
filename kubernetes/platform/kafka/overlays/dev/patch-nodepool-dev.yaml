@@ -1,0 +1,8 @@
+# Dev: single combined controller+broker node on kind's local storage class.
+- op: replace
+  path: /spec/replicas
+  value: 1
+
+- op: replace
+  path: /spec/storage/volumes/0/class
+  value: standard

@@ -30,7 +30,7 @@ kustomize build kustomize/overlays/dev | conftest test --policy policy/ -
 kube-linter lint kubernetes/ --config .kube-linter.yaml
 
 # Kyverno — check policies are well-formed (dry-run apply)
-kyverno apply kubernetes/platform/kyverno-policies/policies/
+kyverno apply kubernetes/platform/kyverno-policies/base/
 
 # Argo Rollouts — watch / drive a canary (needs the kubectl plugin)
 kubectl -n apps argo rollouts get rollout echo-service --watch
@@ -80,18 +80,18 @@ kubectl label secret in-cluster -n argocd environment=prod --overwrite
 ### Where Kubernetes manifests actually live
 
 - **`kubernetes/apps/`** — ArgoCD ApplicationSets and KEDA ScaledObjects/TriggerAuthentications only. **No Deployments or Services here.**
-- **`kustomize/base/{echo-service,worker-service,vllm-inference}/`** — the real Kubernetes manifests for the three demo apps.
+- **`kustomize/base/{echo-service,worker-service,vllm-inference,llm-gateway}/`** — the real Kubernetes manifests for the four demo apps.
 - **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, crossplane, backstage). Each points to its upstream Helm chart.
 
 ### Application source code (`apps/`)
 
-**Do not confuse `apps/` (root) with `kubernetes/apps/`.** `apps/` holds the *source code and container builds* for the three demo services; `kubernetes/apps/` holds their *ArgoCD ApplicationSets*. The deployable manifests live in neither — they're in `kustomize/base/<svc>/`.
+**Do not confuse `apps/` (root) with `kubernetes/apps/`.** `apps/` holds the *source code and container builds* for the four demo services; `kubernetes/apps/` holds their *ArgoCD ApplicationSets*. The deployable manifests live in neither — they're in `kustomize/base/<svc>/`.
 
 Each `apps/<service>/` is a self-contained Python project:
 
 - **`echo-service`** — FastAPI HTTP demo (probes, `/metrics`, request echo). Deployed as an Argo Rollout (canary).
 - **`worker-service`** — Kafka consumer (confluent-kafka, no web framework). Manual-commit processing with dedup, retry → DLQ, graceful SIGTERM drain; exposes metrics on `:9090`. Scaled by KEDA on consumer lag.
-- **`llm-gateway`** — FastAPI reverse proxy in front of vLLM: per-IP sliding-window rate limiting, upstream error mapping (429/502/504), metrics.
+- **`llm-gateway`** — FastAPI reverse proxy in front of vLLM: per-IP sliding-window rate limiting, upstream error mapping (429/502/504), metrics. Deployed as a plain Deployment (2 replicas, 1 in dev). Its Kubernetes readiness probe is `/healthz` (self-check), **not** the app's `/readyz` — `/readyz` gates on the upstream vLLM `/health`, but vLLM is KEDA scale-to-zero, so gating readiness on it would remove the gateway from Service endpoints whenever vLLM is idle and deadlock scale-from-zero.
 
 Each service is a **uv project**: `main.py` (single-module app), `pyproject.toml` (`[project.dependencies]` runtime + `[dependency-groups].dev` for `pytest`/`httpx`, all pinned; `tool.uv.package = false` since it's a flat module, not a wheel), a committed `uv.lock`, `test_main.py` (unit tests — run `uv run pytest -q` from the service dir), `Dockerfile` (python:3.12-slim, non-root, deps installed via `uv sync --frozen --no-dev`), and `catalog-info.yaml` (Backstage catalog entry). Common tasks are wrapped in the root `Makefile` (`make deps|test|lint|fmt`). Lint/format with `ruff` (config in the **repo-root** `pyproject.toml`, inherited by each app); CI runs `ruff` (via `uvx`) + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. uv.lock files are kept current by Renovate (`pep621` manager + monthly lockfile maintenance). There is also an `apps/docker-compose.yml` for running the stack locally without Kubernetes.
 
@@ -129,7 +129,7 @@ Key invariants when editing: **Roles are shared, RoleBindings are per-tenant**; 
 
 ### Image promotion path
 
-`docker-build.yaml` builds on every push to `main`, pushes to ECR, then runs `kustomize edit set image` to update the tag in `kustomize/overlays/prod/` and commits back to the repo. ArgoCD picks up the commit and syncs. No manual image tag editing.
+`docker-build.yaml` runs on every push to `main` that touches `apps/**`: **test → build (local, no push) → Trivy scan (HIGH/CRITICAL gate) → push with SBOM+provenance → cosign sign → promote**. The scan runs on the locally-loaded image *before* anything reaches ECR, so a vulnerable image is never pushed/signed/promoted (the two build steps share the GHA layer cache, so the push build is not a full rebuild). Promotion pins the **immutable digest** (`kustomize edit set image <app>=<repo>@sha256:<digest>`) into the **per-app** overlay the ApplicationSet actually deploys — `kustomize/overlays/prod/<app>/`, NOT the aggregate `overlays/prod/`. The matrix runs per-app in parallel, each editing its own overlay dir, with a rebase-and-retry around the push. ArgoCD picks up the commit and syncs. No manual image tag editing, and no mutable `:latest` in prod.
 
 ### Terraform module structure
 
@@ -147,7 +147,12 @@ Current slice = **S3** (`kubernetes/platform/crossplane/`, full details in `docs
 
 ### OPA policies
 
-`policy/deployments.rego` — `deny` rules (hard failures) for missing resource requests/limits, missing probes, and `runAsUser: 0`. `policy/network-policy.rego` — `warn` rules only (won't fail CI). `.kube-linter.yaml` exempts resources in the `platform` namespace from root-check and privilege-escalation checks because Strimzi broker pods need those permissions.
+CI runs conftest with **`--combine`**, so policies see the whole rendered overlay as one set and can check *relationships*, not just per-document shape. Rego files (all `package main`):
+- `policy/lib.rego` — shared helpers: `manifests`, the `workloads` set (**Deployment, Rollout, StatefulSet, DaemonSet** — Rollout included so the echo-service canary isn't exempt), `pod_labels`, `requires_netpol` (apps + `tenant-*`), `selector_matches`.
+- `policy/workloads.rego` — `deny` (hard fail) for missing resource requests/limits, missing liveness/readiness probes, and `runAsUser: 0` (pod or container) — applied to **every** workload kind, not just Deployments. `warn` for a missing `app.kubernetes.io/part-of` label.
+- `policy/network-policy.rego` — **`deny`**: a real relationship check that fails when a workload in a segmented namespace has **no NetworkPolicy whose `podSelector` matches its pod labels** (empty selector = matches all). `warn`: a non-exempt workload (KEDA scale-to-zero `vllm`/`worker` are exempt) with no PDB selecting it.
+
+`.kube-linter.yaml` exempts resources in the `platform` namespace from root-check and privilege-escalation checks because Strimzi broker pods need those permissions.
 
 ### Progressive delivery (echo-service is a Rollout, not a Deployment)
 
@@ -164,7 +169,7 @@ Flow: nginx traffic routing splits 10→50→100%; each pause runs `echo-service
 Kyverno (`kubernetes/platform/kyverno/`, sync-wave -1) enforces this at admission via `kyverno-policies` (sync-wave 1):
 - `verify-image-signatures` (**Enforce**) — rejects unsigned `*.dkr.ecr.*/platform-core/*` images. Scoped to our registry, so upstream images are unaffected. **`failurePolicy: Fail`** — if the Kyverno controller is down, admission of our images is blocked by design.
 - `require-pod-standards` (**Enforce, `tenant-*` only**) — resources/probes/non-root. Graduated enforcement: strict on the tenant paved road, advisory elsewhere.
-- `disallow-latest-tag` (**Audit**) — so local `:latest` still runs but is reported.
+- `disallow-latest-tag` — **Audit in dev** (local `:latest` still runs, just reported) but **Enforce in prod** (patched by `kyverno-policies/overlays/prod`). This is env-selected: `kyverno-policies` is an **ApplicationSet** (cluster generator) pointing at `overlays/{{environment}}`, same pattern as the apps. Prod images are digest-pinned, so `:latest` there is a hard admission failure.
 
 ### Observability wiring
 

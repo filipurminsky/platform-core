@@ -142,15 +142,18 @@ jobs:
           curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s -- /tmp
           sudo mv /tmp/kustomize /usr/local/bin/
 
+      # --combine evaluates the whole rendered overlay as one set, so policies can
+      # check RELATIONSHIPS (e.g. does a NetworkPolicy actually select each
+      # workload's pods?), not just per-document shape.
       - name: Run OPA policies (dev overlay)
         run: |
           kustomize build kustomize/overlays/dev \
-            | conftest test --policy policy/ -
+            | conftest test --combine --policy policy/ -
 
       - name: Run OPA policies (prod overlay)
         run: |
           kustomize build kustomize/overlays/prod \
-            | conftest test --policy policy/ -
+            | conftest test --combine --policy policy/ -
 
   terraform-validate:
     name: Terraform fmt + validate
@@ -306,7 +309,7 @@ jobs:
             -ignore-filename-pattern 'kustomization.yaml' \
             -ignore-filename-pattern 'values.yaml' \
             -ignore-filename-pattern 'patch-.*.yaml' \
-            -skip Kustomization,Component,Application,ApplicationSet,AppProject,ServiceMonitor,PrometheusRule,ScaledObject,AnalysisTemplate,AnalysisRun,Kafka,KafkaTopic,KafkaUser,Provider,Function,DeploymentRuntimeConfig,ProviderConfig,CompositeResourceDefinition,Composition,ObjectStorageBucket \
+            -skip Kustomization,Component,Application,ApplicationSet,AppProject,ServiceMonitor,PrometheusRule,ScaledObject,AnalysisTemplate,AnalysisRun,Kafka,KafkaNodePool,KafkaTopic,KafkaUser,Provider,Function,DeploymentRuntimeConfig,ProviderConfig,CompositeResourceDefinition,Composition,ObjectStorageBucket \
             -schema-location default \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \

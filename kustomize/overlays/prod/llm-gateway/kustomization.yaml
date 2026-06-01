@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: apps
 
 resources:
-  - ../../../base/echo-service
+  - ../../../base/llm-gateway
 
 labels:
   - pairs:
@@ -13,17 +13,21 @@ labels:
     includeSelectors: false
 
 patches:
-  - path: patch-echo-resources.yaml
+  - path: patch-resources.yaml
     target:
-      kind: Rollout
-      name: echo-service
+      kind: Deployment
+      name: llm-gateway
+
+replicas:
+  - name: llm-gateway
+    count: 2
 
 # Pinned by immutable digest on promotion: docker-build.yaml runs
-# `kustomize edit set image echo-service=<repo>@sha256:<digest>`. Never ':latest'
+# `kustomize edit set image llm-gateway=<repo>@sha256:<digest>`. Never ':latest'
 # in prod — Kyverno disallow-latest-tag is Enforce here. Until the first
 # promotion this 'unpromoted' tag is un-pullable, so an un-promoted prod fails
 # closed (ImagePullBackOff) instead of silently running a mutable tag.
 images:
-  - name: echo-service
-    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/echo-service
+  - name: llm-gateway
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/llm-gateway
     newTag: unpromoted

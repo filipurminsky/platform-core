@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Prod: every image is promoted by immutable digest (docker-build.yaml), so
+# :latest must be hard-blocked at admission, not merely reported.
+resources:
+  - ../../base
+
+patches:
+  - path: patch-disallow-latest-enforce.yaml
+    target:
+      kind: ClusterPolicy
+      name: disallow-latest-tag

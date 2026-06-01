@@ -32,15 +32,17 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: true
 
-# Updated by docker-build.yaml GitHub Actions workflow via:
-#   kustomize edit set image <name>=<ecr-url>:<sha>
+# NOTE: this aggregate overlay exists for CI validation only — ArgoCD deploys the
+# per-app overlays (overlays/prod/<app>), which is where docker-build.yaml pins the
+# promoted digest. Tags here are placeholders; never ':latest' (disallow-latest-tag
+# is Enforce in prod).
 images:
   - name: echo-service
     newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/echo-service
-    newTag: latest
+    newTag: unpromoted
   - name: worker-service
     newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/worker-service
-    newTag: latest
+    newTag: unpromoted
   - name: llm-gateway
     newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/llm-gateway
-    newTag: latest
+    newTag: unpromoted

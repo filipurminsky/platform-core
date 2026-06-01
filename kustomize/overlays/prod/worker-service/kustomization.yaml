@@ -39,7 +39,12 @@ configMapGenerator:
 generatorOptions:
   disableNameSuffixHash: true
 
+# Pinned by immutable digest on promotion: docker-build.yaml runs
+# `kustomize edit set image worker-service=<repo>@sha256:<digest>`. Never
+# ':latest' in prod — Kyverno disallow-latest-tag is Enforce here. Until the
+# first promotion this 'unpromoted' tag is un-pullable, so an un-promoted prod
+# fails closed (ImagePullBackOff) instead of silently running a mutable tag.
 images:
   - name: worker-service
     newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/worker-service
-    newTag: latest
+    newTag: unpromoted

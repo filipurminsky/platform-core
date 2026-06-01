@@ -28,7 +28,7 @@ This document captures the key design decisions made for platform-core, the reas
 3. **Metric depth** — Strimzi exposes JMX metrics and a Kafka Exporter sidecar, giving full broker, topic, and consumer group observability in Grafana.
 4. **No AWS lock-in** — the platform can run on GKE or AKS without changing application code.
 
-**Trade-offs:** Strimzi adds operational burden (ZooKeeper or KRaft quorum, storage management). For a startup this might not be worth it vs. MSK; for a multi-cloud or cost-sensitive org, the trade-off is justified.
+**Trade-offs:** Strimzi adds operational burden (managing the KRaft metadata quorum and storage). For a startup this might not be worth it vs. MSK; for a multi-cloud or cost-sensitive org, the trade-off is justified.
 
 ---
 

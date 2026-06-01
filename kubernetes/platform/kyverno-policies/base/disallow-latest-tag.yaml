@@ -1,6 +1,8 @@
-# Audit (not Enforce) so local/dev :latest images still run, but every use is
-# reported in a PolicyReport. Production images are promoted by immutable SHA tag
-# via docker-build.yaml, so prod stays clean.
+# Audit by default so local/dev :latest images still run (kind runs
+# locally-built images), but every use is reported in a PolicyReport. The prod
+# overlay (overlays/prod/patch-disallow-latest-enforce.yaml) flips this to
+# Enforce — prod images are promoted by immutable digest via docker-build.yaml,
+# so :latest there is a hard admission failure, not just a report.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:

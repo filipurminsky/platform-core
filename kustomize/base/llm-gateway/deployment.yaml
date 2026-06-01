@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+  labels:
+    app: llm-gateway
+spec:
+  replicas: 2                  # steady HTTP proxy (not KEDA-managed); dev overlay drops to 1
+  selector:
+    matchLabels:
+      app: llm-gateway
+  template:
+    metadata:
+      labels:
+        app: llm-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: llm-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: llm-gateway
+          image: llm-gateway:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # vLLM Service in the apps namespace (matches the app default, set
+            # explicitly so the wiring is visible in Git, not just in code).
+            - name: VLLM_BASE_URL
+              value: http://vllm-inference:8000
+            - name: RATE_LIMIT_RPM
+              value: "60"
+            - name: REQUEST_TIMEOUT_SECONDS
+              value: "120"
+          # Liveness AND readiness both hit /healthz (self-check), NOT /readyz.
+          # /readyz probes the upstream vLLM /health, but vLLM is KEDA
+          # scale-to-zero — gating readiness on it would remove the gateway from
+          # the Service endpoints whenever vLLM is idle, so no request could ever
+          # reach vLLM to trigger scale-up (deadlock). The proxy itself returns
+          # 502/504 when the upstream is cold, which is the correct behaviour.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

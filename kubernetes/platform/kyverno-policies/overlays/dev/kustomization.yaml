@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Dev/local: disallow-latest-tag stays Audit (kind runs locally-built :latest
+# images), so the base policies apply unchanged.
+resources:
+  - ../../base

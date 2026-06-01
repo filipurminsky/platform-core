@@ -1,14 +1,21 @@
-# Strimzi Kafka cluster
-# Kustomize overlays (dev/prod) patch replica counts, storage class, and auth settings.
+# Strimzi Kafka cluster — KRaft mode (ZooKeeper-less).
+# Node count and storage live in the KafkaNodePool (nodepool.yaml); this resource
+# carries cluster-wide config (listeners, replication, operators). Kustomize
+# overlays (dev/prod) patch replica counts, storage class, and auth settings.
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
   name: platform-kafka
   namespace: platform
+  annotations:
+    strimzi.io/node-pools: enabled   # broker/controller topology defined by KafkaNodePool CRs
+    strimzi.io/kraft: enabled        # no ZooKeeper — Raft-based metadata quorum
 spec:
   kafka:
-    replicas: 3                          # patched to 1 in dev overlay
     version: "3.7.0"
+    metadataVersion: "3.7-IV4"       # KRaft metadata version (tracks Kafka version)
+    # replicas + storage are intentionally omitted: in node-pool mode they are
+    # defined per-pool in nodepool.yaml, not here.
     listeners:
       - name: plain
         port: 9092
@@ -28,14 +35,6 @@ spec:
       log.retention.hours: "168"
       log.segment.bytes: "1073741824"
       auto.create.topics.enable: "false" # all topics managed via KafkaTopic CRs
-    storage:
-      type: jbod
-      volumes:
-        - id: 0
-          type: persistent-claim
-          size: 20Gi
-          class: gp3                     # patched to "standard" in dev overlay
-          deleteClaim: false
     resources:
       requests:
         cpu: 500m
@@ -49,20 +48,6 @@ spec:
     livenessProbe:
       initialDelaySeconds: 15
       timeoutSeconds: 5
-  zookeeper:
-    replicas: 3                          # patched to 1 in dev overlay
-    storage:
-      type: persistent-claim
-      size: 5Gi
-      class: gp3
-      deleteClaim: false
-    resources:
-      requests:
-        cpu: 250m
-        memory: 512Mi
-      limits:
-        cpu: "1"
-        memory: 1Gi
   entityOperator:
     topicOperator: {}                    # watches KafkaTopic CRs
     userOperator:

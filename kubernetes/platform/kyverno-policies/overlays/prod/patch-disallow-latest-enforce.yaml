@@ -1,0 +1,7 @@
+# Prod blocks :latest at admission (dev/local only audits it).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+spec:
+  validationFailureAction: Enforce

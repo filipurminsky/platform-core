@@ -1,0 +1,41 @@
+# Admission policies are environment-selected, not hardcoded. The cluster
+# generator reads the `environment` label off the destination cluster's ArgoCD
+# secret (set by bootstrap.sh: dev for kind, prod for EKS) and templates it into
+# the overlay path. Prod enforces disallow-latest-tag; dev only audits it.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kyverno-policies
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: kyverno-policies
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        # Apply policies AFTER the kyverno controller/CRDs (sync-wave -1) are ready.
+        argocd.argoproj.io/sync-wave: "1"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kubernetes/platform/kyverno-policies/overlays/{{.metadata.labels.environment}}
+      destination:
+        server: "{{.server}}"
+        namespace: kyverno
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true

@@ -84,17 +84,39 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Build to the local docker daemon (no push) so we can scan BEFORE anything
+      # reaches ECR. cache-to primes the GHA cache; the later push build reuses
+      # every layer, so this is not a redundant full rebuild.
+      - name: Build image for scanning (local, no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/${{ matrix.app }}
+          load: true
+          tags: ${{ matrix.app }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Vulnerability gate runs on the local image. A HIGH/CRITICAL finding fails
+      # the job here, so the image never gets pushed, signed, or promoted.
+      - name: Scan image for vulnerabilities (fail on HIGH/CRITICAL — gate before push)
+        uses: aquasecurity/trivy-action@v0.20.0
+        with:
+          image-ref: ${{ matrix.app }}:scan
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      # Only reached if the scan passed. Rebuilds from cache (fast) and pushes
+      # with SBOM + max-mode SLSA provenance attached to the image index —
+      # verifiable later with `cosign verify-attestation`. No mutable :latest tag.
       - name: Build & push (with SBOM + SLSA provenance attestations)
         id: build
         uses: docker/build-push-action@v5
         with:
           context: apps/${{ matrix.app }}
           push: true
-          tags: |
-            ${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }}
-            ${{ steps.ref.outputs.repo }}:latest
-          # BuildKit attaches an SPDX SBOM and max-mode SLSA provenance to the
-          # image index — verifiable later with `cosign verify-attestation`.
+          tags: ${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }}
           sbom: true
           provenance: mode=max
           cache-from: type=gha
@@ -102,15 +124,6 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-
-      - name: Scan image for vulnerabilities (fail on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@v0.20.0
-        with:
-          image-ref: ${{ steps.ref.outputs.repo }}@${{ steps.build.outputs.digest }}
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: HIGH,CRITICAL
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
@@ -121,18 +134,28 @@ jobs:
         run: |
           cosign sign --yes "${{ steps.ref.outputs.repo }}@${DIGEST}"
 
-      - name: Update prod image tag (GitOps promotion)
+      # Promote by pinning the IMMUTABLE DIGEST (not a mutable tag) into the
+      # per-app prod overlay that the ApplicationSet actually deploys
+      # (overlays/prod/<app>, NOT the aggregate overlays/prod). ArgoCD then syncs
+      # the digest. The matrix runs in parallel, but each app edits its own
+      # overlay dir, so a rebase-and-retry resolves the concurrent push race.
+      - name: Promote to prod overlay (pin by immutable digest)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           curl -sSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
           sudo mv kustomize /usr/local/bin/ 2>/dev/null || mv kustomize "$HOME/"
-          cd kustomize/overlays/prod
-          "${HOME}/kustomize" edit set image \
-            ${{ matrix.app }}=${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }} \
-            2>/dev/null || kustomize edit set image \
-            ${{ matrix.app }}=${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }}
-          cd -
+          KUSTOMIZE="$(command -v kustomize || echo "${HOME}/kustomize")"
+          ( cd kustomize/overlays/prod/${{ matrix.app }} \
+            && "$KUSTOMIZE" edit set image "${{ matrix.app }}=${{ steps.ref.outputs.repo }}@${DIGEST}" )
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add kustomize/overlays/prod
-          git commit -m "chore(${{ matrix.app }}): promote ${{ steps.ref.outputs.sha }}" || exit 0
-          git push
+          git add kustomize/overlays/prod/${{ matrix.app }}
+          git commit -m "chore(${{ matrix.app }}): promote ${{ steps.ref.outputs.sha }} (${DIGEST})" || exit 0
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase --autostash origin main && git push; then
+              exit 0
+            fi
+            sleep $(( (RANDOM % 5) + 1 ))
+          done
+          echo "::error::failed to push promotion commit after retries" && exit 1

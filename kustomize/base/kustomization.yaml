@@ -10,6 +10,7 @@ resources:
   - echo-service/
   - worker-service/
   - vllm-inference/
+  - llm-gateway/
 
 # Use `labels` with includeSelectors:false, NOT commonLabels.
 # commonLabels injects labels into Service/Deployment SELECTORS, but kustomize
