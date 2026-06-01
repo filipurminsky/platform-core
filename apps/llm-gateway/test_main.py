@@ -8,11 +8,9 @@ with the upstream httpx client replaced by a fake — no vLLM needed.
 import asyncio
 
 import httpx
+import main
 import pytest
 from fastapi.testclient import TestClient
-
-import main
-
 
 # --- rate limiter ---------------------------------------------------------
 

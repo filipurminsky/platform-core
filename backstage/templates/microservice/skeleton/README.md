@@ -16,8 +16,8 @@ Scaffolded from the **New Microservice** template in the platform-core Backstage
 ## Local development
 
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+uv sync                              # creates .venv + uv.lock from pyproject.toml
+uv run uvicorn app.main:app --reload
 ```
 
 ## Container

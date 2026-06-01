@@ -1,4 +1,5 @@
 import os
+
 import structlog
 from fastapi import FastAPI, HTTPException
 from openai import AsyncOpenAI
@@ -35,4 +36,4 @@ async def chat(prompt: str):
         return {"response": response.choices[0].message.content}
     except Exception as exc:
         log.error("chat_error", error=str(exc))
-        raise HTTPException(status_code=500, detail="Inference failed")
+        raise HTTPException(status_code=500, detail="Inference failed") from exc

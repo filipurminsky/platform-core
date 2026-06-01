@@ -4,9 +4,8 @@ Exercises the probes, the metrics endpoint, and the echo handler (including
 JSON-body reflection) via Starlette's TestClient — no network or cluster needed.
 """
 
-from fastapi.testclient import TestClient
-
 import main
+from fastapi.testclient import TestClient
 
 client = TestClient(main.app)
 

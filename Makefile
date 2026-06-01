@@ -15,29 +15,33 @@ help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
+.PHONY: hooks
+hooks: ## Install git pre-commit + pre-push hooks (.pre-commit-config.yaml)
+	uvx pre-commit install
+
 # ── Apps (Python) ───────────────────────────────────────────────────────────────
 .PHONY: deps
-deps: ## Install each app's dev dependencies (pytest, etc.) into the active env
+deps: ## Sync each app's locked dependencies into its uv venv (.venv)
 	@for app in $(APPS); do \
-	  echo "== $$app =="; pip install -q -r apps/$$app/requirements-dev.txt; \
+	  echo "== $$app =="; ( cd apps/$$app && uv sync --frozen ) || exit 1; \
 	done
 
 .PHONY: test
-test: ## Run unit tests for all apps (pytest)
+test: ## Run unit tests for all apps (uv run pytest)
 	@for app in $(APPS); do \
-	  echo "== $$app =="; ( cd apps/$$app && python -m pytest -q ) || exit 1; \
+	  echo "== $$app =="; ( cd apps/$$app && uv run --frozen pytest -q ) || exit 1; \
 	done
 
 .PHONY: lint
-lint: ## Lint + format-check the apps (ruff)
+lint: ## Lint + format-check the apps (ruff via uvx, config in root pyproject.toml)
 	@for app in $(APPS); do \
 	  echo "== $$app =="; \
-	  ruff check apps/$$app/main.py && ruff format --check apps/$$app/main.py || exit 1; \
+	  uvx ruff check apps/$$app/main.py && uvx ruff format --check apps/$$app/main.py || exit 1; \
 	done
 
 .PHONY: fmt
 fmt: ## Auto-format the apps (ruff format)
-	@for app in $(APPS); do ruff format apps/$$app/main.py; done
+	@for app in $(APPS); do uvx ruff format apps/$$app/main.py; done
 
 .PHONY: images
 images: ## Build all app container images locally (no push)

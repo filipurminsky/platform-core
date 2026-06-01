@@ -8,9 +8,8 @@ a tiny fake captures what would have been published to the DLQ.
 
 import json
 
-import pytest
-
 import main
+import pytest
 
 
 class FakeProducer:
@@ -69,7 +68,9 @@ def test_successful_job_records_id_and_no_dlq(producer):
 
 def test_duplicate_id_is_skipped(producer):
     seen = {"job-1"}
-    raw = json.dumps({"id": "job-1", "type": "data-transform", "payload": {"operation": "bad"}}).encode()
+    raw = json.dumps(
+        {"id": "job-1", "type": "data-transform", "payload": {"operation": "bad"}}
+    ).encode()
     # A bad op would normally retry+DLQ; dedup must short-circuit before the handler.
     main.process_message(raw, producer, seen)
     assert producer.produced == []

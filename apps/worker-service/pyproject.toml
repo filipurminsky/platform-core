@@ -1,0 +1,22 @@
+[project]
+name = "worker-service"
+version = "0.1.0"
+description = "Kafka consumer (dedup, retry -> DLQ, graceful drain); scaled by KEDA on consumer lag."
+requires-python = ">=3.12"
+dependencies = [
+    "confluent-kafka==2.4.0",
+    "prometheus-client==0.20.0",
+    "structlog==24.1.0",
+]
+
+[dependency-groups]
+# Test-only deps. uv installs the `dev` group by default on `uv sync`.
+dev = [
+    "pytest==8.2.0",
+]
+
+[tool.uv]
+# Flat single-module app (main.py), not an installable package — sync deps only.
+package = false
+
+# Ruff config is inherited from the repo-root pyproject.toml.

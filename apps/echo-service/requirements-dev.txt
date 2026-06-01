@@ -1,4 +1,0 @@
--r requirements.txt
-pytest==8.2.0
-# TestClient (Starlette) needs httpx at test time; not a runtime dependency.
-httpx==0.27.0
