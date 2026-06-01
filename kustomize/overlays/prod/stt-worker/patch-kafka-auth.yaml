@@ -1,0 +1,22 @@
+# Prod uses Strimzi's TLS/SCRAM listener. The KafkaUser Secret is generated in
+# the apps namespace by the Strimzi UserOperator.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: KAFKA_SASL_USERNAME
+    value: stt-worker
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: KAFKA_SECURITY_PROTOCOL
+    value: SASL_PLAINTEXT
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: KAFKA_SASL_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: stt-worker
+        key: password

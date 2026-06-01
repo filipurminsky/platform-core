@@ -1,0 +1,32 @@
+[project]
+name = "stt-worker"
+version = "0.1.0"
+description = "STT Kafka worker: consume audio.jobs → transcribe → produce audio.transcripts. Pluggable backend (stub|nemo); nemo is GPU-only and lazy-imported."
+requires-python = ">=3.12"
+dependencies = [
+    "confluent-kafka==2.4.0",
+    "boto3",
+    "redis",
+    "opentelemetry-api==1.29.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.29.0",
+    "opentelemetry-sdk==1.29.0",
+    "prometheus-client==0.20.0",
+    "structlog==24.1.0",
+]
+
+[dependency-groups]
+# Test-only deps. uv installs the `dev` group by default on `uv sync`.
+dev = [
+    "pytest==8.2.0",
+]
+
+[tool.uv]
+# Flat single-module app (main.py), not an installable package — sync deps only.
+package = false
+
+# NOTE: nemo_toolkit / torch are NOT listed here.
+# The stub backend (STT_BACKEND=stub) works with no ML deps — keeps the image
+# light and tests fast.  The prod GPU image bakes Parakeet + NeMo/torch on top
+# via a separate build stage (see Dockerfile).
+
+# Ruff config is inherited from the repo-root pyproject.toml.

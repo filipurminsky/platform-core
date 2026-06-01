@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stt-worker
+  labels:
+    app: stt-worker
+spec:
+  replicas: 0                  # KEDA manages replica count; starts at zero
+  selector:
+    matchLabels:
+      app: stt-worker
+  template:
+    metadata:
+      labels:
+        app: stt-worker
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9090"
+    spec:
+      serviceAccountName: stt-worker
+      terminationGracePeriodSeconds: 60    # allow in-flight jobs to drain
+      # GPU scheduling — NeMo Parakeet requires an NVIDIA GPU node (prod).
+      # Dev overlay strips runtimeClassName, nodeSelector, and tolerations
+      # (kind clusters have no GPU) and sets STT_BACKEND=stub instead.
+      runtimeClassName: nvidia
+      nodeSelector:
+        role: gpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: stt-worker
+          image: stt-worker:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 9090
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: env-config
+                  key: ENVIRONMENT
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: env-config
+                  key: LOG_LEVEL
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
+            - name: KAFKA_TOPIC_IN
+              value: audio.jobs
+            - name: KAFKA_TOPIC_OUT
+              value: audio.transcripts
+            - name: KAFKA_DLQ_TOPIC
+              value: audio.stt-dlq
+            - name: KAFKA_CONSUMER_GROUP
+              value: stt-worker
+            # STT backend — prod uses NeMo Parakeet on GPU; dev overlay sets stub
+            - name: STT_BACKEND
+              value: nemo
+            # OpenTelemetry — extract trace context from Kafka headers, emit span per job
+            - name: OTEL_SERVICE_NAME
+              value: stt-worker
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.monitoring.svc.cluster.local:4317
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=apps
+            # S3 object storage (§4) — dev overlay adds S3_ENDPOINT_URL + MinIO creds
+            - name: S3_BUCKET
+              value: audio-pipeline
+            - name: S3_REGION
+              value: eu-west-1
+            # Redis job-state store (§5)
+            - name: REDIS_URL
+              value: redis://redis.platform.svc.cluster.local:6379/0
+            - name: JOB_STATE_TTL_SECONDS
+              value: "604800"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "2"
+              memory: 8Gi
+              nvidia.com/gpu: "1"
+          securityContext:
+            allowPrivilegeEscalation: false
+            # readOnlyRootFilesystem is false because NeMo writes temp files
+            # (model loading scratch, TMP audio buffers) at runtime.
+            # allowPrivilegeEscalation and capability drops are still enforced.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]

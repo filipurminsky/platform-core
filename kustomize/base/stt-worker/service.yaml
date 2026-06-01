@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: stt-worker
+  labels:
+    app: stt-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: stt-worker
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

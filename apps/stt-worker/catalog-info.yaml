@@ -1,0 +1,28 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: stt-worker
+  description: Kafka consumer that transcribes audio from S3 via a pluggable STT backend (stub in dev, NeMo Parakeet in prod) and produces audio.transcripts events
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - python
+    - kafka
+    - keda
+    - stt
+    - audio
+    - demo
+  links:
+    - url: https://github.com/filipurminsky/platform-core/tree/main/apps/stt-worker
+      title: Source
+      icon: github
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:platform-team
+  system: platform-core
+  consumesApis:
+    - audio-jobs-topic
+  providesApis:
+    - audio-transcripts-topic

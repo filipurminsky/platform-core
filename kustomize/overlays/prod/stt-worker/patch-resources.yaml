@@ -1,0 +1,13 @@
+# Production resource limits for stt-worker (GPU node).
+# nvidia.com/gpu:1 is set in base; only CPU/memory are adjusted here for prod.
+- op: replace
+  path: /spec/template/spec/containers/0/resources
+  value:
+    requests:
+      cpu: "1"
+      memory: 4Gi
+      nvidia.com/gpu: "1"
+    limits:
+      cpu: "2"
+      memory: 8Gi
+      nvidia.com/gpu: "1"

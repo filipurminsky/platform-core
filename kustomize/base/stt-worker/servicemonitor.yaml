@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: stt-worker
+  labels:
+    app: stt-worker
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: stt-worker
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

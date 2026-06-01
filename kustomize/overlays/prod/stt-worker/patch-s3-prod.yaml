@@ -1,0 +1,15 @@
+# Prod S3: bucket name from Crossplane connection secret, region eu-west-1.
+# No S3_ENDPOINT_URL in prod (AWS default endpoint resolution via IRSA).
+#
+# We append S3_BUCKET from the secret after the base value; in the container's
+# Linux process environment, the last assignment for a given name wins.
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are NOT appended — prod uses IRSA.
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_BUCKET
+    valueFrom:
+      secretKeyRef:
+        name: audio-pipeline-conn
+        key: bucket

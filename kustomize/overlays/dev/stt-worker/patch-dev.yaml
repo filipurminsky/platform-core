@@ -1,0 +1,56 @@
+# Dev patches for stt-worker Deployment:
+#   1. Strip GPU scheduling (runtimeClassName, nodeSelector, tolerations) — kind has no GPU
+#   2. Switch STT_BACKEND from nemo to stub
+#   3. Set dev S3 env (MinIO endpoint + credentials)
+#   4. Set dev Redis URL
+#   5. Reduce resources for local kind cluster
+
+# Strip runtimeClassName (no NVIDIA runtime on kind)
+- op: remove
+  path: /spec/template/spec/runtimeClassName
+
+# Strip GPU nodeSelector
+- op: remove
+  path: /spec/template/spec/nodeSelector
+
+# Strip GPU toleration
+- op: remove
+  path: /spec/template/spec/tolerations
+
+# Switch STT backend to stub (env index 7 — STT_BACKEND)
+- op: replace
+  path: /spec/template/spec/containers/0/env/7/value
+  value: stub
+
+# Append dev S3 MinIO endpoint URL
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_ENDPOINT_URL
+    value: http://minio.platform.svc.cluster.local:9000
+
+# Append dev AWS_ACCESS_KEY_ID (MinIO) — dev-only static creds, matches the
+# MinIO root user set in kubernetes/platform/minio and audio-api's dev overlay.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    value: minio
+
+# Append dev AWS_SECRET_ACCESS_KEY (MinIO)
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    value: minio123
+
+# Reduce resources — kind cluster is CPU/memory constrained
+- op: replace
+  path: /spec/template/spec/containers/0/resources
+  value:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

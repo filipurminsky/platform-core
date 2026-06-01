@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: stt-worker
+  namespace: apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: stt-worker
+  minReplicaCount: 0          # true scale-to-zero; GPU cold start accepted (§9)
+  maxReplicaCount: 3          # bounded by GPU node pool capacity (§9: 2 GPU nodes max)
+  cooldownPeriod: 300         # generous cooldown — GPU nodes are expensive to spin up/down
+  pollingInterval: 15         # how often KEDA checks consumer lag
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
+        consumerGroup: stt-worker
+        topic: audio.jobs
+        lagThreshold: "5"           # scale up when lag > 5 messages per partition
+        activationLagThreshold: "1" # activate (scale 0→1) when any lag exists
+        offsetResetPolicy: latest
