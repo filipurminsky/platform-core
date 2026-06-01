@@ -13,7 +13,7 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: monitoring
       ports:
-        - port: 8080
+        - port: 9090
   egress:
     - to:
         - namespaceSelector:

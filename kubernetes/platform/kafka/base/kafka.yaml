@@ -14,6 +14,8 @@ spec:
         port: 9092
         type: internal
         tls: false
+        authentication:
+          type: scram-sha-512             # patched out in dev overlay
       - name: tls
         port: 9093
         type: internal
@@ -63,7 +65,8 @@ spec:
         memory: 1Gi
   entityOperator:
     topicOperator: {}                    # watches KafkaTopic CRs
-    userOperator: {}                     # watches KafkaUser CRs
+    userOperator:
+      watchedNamespace: apps             # creates KafkaUser Secrets where apps/KEDA consume them
   kafkaExporter:                         # exposes consumer group lag to Prometheus
     topicRegex: ".*"
     groupRegex: ".*"

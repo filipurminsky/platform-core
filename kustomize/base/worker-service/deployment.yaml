@@ -16,7 +16,7 @@ spec:
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: /metrics
-        prometheus.io/port: "8080"
+        prometheus.io/port: "9090"
     spec:
       serviceAccountName: worker-service
       terminationGracePeriodSeconds: 60    # allow in-flight jobs to drain
@@ -29,7 +29,7 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 9090
           env:
             - name: ENVIRONMENT
               valueFrom:
@@ -49,22 +49,16 @@ spec:
               value: jobs-dlq
             - name: KAFKA_CONSUMER_GROUP
               value: worker-service
-            - name: KAFKA_SASL_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: worker-service          # Strimzi-generated
-                  key: sasl.jaas.config
-                  optional: true                # not present in dev (no auth)
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8080
+              port: http
             initialDelaySeconds: 15
             periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8080
+              port: http
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

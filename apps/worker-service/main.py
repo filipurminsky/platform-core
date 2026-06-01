@@ -41,6 +41,9 @@ METRICS_PORT = int(os.getenv("METRICS_PORT", "9090"))
 # SASL/SCRAM — injected by Strimzi KafkaUser secret in prod; empty → plaintext for local dev
 SASL_USERNAME = os.getenv("KAFKA_SASL_USERNAME", "")
 SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", "")
+SECURITY_PROTOCOL = os.getenv(
+    "KAFKA_SECURITY_PROTOCOL", "SASL_SSL" if SASL_USERNAME else "PLAINTEXT"
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -155,7 +158,7 @@ def _kafka_config(extra: dict | None = None) -> dict:
     if SASL_USERNAME:
         cfg.update(
             {
-                "security.protocol": "SASL_SSL",
+                "security.protocol": SECURITY_PROTOCOL,
                 "sasl.mechanism": "SCRAM-SHA-512",
                 "sasl.username": SASL_USERNAME,
                 "sasl.password": SASL_PASSWORD,

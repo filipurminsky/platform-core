@@ -5,6 +5,7 @@ namespace: apps
 
 resources:
   - ../../../base/worker-service
+  - trigger-auth.yaml
 
 labels:
   - pairs:
@@ -16,6 +17,14 @@ patches:
   - path: patch-worker-resources.yaml
     target:
       kind: Deployment
+      name: worker-service
+  - path: patch-kafka-auth.yaml
+    target:
+      kind: Deployment
+      name: worker-service
+  - path: patch-scaledobject-kafka-auth.yaml
+    target:
+      kind: ScaledObject
       name: worker-service
 
 replicas:

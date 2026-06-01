@@ -1,4 +1,4 @@
-# Dev: 1 broker, 1 ZooKeeper node, no TLS/SCRAM, standard storage class
+# Dev: 1 broker, 1 ZooKeeper node, no SCRAM auth, standard storage class
 - op: replace
   path: /spec/kafka/replicas
   value: 1
@@ -35,7 +35,10 @@
   path: /spec/zookeeper/storage/class
   value: standard
 
-# Disable TLS listener auth in dev (simplifies local testing)
+# Disable listener auth in dev (simplifies local testing)
+- op: remove
+  path: /spec/kafka/listeners/0/authentication
+
 - op: remove
   path: /spec/kafka/listeners/1/authentication
 

@@ -106,7 +106,7 @@ The dev overlay (`kustomize/overlays/dev/`) does three things the prod overlay d
 2. `patch-vllm-pvc.yaml` — changes storage class from `gp3` to `standard` (kind hostPath)
 3. `patch-resources.yaml` — reduces CPU/memory requests on all Deployments
 
-Kafka dev/prod differences (broker count, partition count, TLS/SCRAM auth, storage class) are in `kubernetes/platform/kafka/overlays/dev/` — separate from the app overlay.
+Kafka dev/prod differences (broker count, partition count, SCRAM auth, storage class) are in `kubernetes/platform/kafka/overlays/dev/` — separate from the app overlay.
 
 ### Multi-tenancy (namespace per team)
 
@@ -124,7 +124,7 @@ Key invariants when editing: **Roles are shared, RoleBindings are per-tenant**; 
 
 ### Secret ownership split
 
-- **Kafka SASL credentials** — owned by Strimzi UserOperator. The Secret named `worker-service` is created automatically from the `KafkaUser` CR. KEDA's `TriggerAuthentication` (`kubernetes/apps/worker-service/trigger-auth.yaml`) mounts it directly. Do **not** manage this Secret via External Secrets Operator.
+- **Kafka SASL credentials** — owned by Strimzi UserOperator. The Secret named `worker-service` is created automatically from the `KafkaUser` CR in the `apps` namespace. The prod worker overlay includes the KEDA `TriggerAuthentication` that reads its `password` key. Do **not** manage this Secret via External Secrets Operator.
 - **Everything else** (HuggingFace token, application secrets) — External Secrets Operator pulling from AWS Secrets Manager. Bootstrapped locally by `bootstrap.sh` via `kubectl create secret`.
 
 ### Image promotion path

@@ -5,7 +5,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaUser
 metadata:
   name: worker-service
-  namespace: platform
+  namespace: apps
   labels:
     strimzi.io/cluster: platform-kafka
 spec:
@@ -34,7 +34,7 @@ apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaUser
 metadata:
   name: llm-gateway
-  namespace: platform
+  namespace: apps
   labels:
     strimzi.io/cluster: platform-kafka
 spec:
