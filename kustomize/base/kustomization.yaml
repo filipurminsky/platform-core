@@ -11,6 +11,13 @@ resources:
   - worker-service/
   - vllm-inference/
   - llm-gateway/
+  # AI Audio Pipeline (STT → LLM → TTS). ArgoCD deploys the per-app overlays
+  # (overlays/{env}/<svc>); these aggregate entries exist so CI's whole-overlay
+  # kubeconform + OPA/conftest relationship checks cover the new services too.
+  - audio-api/
+  - stt-worker/
+  - llm-worker/
+  - tts-worker/
 
 # Use `labels` with includeSelectors:false, NOT commonLabels.
 # commonLabels injects labels into Service/Deployment SELECTORS, but kustomize

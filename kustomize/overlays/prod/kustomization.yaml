@@ -46,3 +46,15 @@ images:
   - name: llm-gateway
     newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/llm-gateway
     newTag: unpromoted
+  - name: audio-api
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/audio-api
+    newTag: unpromoted
+  - name: stt-worker
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/stt-worker
+    newTag: unpromoted
+  - name: llm-worker
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/llm-worker
+    newTag: unpromoted
+  - name: tts-worker
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/tts-worker
+    newTag: unpromoted
