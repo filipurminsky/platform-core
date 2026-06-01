@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: apps
+
+resources:
+  - ../../../base/audio-api
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: platform-core
+      app.kubernetes.io/managed-by: argocd
+    includeSelectors: false
+
+patches:
+  - path: patch-resources.yaml
+    target:
+      kind: Deployment
+      name: audio-api
+  - path: patch-dev-env.yaml
+    target:
+      kind: Deployment
+      name: audio-api
+
+replicas:
+  - name: audio-api
+    count: 1
+
+configMapGenerator:
+  - name: env-config
+    literals:
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+generatorOptions:
+  disableNameSuffixHash: true
+
+images:
+  - name: audio-api
+    newTag: latest

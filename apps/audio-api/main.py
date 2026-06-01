@@ -1,0 +1,380 @@
+"""
+audio-api — receives audio uploads, stores to S3, produces audio.jobs Kafka events.
+
+Responsibilities:
+  - POST /v1/audio/jobs: accept multipart audio upload, validate size + content-type,
+    store to S3 (audio/<job_id>), write job state to Redis, produce audio.jobs event.
+  - GET /jobs/{job_id}: return Redis job state or 404.
+  - GET /healthz, GET /readyz, GET /metrics: standard probes + Prometheus metrics.
+  - Structured JSON logging, W3C trace context propagation via Kafka headers.
+
+Env:
+  API_TOKEN           — bearer token; if unset, auth is skipped (dev convenience).
+  MAX_UPLOAD_BYTES    — default 26214400 (25 MB).
+  ALLOWED_CONTENT_TYPES — CSV; default audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/ogg,audio/flac.
+  S3_ENDPOINT_URL     — MinIO in dev; unset in prod (AWS default).
+  S3_BUCKET           — bucket name.
+  S3_REGION           — default eu-west-1.
+  REDIS_URL           — e.g. redis://redis.platform.svc.cluster.local:6379/0.
+  JOB_STATE_TTL_SECONDS — default 604800 (7 days).
+  KAFKA_BOOTSTRAP_SERVERS — default localhost:9092.
+  KAFKA_TOPIC_JOBS    — default audio.jobs.
+  KAFKA_SASL_USERNAME / KAFKA_SASL_PASSWORD / KAFKA_SECURITY_PROTOCOL — SASL/SCRAM in prod.
+  OTEL_SERVICE_NAME, OTEL_EXPORTER_OTLP_ENDPOINT — OTel wiring.
+  OTEL_SDK_DISABLED   — set to "true" to suppress span export (tests / no-collector envs).
+"""
+
+import datetime
+import json
+import os
+import socket
+import uuid
+
+import boto3
+import redis as redis_lib
+import structlog
+from botocore.config import Config
+from confluent_kafka import Producer
+from fastapi import FastAPI, Header, HTTPException, Request, Response, UploadFile
+from opentelemetry import propagate, trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.propagators.textmap import Setter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+API_TOKEN = os.getenv("API_TOKEN", "")  # empty → no auth check
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))  # 25 MB
+ALLOWED_CONTENT_TYPES = set(
+    os.getenv(
+        "ALLOWED_CONTENT_TYPES",
+        "audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/ogg,audio/flac",
+    ).split(",")
+)
+
+S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "")
+S3_BUCKET = os.getenv("S3_BUCKET", "audio-pipeline")
+S3_REGION = os.getenv("S3_REGION", "eu-west-1")
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+JOB_STATE_TTL_SECONDS = int(os.getenv("JOB_STATE_TTL_SECONDS", "604800"))
+
+KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_TOPIC_JOBS = os.getenv("KAFKA_TOPIC_JOBS", "audio.jobs")
+KAFKA_SASL_USERNAME = os.getenv("KAFKA_SASL_USERNAME", "")
+KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", "")
+KAFKA_SECURITY_PROTOCOL = os.getenv(
+    "KAFKA_SECURITY_PROTOCOL", "SASL_SSL" if KAFKA_SASL_USERNAME else "PLAINTEXT"
+)
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+def add_trace_context(_logger, _method_name, event_dict):
+    span = trace.get_current_span()
+    context = span.get_span_context()
+    if context.is_valid:
+        event_dict["trace_id"] = f"{context.trace_id:032x}"
+        event_dict["span_id"] = f"{context.span_id:016x}"
+    return event_dict
+
+
+structlog.configure(
+    processors=[
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.add_log_level,
+        add_trace_context,
+        structlog.processors.JSONRenderer(),
+    ]
+)
+log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Tracing
+# ---------------------------------------------------------------------------
+def configure_tracing() -> None:
+    if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
+        return
+    service_name = os.getenv("OTEL_SERVICE_NAME", "audio-api")
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+
+
+configure_tracing()
+
+
+# ---------------------------------------------------------------------------
+# Kafka header setter (for W3C traceparent injection)
+# ---------------------------------------------------------------------------
+class KafkaHeaderSetter(Setter):
+    def set(self, carrier, key, value):
+        carrier.append((key, value.encode()))
+
+
+kafka_header_setter = KafkaHeaderSetter()
+
+
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+UPLOADS_TOTAL = Counter(
+    "audio_uploads_total",
+    "Audio upload requests by status",
+    ["status"],  # success | rejected_size | rejected_type | auth_error
+)
+UPLOAD_BYTES = Histogram(
+    "audio_upload_bytes",
+    "Size of accepted audio uploads in bytes",
+    buckets=[
+        10_000,
+        100_000,
+        500_000,
+        1_000_000,
+        5_000_000,
+        10_000_000,
+        25_000_000,
+    ],
+)
+
+
+# ---------------------------------------------------------------------------
+# Module-level singletons (overridable in tests via monkeypatch)
+# ---------------------------------------------------------------------------
+s3_client = None
+redis_client = None
+kafka_producer = None
+
+
+# ---------------------------------------------------------------------------
+# Kafka helpers (mirrors worker-service _kafka_config pattern)
+# ---------------------------------------------------------------------------
+def _kafka_config(extra: dict | None = None) -> dict:
+    cfg = {
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "client.id": f"audio-api-{socket.gethostname()}",
+    }
+    if KAFKA_SASL_USERNAME:
+        cfg.update(
+            {
+                "security.protocol": KAFKA_SECURITY_PROTOCOL,
+                "sasl.mechanism": "SCRAM-SHA-512",
+                "sasl.username": KAFKA_SASL_USERNAME,
+                "sasl.password": KAFKA_SASL_PASSWORD,
+            }
+        )
+    if extra:
+        cfg.update(extra)
+    return cfg
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+app = FastAPI(title="audio-api", version="0.1.0")
+FastAPIInstrumentor.instrument_app(app)
+
+
+@app.on_event("startup")
+async def startup():
+    global s3_client, redis_client, kafka_producer
+
+    # S3 client — MinIO in dev (endpoint_url + path addressing), real S3 in prod.
+    s3_kwargs: dict = {"region_name": S3_REGION}
+    if S3_ENDPOINT_URL:
+        s3_kwargs["endpoint_url"] = S3_ENDPOINT_URL
+        s3_kwargs["config"] = Config(s3={"addressing_style": "path"})
+    if s3_client is None:
+        s3_client = boto3.client("s3", **s3_kwargs)
+
+    # Redis client
+    if redis_client is None:
+        redis_client = redis_lib.from_url(REDIS_URL, decode_responses=True)
+
+    # Kafka producer
+    if kafka_producer is None:
+        kafka_producer = Producer(_kafka_config())
+
+    log.info(
+        "audio_api_started",
+        bucket=S3_BUCKET,
+        topic=KAFKA_TOPIC_JOBS,
+        max_upload_bytes=MAX_UPLOAD_BYTES,
+    )
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    if kafka_producer is not None:
+        kafka_producer.flush(timeout=10)
+    log.info("audio_api_stopped")
+
+
+# ---------------------------------------------------------------------------
+# Probes and metrics
+# ---------------------------------------------------------------------------
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """Readiness: Redis ping (lenient — just checks connectivity)."""
+    checks: dict = {"redis": "unknown", "kafka": "unknown"}
+    try:
+        if redis_client is not None:
+            redis_client.ping()
+            checks["redis"] = "ok"
+        else:
+            checks["redis"] = "not_initialized"
+    except Exception as exc:
+        log.warning("readyz_redis_fail", error=str(exc))
+        checks["redis"] = "error"
+
+    # Kafka: just verify the producer object exists — producer.list_topics()
+    # can block/timeout; we keep this lenient per the spec.
+    checks["kafka"] = "ok" if kafka_producer is not None else "not_initialized"
+
+    # Return ready even if kafka producer is absent so the pod can come up.
+    if checks["redis"] == "error":
+        raise HTTPException(status_code=503, detail=checks)
+
+    return {"status": "ready", "checks": checks}
+
+
+@app.get("/metrics")
+async def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+# ---------------------------------------------------------------------------
+# Auth helper
+# ---------------------------------------------------------------------------
+def _check_auth(authorization: str | None) -> None:
+    """Validate bearer token if API_TOKEN is configured. Skipped when unset."""
+    if not API_TOKEN:
+        return
+    if authorization is None or not authorization.startswith("Bearer "):
+        UPLOADS_TOTAL.labels(status="auth_error").inc()
+        raise HTTPException(status_code=401, detail="missing bearer token")
+    token = authorization[len("Bearer ") :]
+    if token != API_TOKEN:
+        UPLOADS_TOTAL.labels(status="auth_error").inc()
+        raise HTTPException(status_code=401, detail="invalid token")
+
+
+# ---------------------------------------------------------------------------
+# Upload endpoint
+# ---------------------------------------------------------------------------
+@app.post("/v1/audio/jobs")
+async def create_job(
+    request: Request,
+    file: UploadFile,
+    authorization: str | None = Header(default=None),
+):
+    """Accept a multipart audio upload, store it, and enqueue an audio.jobs event."""
+    _check_auth(authorization)
+
+    # Validate content-type
+    content_type = (file.content_type or "").split(";")[0].strip()
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        UPLOADS_TOTAL.labels(status="rejected_type").inc()
+        raise HTTPException(
+            status_code=415,
+            detail=f"unsupported content type: {content_type!r}. Allowed: {sorted(ALLOWED_CONTENT_TYPES)}",
+        )
+
+    # Read the file and enforce size limit
+    audio_bytes = await file.read()
+    byte_count = len(audio_bytes)
+    if byte_count > MAX_UPLOAD_BYTES:
+        UPLOADS_TOTAL.labels(status="rejected_size").inc()
+        raise HTTPException(
+            status_code=413,
+            detail=f"upload size {byte_count} exceeds maximum {MAX_UPLOAD_BYTES}",
+        )
+
+    job_id = uuid.uuid4().hex
+    audio_key = f"audio/{job_id}"
+    created_at = datetime.datetime.now(datetime.UTC).isoformat()
+
+    # Write audio to S3
+    s3_client.put_object(
+        Bucket=S3_BUCKET,
+        Key=audio_key,
+        Body=audio_bytes,
+        ContentType=content_type,
+    )
+
+    # Write job state to Redis
+    job_state = {
+        "status": "queued",
+        "stage": "audio-api",
+        "updated_at": created_at,
+        "keys": {
+            "audio": audio_key,
+            "transcript": None,
+            "summary": None,
+            "speech": None,
+        },
+    }
+    redis_client.setex(
+        f"job:{job_id}",
+        JOB_STATE_TTL_SECONDS,
+        json.dumps(job_state),
+    )
+
+    # Build Kafka event (contract §3)
+    event = {
+        "job_id": job_id,
+        "audio_key": audio_key,
+        "content_type": content_type,
+        "bytes": byte_count,
+        "created_at": created_at,
+    }
+
+    # Inject W3C traceparent into Kafka headers
+    headers: list[tuple[str, bytes]] = []
+    propagate.inject(headers, setter=kafka_header_setter)
+
+    kafka_producer.produce(
+        KAFKA_TOPIC_JOBS,
+        value=json.dumps(event).encode(),
+        key=job_id.encode(),
+        headers=headers,
+    )
+    kafka_producer.poll(0)  # trigger delivery callbacks without blocking
+
+    UPLOADS_TOTAL.labels(status="success").inc()
+    UPLOAD_BYTES.observe(byte_count)
+
+    log.info(
+        "job_created",
+        job_id=job_id,
+        content_type=content_type,
+        bytes=byte_count,
+        audio_key=audio_key,
+    )
+
+    return {"job_id": job_id}
+
+
+# ---------------------------------------------------------------------------
+# Status endpoint
+# ---------------------------------------------------------------------------
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    """Return the current job state from Redis, or 404 if not found."""
+    raw = redis_client.get(f"job:{job_id}")
+    if raw is None:
+        raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
+    return json.loads(raw)

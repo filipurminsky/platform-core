@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audio-api
+  labels:
+    app: audio-api
+spec:
+  replicas: 2              # steady HTTP service (not KEDA-managed); dev overlay drops to 1
+  selector:
+    matchLabels:
+      app: audio-api
+  template:
+    metadata:
+      labels:
+        app: audio-api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: audio-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: audio-api
+          image: audio-api:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: env-config
+                  key: ENVIRONMENT
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: env-config
+                  key: LOG_LEVEL
+            # Kafka — plain bootstrap in base; prod overlay appends SASL env vars.
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
+            - name: KAFKA_TOPIC_JOBS
+              value: audio.jobs
+            # OpenTelemetry
+            - name: OTEL_SERVICE_NAME
+              value: audio-api
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.monitoring.svc.cluster.local:4317
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=apps
+            # S3 / MinIO — dev overlay patches S3_ENDPOINT_URL + creds; prod unsets it.
+            - name: S3_BUCKET
+              value: audio-pipeline
+            - name: S3_REGION
+              value: eu-west-1
+            # Redis
+            - name: REDIS_URL
+              value: redis://redis.platform.svc.cluster.local:6379/0
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

@@ -1,0 +1,38 @@
+# audio-api is environment-selected, not hardcoded. The cluster generator
+# reads the `environment` label off the destination cluster's ArgoCD secret
+# (set by bootstrap.sh: dev for kind, prod for EKS) and templates it into the
+# overlay path. Switching environments never requires editing this file.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: audio-api
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: audio-api
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform-apps            # governed promotion (sync window) — see kubernetes/platform/argocd/appproject-apps.yaml
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kustomize/overlays/{{.metadata.labels.environment}}/audio-api
+      destination:
+        server: "{{.server}}"
+        namespace: apps
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

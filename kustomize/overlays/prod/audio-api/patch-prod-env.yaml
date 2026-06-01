@@ -1,0 +1,40 @@
+# Prod environment: Kafka SASL credentials (Strimzi KafkaUser Secret),
+# S3 bucket from Crossplane connection secret, no S3_ENDPOINT_URL (real AWS S3).
+
+# Kafka SASL — credentials from the Strimzi-managed KafkaUser Secret.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: KAFKA_SASL_USERNAME
+    value: audio-api
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: KAFKA_SECURITY_PROTOCOL
+    value: SASL_PLAINTEXT
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: KAFKA_SASL_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: audio-api
+        key: password
+
+# S3 — bucket name from the Crossplane connection secret; no endpoint override (real AWS).
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_BUCKET
+    valueFrom:
+      secretKeyRef:
+        name: audio-pipeline-conn
+        key: bucket
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_REGION
+    value: eu-west-1

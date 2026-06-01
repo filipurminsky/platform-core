@@ -1,0 +1,25 @@
+# Dev environment: wire MinIO as S3 backend and add MinIO credentials.
+# In prod these are absent (IRSA provides AWS credentials; S3_ENDPOINT_URL is unset).
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_ENDPOINT_URL
+    value: http://minio.platform.svc.cluster.local:9000
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_BUCKET
+    value: audio-pipeline
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    value: minio
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    value: minio123
