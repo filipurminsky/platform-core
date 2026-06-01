@@ -57,3 +57,18 @@ misconfigurations:
   # Accepted as third-party module risk.
   - id: AVD-AWS-0130
   - id: AVD-AWS-0104
+
+  # AWS-0057 (least-privilege IAM — no wildcards) — fires on the Crossplane S3
+  # provider policy. The wildcard is irreducible here: Crossplane is a
+  # provisioning controller that creates/deletes S3 buckets whose names don't
+  # exist when the policy is written, so it MUST be scoped by prefix
+  # (arn:aws:s3:::platform-core-<env>-*) rather than to exact bucket ARNs — that
+  # prefix is already the tightest possible bound. The bucket-config action
+  # wildcards (s3:GetBucket*/PutBucket*) cover the versioning/encryption/
+  # public-access-block sub-resources the provider reconciles. The role is bound
+  # via IRSA to a single ServiceAccount (crossplane-system:provider-aws-s3).
+  # The read-only policies in this same module (external-secrets, ecr) do not
+  # trip this rule. Scoped to the iam module only.
+  - id: AVD-AWS-0057
+    paths:
+      - "terraform/modules/iam/main.tf"
