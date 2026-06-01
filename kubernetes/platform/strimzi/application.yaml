@@ -17,6 +17,14 @@ spec:
     helm:
       values: |
         watchAnyNamespace: false
+        # Watch `apps` in addition to the install namespace (platform). The Kafka
+        # CR's User Operator runs with watchedNamespace=apps so the worker-service
+        # KafkaUser secret is created where the worker + KEDA TriggerAuthentication
+        # consume it (the secret-ownership split). Without this the chart grants
+        # the operator no RBAC in `apps`, so it 403s creating the entity-operator
+        # Role there and the Kafka cluster never goes Ready.
+        watchNamespaces:
+          - apps
         resources:
           requests:
             cpu: 100m
