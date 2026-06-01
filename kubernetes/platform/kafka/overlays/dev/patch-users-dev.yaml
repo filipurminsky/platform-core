@@ -12,3 +12,31 @@ kind: KafkaUser
 metadata:
   name: llm-gateway
   namespace: apps
+---
+$patch: delete
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: audio-api
+  namespace: apps
+---
+$patch: delete
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: stt-worker
+  namespace: apps
+---
+$patch: delete
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: llm-worker
+  namespace: apps
+---
+$patch: delete
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: tts-worker
+  namespace: apps

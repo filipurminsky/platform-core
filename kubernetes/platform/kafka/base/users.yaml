@@ -58,3 +58,130 @@ spec:
           name: llm-gateway
           patternType: literal
         operations: [Read]
+# ---------------------------------------------------------------------------
+# AI Audio Pipeline users — owned by the audio pipeline Chunk 1.
+# Least-privilege ACLs: each service can only read/write the specific
+# topics it needs. Dev overlay (patch-users-dev.yaml) deletes all four
+# because dev uses the unauthenticated internal listener.
+# ---------------------------------------------------------------------------
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: audio-api
+  namespace: apps
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: audio.jobs
+          patternType: literal
+        operations: [Write, Describe]
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: stt-worker
+  namespace: apps
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: audio.jobs
+          patternType: literal
+        operations: [Read, Describe]
+      - resource:
+          type: topic
+          name: audio.transcripts
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: audio.stt-dlq
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: group
+          name: stt-worker
+          patternType: literal
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: llm-worker
+  namespace: apps
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: audio.transcripts
+          patternType: literal
+        operations: [Read, Describe]
+      - resource:
+          type: topic
+          name: audio.summaries
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: audio.llm-dlq
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: group
+          name: llm-worker
+          patternType: literal
+        operations: [Read]
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: tts-worker
+  namespace: apps
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      - resource:
+          type: topic
+          name: audio.summaries
+          patternType: literal
+        operations: [Read, Describe]
+      - resource:
+          type: topic
+          name: audio.results
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: audio.tts-dlq
+          patternType: literal
+        operations: [Write, Describe]
+      - resource:
+          type: group
+          name: tts-worker
+          patternType: literal
+        operations: [Read]

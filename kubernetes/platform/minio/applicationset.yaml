@@ -1,0 +1,78 @@
+# MinIO — dev-only object storage standing in for prod S3.
+#
+# In dev (kind), workers use MinIO as the S3-compatible blob store for the
+# audio pipeline (bucket: audio-pipeline). Prod uses a real S3 bucket
+# provisioned via Crossplane (see kubernetes/platform/crossplane/config/).
+#
+# Scoped to dev only: the cluster generator matches environment=dev. The
+# crossplane + S3 slice is skipped in dev, and MinIO is skipped in prod —
+# each environment gets exactly one object-storage backend.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: minio
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["dev"]
+  template:
+    metadata:
+      name: minio
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: https://charts.min.io/
+        chart: minio
+        # Pin to a recent stable release; bump deliberately after testing.
+        targetRevision: "5.4.0"
+        helm:
+          values: |
+            # Standalone single-replica mode (dev/kind only — not HA).
+            mode: standalone
+            replicas: 1
+
+            # Static dev credentials — acceptable for local kind only.
+            # Prod uses IRSA (no static keys) via the Crossplane S3 provider.
+            rootUser: minio
+            rootPassword: minio123
+
+            # Auto-create the shared audio pipeline bucket on startup.
+            buckets:
+              - name: audio-pipeline
+                policy: none
+                purge: false
+
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 512Mi
+
+            # Use the default storage class (kind hostPath).
+            persistence:
+              enabled: true
+              size: 5Gi
+
+            # Expose a ClusterIP service; workers access via S3_ENDPOINT_URL.
+            service:
+              type: ClusterIP
+              port: 9000
+      destination:
+        server: "{{.server}}"
+        namespace: platform
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

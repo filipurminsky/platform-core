@@ -56,3 +56,108 @@ spec:
   config:
     retention.ms: "86400000"
     cleanup.policy: delete
+# ---------------------------------------------------------------------------
+# AI Audio Pipeline topics — owned by the audio pipeline Chunk 1.
+# The dev overlay patch-topics-dev.yaml targets all KafkaTopics by kind,
+# so every topic below is automatically patched to 1 partition / 1 replica
+# in dev without any per-topic changes here.
+# ---------------------------------------------------------------------------
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audio.jobs
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 5             # patched to 1 in dev overlay
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "604800000"   # 7 days
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audio.transcripts
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 5             # patched to 1 in dev overlay
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "604800000"   # 7 days
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audio.summaries
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 5             # patched to 1 in dev overlay
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "604800000"   # 7 days
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audio.results
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 5             # patched to 1 in dev overlay
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "604800000"   # 7 days
+    cleanup.policy: delete
+---
+# DLQ topics: 1 partition, 30-day retention (dead letters need longer for investigation)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audio.stt-dlq
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 1
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "2592000000"  # 30 days
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audio.llm-dlq
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 1
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "2592000000"  # 30 days
+    cleanup.policy: delete
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: audio.tts-dlq
+  namespace: platform
+  labels:
+    strimzi.io/cluster: platform-kafka
+spec:
+  partitions: 1
+  replicas: 3               # patched to 1 in dev overlay
+  config:
+    retention.ms: "2592000000"  # 30 days
+    cleanup.policy: delete

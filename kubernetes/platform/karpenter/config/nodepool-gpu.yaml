@@ -4,6 +4,17 @@
 # above zero, Karpenter provisions a GPU node on demand; when vLLM scales back to
 # zero, the empty node is reclaimed. On-demand only (Spot GPU is frequently
 # interrupted and the model reload is expensive).
+#
+# Audio pipeline GPU sizing (decision locked in audio-pipeline-contract.md §9):
+#   - One GPU pod per node (no co-scheduling / MPS in v1).
+#   - Two concurrent GPU workloads when both STT and vLLM are active:
+#       * stt-worker (Parakeet STT, prod backend=nemo) — 1 × nvidia.com/gpu
+#       * vllm-inference                               — 1 × nvidia.com/gpu
+#   - limits.nvidia.com/gpu=2 allows Karpenter to scale up to 2 GPU nodes,
+#     one per workload. Cost lever: g4dn.xlarge ≈ $0.53/hr, g5.xlarge ≈ $1.01/hr
+#     (on-demand eu-west-1). Scale-to-zero (KEDA cooldownPeriod=300s) reclaims
+#     idle GPU nodes automatically to avoid paying for idle capacity.
+#   - Raise this limit only if a third GPU workload is introduced.
 apiVersion: karpenter.sh/v1
 kind: NodePool
 metadata:

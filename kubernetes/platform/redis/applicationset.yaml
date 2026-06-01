@@ -1,0 +1,70 @@
+# Redis — job-state store for the AI audio pipeline.
+#
+# Deployed to all environments (dev + prod): audio pipeline workers write
+# job state (status, keys, error) under key `job:<job_id>` with a 7-day TTL,
+# and audio-api reads it for the status endpoint.
+#
+# Service DNS: redis.platform.svc.cluster.local:6379  (fullnameOverride=redis)
+# Client env var: REDIS_URL=redis://redis.platform.svc.cluster.local:6379/0
+#
+# Auth is disabled (demo setup). For prod hardening, enable Bitnami auth
+# and wire the password via External Secrets Operator.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: redis
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: redis
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: https://charts.bitnami.com/bitnami
+        chart: redis
+        # Pin to a tested release; bump deliberately.
+        targetRevision: "20.6.0"
+        helm:
+          values: |
+            # Standalone (no sentinel/cluster) — sufficient for job-state store.
+            architecture: standalone
+
+            # fullnameOverride ensures the Service is named `redis` so workers
+            # reach it at redis.platform.svc.cluster.local:6379 per the contract.
+            fullnameOverride: redis
+
+            auth:
+              # Auth disabled for this demo. Enable and wire a Secret for prod hardening.
+              enabled: false
+
+            master:
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi
+              persistence:
+                # Small persistence for dev/kind; disable for ephemeral test clusters.
+                enabled: true
+                size: 1Gi
+      destination:
+        server: "{{.server}}"
+        namespace: platform
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

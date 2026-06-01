@@ -1,0 +1,33 @@
+# Audio pipeline S3 bucket claim (prod only).
+#
+# Crossplane provisions a secure, versioned S3 bucket named `audio-pipeline`
+# in eu-west-1. The connection secret written to `audio-pipeline-conn` in the
+# `apps` namespace exposes `bucket` and `region` keys consumed by the workers
+# (S3_BUCKET env var) via ExternalSecret or direct Secret mount.
+#
+# TODO: S3 lifecycle policy — prod should expire raw audio and synthesised speech
+# to control storage costs:
+#   audio/<job_id>    — expire after 30 days (audio/wav uploads)
+#   speech/<job_id>   — expire after 30 days (synthesised audio)
+#   transcripts/<job_id> and summaries/<job_id> — retain longer (audit/replay)
+#
+# The current XRD/Composition (config/definition.yaml) does NOT expose a
+# lifecycle parameter — only `region` and `versioning` are supported. To add
+# lifecycle rules, either:
+#   a) Extend the XRD with a `lifecycle` parameter and add a
+#      BucketLifecycleConfiguration resource in the Composition, OR
+#   b) Apply the lifecycle policy out-of-band via the AWS console / CLI /
+#      Terraform after the bucket is provisioned.
+# Do NOT add unsupported fields to spec.parameters — they would be silently
+# ignored by Crossplane and the rule would never be created.
+apiVersion: platform.io/v1alpha1
+kind: ObjectStorageBucket
+metadata:
+  name: audio-pipeline
+  namespace: apps
+spec:
+  parameters:
+    region: eu-west-1
+    versioning: true
+  writeConnectionSecretToRef:
+    name: audio-pipeline-conn
