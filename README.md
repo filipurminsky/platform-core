@@ -82,6 +82,10 @@ Developer → Backstage Portal → Git Repository
 
 ## Quick Start
 
+> Common tasks are wrapped in a `Makefile` — run `make help` to list them
+> (`make validate` runs the full local check suite, `make up` bootstraps a local
+> kind cluster, `make test` runs the app unit tests).
+
 ### Local — no AWS cost
 
 ```bash
