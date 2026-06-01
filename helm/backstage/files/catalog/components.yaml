@@ -94,3 +94,86 @@ spec:
   system: platform-core
   providesApis:
     - kafka-jobs-topic
+---
+# ── AI Audio Pipeline (four new services) ───────────────────────────────────
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: audio-api
+  description: FastAPI service that accepts audio uploads, stores to S3/MinIO, and produces audio.jobs Kafka events for the AI audio pipeline
+  tags: [python, fastapi, audio, kafka, s3, demo]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: audio-api
+    backstage.io/kubernetes-id: audio-api
+spec:
+  type: service
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  providesApis:
+    - audio-jobs-topic
+  dependsOn:
+    - component:stt-worker
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: stt-worker
+  description: Kafka consumer that transcribes audio from S3 via a pluggable STT backend (stub in dev, NeMo Parakeet in prod) and produces audio.transcripts events
+  tags: [python, kafka, keda, stt, audio, demo]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: stt-worker
+    backstage.io/kubernetes-id: stt-worker
+spec:
+  type: service
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  consumesApis:
+    - audio-jobs-topic
+  providesApis:
+    - audio-transcripts-topic
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-worker
+  description: Kafka consumer that summarises transcripts via the llm-gateway and produces audio.summaries events with action items
+  tags: [python, kafka, keda, llm, audio, demo]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: llm-worker
+    backstage.io/kubernetes-id: llm-worker
+spec:
+  type: service
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  consumesApis:
+    - audio-transcripts-topic
+  providesApis:
+    - audio-summaries-topic
+  dependsOn:
+    - component:llm-gateway
+---
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: tts-worker
+  description: Kafka consumer that synthesises speech from summaries via a pluggable TTS backend (stub in dev, Kokoro in prod) and produces audio.results events
+  tags: [python, kafka, keda, tts, audio, demo]
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    argocd/app-name: tts-worker
+    backstage.io/kubernetes-id: tts-worker
+spec:
+  type: service
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  consumesApis:
+    - audio-summaries-topic
+  providesApis:
+    - audio-results-topic

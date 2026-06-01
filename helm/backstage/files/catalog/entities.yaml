@@ -112,3 +112,118 @@ spec:
         publish:
           message:
             name: Job
+---
+# ── AI Audio Pipeline — Kafka topic APIs ────────────────────────────────────
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: audio-jobs-topic
+  description: "audio.jobs — produced by audio-api, consumed by stt-worker; carries job_id + audio S3 key"
+spec:
+  type: asyncapi
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  definition: |
+    asyncapi: 2.6.0
+    info:
+      title: audio.jobs
+      version: 1.0.0
+    channels:
+      audio.jobs:
+        publish:
+          message:
+            name: AudioJob
+            payload:
+              type: object
+              properties:
+                job_id: {type: string, format: uuid}
+                audio_key: {type: string}
+                content_type: {type: string}
+                bytes: {type: integer}
+                created_at: {type: string, format: date-time}
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: audio-transcripts-topic
+  description: "audio.transcripts — produced by stt-worker, consumed by llm-worker; carries transcript S3 key"
+spec:
+  type: asyncapi
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  definition: |
+    asyncapi: 2.6.0
+    info:
+      title: audio.transcripts
+      version: 1.0.0
+    channels:
+      audio.transcripts:
+        publish:
+          message:
+            name: AudioTranscript
+            payload:
+              type: object
+              properties:
+                job_id: {type: string, format: uuid}
+                transcript_key: {type: string}
+                language: {type: string}
+                duration_s: {type: number}
+                created_at: {type: string, format: date-time}
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: audio-summaries-topic
+  description: "audio.summaries — produced by llm-worker, consumed by tts-worker; carries summary S3 key + action items"
+spec:
+  type: asyncapi
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  definition: |
+    asyncapi: 2.6.0
+    info:
+      title: audio.summaries
+      version: 1.0.0
+    channels:
+      audio.summaries:
+        publish:
+          message:
+            name: AudioSummary
+            payload:
+              type: object
+              properties:
+                job_id: {type: string, format: uuid}
+                summary_key: {type: string}
+                action_items: {type: array, items: {type: string}}
+                created_at: {type: string, format: date-time}
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: audio-results-topic
+  description: "audio.results — produced by tts-worker (terminal stage); carries speech S3 key and final status"
+spec:
+  type: asyncapi
+  lifecycle: experimental
+  owner: platform-team
+  system: platform-core
+  definition: |
+    asyncapi: 2.6.0
+    info:
+      title: audio.results
+      version: 1.0.0
+    channels:
+      audio.results:
+        publish:
+          message:
+            name: AudioResult
+            payload:
+              type: object
+              properties:
+                job_id: {type: string, format: uuid}
+                speech_key: {type: string}
+                status: {type: string, enum: [done]}
+                created_at: {type: string, format: date-time}
