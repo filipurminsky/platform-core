@@ -64,3 +64,7 @@ variable "aws_region" {
 
 output "cluster_name" { value = module.eks.cluster_name }
 output "cluster_endpoint" { value = module.eks.cluster_endpoint }
+
+# Annotate the Crossplane provider-aws-s3 ServiceAccount with this (IRSA):
+# kubernetes/platform/crossplane/config/provider.yaml
+output "crossplane_s3_role_arn" { value = module.iam.crossplane_s3_role_arn }

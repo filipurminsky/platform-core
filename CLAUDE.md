@@ -81,7 +81,19 @@ kubectl label secret in-cluster -n argocd environment=prod --overwrite
 
 - **`kubernetes/apps/`** — ArgoCD ApplicationSets and KEDA ScaledObjects/TriggerAuthentications only. **No Deployments or Services here.**
 - **`kustomize/base/{echo-service,worker-service,vllm-inference}/`** — the real Kubernetes manifests for the three demo apps.
-- **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, backstage). Each points to its upstream Helm chart.
+- **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, crossplane, backstage). Each points to its upstream Helm chart.
+
+### Application source code (`apps/`)
+
+**Do not confuse `apps/` (root) with `kubernetes/apps/`.** `apps/` holds the *source code and container builds* for the three demo services; `kubernetes/apps/` holds their *ArgoCD ApplicationSets*. The deployable manifests live in neither — they're in `kustomize/base/<svc>/`.
+
+Each `apps/<service>/` is a self-contained Python project:
+
+- **`echo-service`** — FastAPI HTTP demo (probes, `/metrics`, request echo). Deployed as an Argo Rollout (canary).
+- **`worker-service`** — Kafka consumer (confluent-kafka, no web framework). Manual-commit processing with dedup, retry → DLQ, graceful SIGTERM drain; exposes metrics on `:9090`. Scaled by KEDA on consumer lag.
+- **`llm-gateway`** — FastAPI reverse proxy in front of vLLM: per-IP sliding-window rate limiting, upstream error mapping (429/502/504), metrics.
+
+Per service: `main.py` (single-module app), `requirements.txt` (runtime, pinned), `requirements-dev.txt` (adds `pytest`), `test_main.py` (unit tests — run `pytest -q` from the service dir), `Dockerfile` (python:3.12-slim, non-root), and `catalog-info.yaml` (Backstage catalog entry). Lint/format with `ruff` (config in `pyproject.toml`); CI runs `ruff` + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. There is also an `apps/docker-compose.yml` for running the stack locally without Kubernetes.
 
 ### App-of-Apps flow
 
@@ -122,6 +134,16 @@ Key invariants when editing: **Roles are shared, RoleBindings are per-tenant**; 
 ### Terraform module structure
 
 `terraform/environments/{dev,prod}/main.tf` composes three modules: `networking` → `eks` → `iam`. The `gpu-nodegroup` module is conditionally invoked inside `eks` (`enable_gpu_nodegroup = false` in dev, `true` in prod). All three modules share the same `project`/`environment` naming convention which becomes the cluster name (`platform-core-dev`, `platform-core-prod`).
+
+### Crossplane vs Terraform (two IaC tools, split by lifecycle)
+
+**Terraform owns the day-0 foundation; Crossplane owns day-2 app-facing infra.** Terraform provisions everything that must exist before the cluster is useful (VPC, EKS, IRSA/OIDC, GPU nodes) — including the IAM role Crossplane assumes. Crossplane (running *in* the cluster) then exposes cloud resources as Kubernetes CRDs that app teams self-serve via claims, GitOps-reconciled by ArgoCD. Don't migrate the foundation to Crossplane — it can't bootstrap its own cluster, and you don't want VPC/EKS lifecycle in a reconcile loop.
+
+Current slice = **S3** (`kubernetes/platform/crossplane/`, full details in `docs/crossplane.md`):
+- Two ArgoCD apps from one `applicationset.yaml`: `crossplane` (Helm core, wave -2) + `crossplane-config` (the `config/` dir of Crossplane CRs, wave -1).
+- A team applies a namespaced `ObjectStorageBucket` claim (`platform.io/v1alpha1`); the platform-owned **XRD** (`config/definition.yaml`) + **Composition** (`config/composition.yaml`, pipeline mode + function-patch-and-transform) render a secure bucket (AES256, public access blocked, versioned).
+- `provider-aws-s3` authenticates via **IRSA** (`module.iam.crossplane_s3_role_arn`, SA `crossplane-system:provider-aws-s3`) — no static keys. The role ARN is wired into the SA annotation in `config/provider.yaml`.
+- **AWS-only**: both ApplicationSets use a cluster generator scoped to `environment: prod`, so the slice is skipped on local kind clusters. New Crossplane CRD kinds are added to the kubeconform `-skip` list in `ci.yaml`.
 
 ### OPA policies
 

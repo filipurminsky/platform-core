@@ -48,6 +48,7 @@ Developer → Backstage Portal → Git Repository
 |---|---|
 | Kubernetes cluster operations | EKS + Kustomize overlays + HPA + PDB + Network Policies |
 | Terraform IaC | Modular AWS + kind modules + GPU node group + remote state |
+| Cloud infra self-service | Crossplane S3 API — teams claim a secure bucket via `kubectl`; XRD + Composition + IRSA (AWS-only slice) |
 | Internal developer platform | Backstage with scaffolding templates, catalog, and plugins |
 | Multi-tenancy | Namespace-per-team via ApplicationSet + ResourceQuota/LimitRange tiers + zero-trust NetworkPolicies + per-tenant RBAC |
 | GitOps / SDLC automation | ArgoCD App-of-Apps + GitHub Actions (lint / validate / plan) |
@@ -127,7 +128,8 @@ platform-core/
 │   ├── bootstrap/argocd/    # One-time ArgoCD installation
 │   ├── platform/            # ArgoCD Applications for platform services
 │   │   ├── kafka/           # Strimzi Kafka cluster + topics + users
-│   │   └── keda/            # KEDA operator
+│   │   ├── keda/            # KEDA operator
+│   │   └── crossplane/      # Crossplane + AWS S3 self-service API (XRD/Composition)
 │   └── apps/                # ArgoCD Applications for demo workloads
 ├── helm/                    # Custom Helm charts (demo-app, vllm, platform-services)
 ├── kustomize/               # Base manifests + dev/prod overlays
@@ -148,6 +150,7 @@ See [`docs/architecture.md`](docs/architecture.md) for full ADRs. Summary:
 - **Kustomize overlays over Helm values files** — cleaner separation of env-specific patches without templating complexity
 - **External Secrets Operator** — secrets live in AWS Secrets Manager; never committed to Git
 - **vLLM over TGI/Triton** — OpenAI-compatible API, PagedAttention for KV cache efficiency, built-in Prometheus metrics
+- **Terraform + Crossplane, split by lifecycle** — Terraform for the day-0 foundation (VPC/EKS/IAM, the seed Crossplane can't bootstrap itself); Crossplane for day-2 app-facing infra exposed as self-service Kubernetes APIs. See [`docs/crossplane.md`](docs/crossplane.md)
 
 ---
 

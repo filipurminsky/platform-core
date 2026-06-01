@@ -1,0 +1,10 @@
+# Composition function used by the Composition pipeline (modern Crossplane
+# replaces inline native patch-and-transform with this function package).
+apiVersion: pkg.crossplane.io/v1
+kind: Function
+metadata:
+  name: function-patch-and-transform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.8.2

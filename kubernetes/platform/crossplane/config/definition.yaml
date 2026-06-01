@@ -1,0 +1,57 @@
+# Platform S3 API. This XRD is the self-service contract: app teams create a
+# namespaced `ObjectStorageBucket` claim (see ../examples/bucket-claim.yaml) and
+# the platform-owned Composition turns it into a secure S3 bucket. Teams never
+# touch raw AWS resources or IAM.
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xobjectstoragebuckets.platform.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  group: platform.io
+  names:
+    kind: XObjectStorageBucket
+    plural: xobjectstoragebuckets
+  claimNames:
+    kind: ObjectStorageBucket
+    plural: objectstoragebuckets
+  # Keys copied from the composite's connection secret down to the claim's
+  # secret in the app namespace.
+  connectionSecretKeys:
+    - bucket
+    - region
+  defaultCompositionRef:
+    name: objectstoragebucket.aws
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+                    region:
+                      type: string
+                      description: AWS region for the bucket.
+                      default: eu-west-1
+                    versioning:
+                      type: boolean
+                      description: Enable S3 object versioning.
+                      default: true
+                  required:
+                    - region
+              required:
+                - parameters
+            status:
+              type: object
+              properties:
+                bucketName:
+                  type: string
+                  description: The provisioned bucket's name.

@@ -1,0 +1,15 @@
+# Tells the AWS provider how to authenticate. `source: IRSA` makes it use the
+# pod's web-identity token (the IRSA role on the provider-aws-s3 ServiceAccount)
+# — no access keys anywhere, consistent with the rest of the platform.
+#
+# Synced at a later wave: the aws.upbound.io CRDs only exist once the Provider
+# package above has installed and become Healthy.
+apiVersion: aws.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  credentials:
+    source: IRSA

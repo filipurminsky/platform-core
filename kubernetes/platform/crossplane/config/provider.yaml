@@ -1,0 +1,31 @@
+# AWS S3 provider package + its runtime config.
+#
+# The DeploymentRuntimeConfig pins the provider controller's ServiceAccount name
+# to `provider-aws-s3` and carries the IRSA annotation, so the pod assumes the
+# Terraform-created role (module.iam.crossplane_s3_role_arn) with no static keys.
+# The Terraform IRSA trust policy is bound to crossplane-system:provider-aws-s3.
+---
+apiVersion: pkg.crossplane.io/v1beta1
+kind: DeploymentRuntimeConfig
+metadata:
+  name: provider-aws-s3
+spec:
+  serviceAccountTemplate:
+    metadata:
+      name: provider-aws-s3
+      annotations:
+        # Fill in from: terraform output crossplane_s3_role_arn
+        # arn:aws:iam::<account-id>:role/platform-core-prod-crossplane-s3
+        eks.amazonaws.com/role-arn: ""
+---
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-aws-s3
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  # Pin to a tested release; verify against the Crossplane core version.
+  package: xpkg.upbound.io/upbound/provider-aws-s3:v1.21.1
+  runtimeConfigRef:
+    name: provider-aws-s3

@@ -1,0 +1,111 @@
+# Crossplane control plane (core) — installed via the upstream Helm chart.
+#
+# Scoped to AWS clusters only: the cluster generator matches just
+# environment=prod (set by bootstrap.sh --mode=aws). On a local kind cluster
+# there are no AWS credentials and provisioning real S3 buckets makes no sense,
+# so the whole Crossplane slice is skipped there — keeping `--mode=local`
+# lightweight. See kubernetes/platform/crossplane/config/ for the providers and
+# the platform S3 API (XRD + Composition).
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: crossplane
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["prod"]
+  template:
+    metadata:
+      name: crossplane
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        # Core + its CRDs (Provider, Function, ProviderConfig, …) must exist
+        # before the crossplane-config app applies any of those resources.
+        argocd.argoproj.io/sync-wave: "-2"
+    spec:
+      project: default
+      source:
+        repoURL: https://charts.crossplane.io/stable
+        chart: crossplane
+        # Pin to a tested release; bump deliberately (verify provider/function
+        # compatibility against the Crossplane version before upgrading).
+        targetRevision: 1.17.3
+        helm:
+          values: |
+            resourcesCrossplane:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+            metrics:
+              enabled: true
+      destination:
+        server: "{{.server}}"
+        namespace: crossplane-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+---
+# Crossplane configuration: the AWS S3 provider, the patch-and-transform
+# function, the platform S3 API (XRD) and its Composition. Synced after the
+# core app (wave -2) installs the pkg.crossplane.io CRDs.
+#
+# Package installs (Provider/Function) and the AWS CRDs they register are
+# asynchronous, so ProviderConfig / Composition can briefly fail their first
+# apply — selfHeal + retry converge once the packages report Healthy. The
+# source path holds only Crossplane CRs (no ApplicationSet), so this app never
+# re-applies itself.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: crossplane-config
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["prod"]
+  template:
+    metadata:
+      name: crossplane-config
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        argocd.argoproj.io/sync-wave: "-1"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kubernetes/platform/crossplane/config
+      destination:
+        server: "{{.server}}"
+        namespace: crossplane-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          limit: 10
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m
+        syncOptions:
+          - ServerSideApply=true
