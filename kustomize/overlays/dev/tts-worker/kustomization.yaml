@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: apps
+
+resources:
+  - ../../../base/tts-worker
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: platform-core
+      app.kubernetes.io/managed-by: argocd
+    includeSelectors: false
+
+patches:
+  - path: patch-resources.yaml
+    target:
+      kind: Deployment
+      name: tts-worker
+  - path: patch-dev-env.yaml
+    target:
+      kind: Deployment
+      name: tts-worker
+
+replicas:
+  - name: tts-worker
+    count: 0
+
+configMapGenerator:
+  - name: env-config
+    literals:
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+generatorOptions:
+  disableNameSuffixHash: true
+
+images:
+  - name: tts-worker
+    newTag: latest

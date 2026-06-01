@@ -1,0 +1,17 @@
+# Prod S3 — Crossplane-provisioned bucket. Credentials via IRSA (no static keys).
+# Bucket name comes from the Crossplane bucket connection secret (key: bucket).
+# S3_ENDPOINT_URL is intentionally absent in prod (use AWS SDK default endpoint).
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_BUCKET
+    valueFrom:
+      secretKeyRef:
+        name: audio-pipeline-conn
+        key: bucket
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_REGION
+    value: eu-west-1

@@ -1,0 +1,28 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: tts-worker
+  description: Kafka consumer that synthesises speech from summaries via a pluggable TTS backend (stub in dev, Kokoro in prod) and produces audio.results events
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - python
+    - kafka
+    - keda
+    - tts
+    - audio
+    - demo
+  links:
+    - url: https://github.com/filipurminsky/platform-core/tree/main/apps/tts-worker
+      title: Source
+      icon: github
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:platform-team
+  system: platform-core
+  consumesApis:
+    - audio-summaries-topic
+  providesApis:
+    - audio-results-topic

@@ -1,0 +1,52 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: apps
+
+resources:
+  - ../../../base/tts-worker
+  - trigger-auth.yaml
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: platform-core
+      app.kubernetes.io/managed-by: argocd
+    includeSelectors: false
+
+patches:
+  - path: patch-tts-worker-resources.yaml
+    target:
+      kind: Deployment
+      name: tts-worker
+  - path: patch-kafka-auth.yaml
+    target:
+      kind: Deployment
+      name: tts-worker
+  - path: patch-prod-s3.yaml
+    target:
+      kind: Deployment
+      name: tts-worker
+  - path: patch-scaledobject-kafka-auth.yaml
+    target:
+      kind: ScaledObject
+      name: tts-worker
+
+replicas:
+  - name: tts-worker
+    count: 0
+
+configMapGenerator:
+  - name: env-config
+    literals:
+      - ENVIRONMENT=prod
+      - LOG_LEVEL=info
+generatorOptions:
+  disableNameSuffixHash: true
+
+# Pinned by immutable digest on promotion: docker-build.yaml runs
+# `kustomize edit set image tts-worker=<repo>@sha256:<digest>`. Never
+# ':latest' in prod — Kyverno disallow-latest-tag is Enforce here.
+images:
+  - name: tts-worker
+    newName: 123456789.dkr.ecr.eu-west-1.amazonaws.com/platform-core/tts-worker
+    newTag: unpromoted

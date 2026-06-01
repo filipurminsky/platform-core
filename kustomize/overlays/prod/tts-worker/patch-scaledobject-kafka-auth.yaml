@@ -1,0 +1,17 @@
+# Prod KEDA polling uses the same TLS/SCRAM Kafka listener as the worker.
+- op: replace
+  path: /spec/triggers/0/metadata/bootstrapServers
+  value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
+
+- op: add
+  path: /spec/triggers/0/metadata/sasl
+  value: scram_sha512
+
+- op: add
+  path: /spec/triggers/0/metadata/username
+  value: tts-worker
+
+- op: add
+  path: /spec/triggers/0/authenticationRef
+  value:
+    name: tts-worker-kafka-trigger-auth

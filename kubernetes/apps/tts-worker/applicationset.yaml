@@ -1,0 +1,37 @@
+# Environment-selected via the cluster generator (see worker-service for details):
+# the destination cluster's `environment` label drives the overlay path.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tts-worker
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: tts-worker
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: platform-apps
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kustomize/overlays/{{.metadata.labels.environment}}/tts-worker
+      destination:
+        server: "{{.server}}"
+        namespace: apps
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

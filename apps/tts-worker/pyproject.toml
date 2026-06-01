@@ -1,0 +1,33 @@
+[project]
+name = "tts-worker"
+version = "0.1.0"
+description = "Kafka consumer: audio.summaries → synthesize speech → S3 speech/<job_id> → audio.results. Terminal pipeline stage."
+requires-python = ">=3.12"
+dependencies = [
+    "boto3",
+    "confluent-kafka==2.4.0",
+    "opentelemetry-api==1.29.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.29.0",
+    "opentelemetry-sdk==1.29.0",
+    "prometheus-client==0.20.0",
+    "redis",
+    "structlog==24.1.0",
+]
+
+[dependency-groups]
+# Test-only deps. uv installs the `dev` group by default on `uv sync`.
+dev = [
+    "pytest==8.2.0",
+]
+
+[tool.uv]
+# Flat single-module app (main.py), not an installable package — sync deps only.
+package = false
+
+# NOTE: kokoro and torch are NOT listed here. The prod CPU image bakes Kokoro
+# model + voice packs via an extra Dockerfile layer / build arg — keeping this
+# lockfile light and the test suite offline. The kokoro import is lazy (inside
+# the TTS_BACKEND=kokoro branch) so the stub path (used in dev/test) never
+# tries to import it.
+
+# Ruff config is inherited from the repo-root pyproject.toml.

@@ -1,0 +1,12 @@
+# Production resource limits for tts-worker.
+# Kokoro CPU synthesis is heavier than simple text processing — 2 CPU and 2Gi
+# RAM allow concurrent synthesis of meeting-length audio without OOM.
+- op: replace
+  path: /spec/template/spec/containers/0/resources
+  value:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi

@@ -1,0 +1,9 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: tts-worker-kafka-trigger-auth
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: tts-worker        # Strimzi-generated secret: KafkaUser named tts-worker
+      key: password

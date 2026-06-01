@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: tts-worker
+  namespace: apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: tts-worker
+  minReplicaCount: 0          # true scale-to-zero when audio.summaries is idle
+  maxReplicaCount: 3          # CPU-only synthesis; 3 concurrent workers is sufficient
+  cooldownPeriod: 300         # seconds before scaling down after idle (generous; per spec)
+  pollingInterval: 15         # how often KEDA checks consumer lag
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
+        consumerGroup: tts-worker
+        topic: audio.summaries
+        lagThreshold: "5"           # scale up when lag > 5 messages per partition
+        activationLagThreshold: "1" # activate (scale from 0->1) when any lag exists
+        offsetResetPolicy: latest

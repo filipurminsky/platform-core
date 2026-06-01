@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: tts-worker
+  labels:
+    app: tts-worker
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: tts-worker
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

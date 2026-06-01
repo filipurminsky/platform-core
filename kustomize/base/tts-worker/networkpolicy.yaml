@@ -1,0 +1,38 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tts-worker
+spec:
+  podSelector:
+    matchLabels:
+      app: tts-worker
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Prometheus scrape from the monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 9090
+  egress:
+    # Kafka (plain + TLS) and Redis and MinIO in the platform namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform
+      ports:
+        - port: 9092    # Kafka plain
+        - port: 9093    # Kafka TLS
+        - port: 6379    # Redis
+        - port: 9000    # MinIO
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Prod AWS S3 HTTPS
+    - ports:
+        - port: 443
+          protocol: TCP

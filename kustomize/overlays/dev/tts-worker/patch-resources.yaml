@@ -1,0 +1,11 @@
+# Reduced resource limits for dev; keeps local kind cluster affordable.
+# Kokoro is not used in dev (TTS_BACKEND=stub), so light resources are fine.
+- op: replace
+  path: /spec/template/spec/containers/0/resources
+  value:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
