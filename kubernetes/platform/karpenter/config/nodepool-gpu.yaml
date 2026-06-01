@@ -1,0 +1,42 @@
+# GPU NodePool — replaces the old static GPU managed node group for vLLM. Nodes
+# are tainted nvidia.com/gpu and labelled role=gpu, matching the vLLM Deployment's
+# toleration + nodeSelector (kustomize/base/vllm-inference). When KEDA scales vLLM
+# above zero, Karpenter provisions a GPU node on demand; when vLLM scales back to
+# zero, the empty node is reclaimed. On-demand only (Spot GPU is frequently
+# interrupted and the model reload is expensive).
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu
+spec:
+  template:
+    metadata:
+      labels:
+        role: gpu
+        workload: vllm
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["g4dn.xlarge", "g5.xlarge"]
+  limits:
+    nvidia.com/gpu: "2"
+  disruption:
+    # GPU nodes are expensive and slow to warm (model download), so only reclaim
+    # when fully empty and after a grace period.
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 5m

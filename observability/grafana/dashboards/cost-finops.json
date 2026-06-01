@@ -1,0 +1,101 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 0,
+  "schemaVersion": 39,
+  "tags": ["platform-core", "finops", "cost"],
+  "title": "Cost / FinOps (OpenCost)",
+  "uid": "platform-cost-finops",
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "1m",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Cluster cost ($/hr)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 3 } },
+      "targets": [
+        { "expr": "sum(node_total_hourly_cost)", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Projected monthly cost ($)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 0 } },
+      "targets": [
+        { "expr": "sum(node_total_hourly_cost) * 730", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Nodes",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "expr": "count(node_total_hourly_cost)", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Most expensive namespace ($/hr CPU)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 3 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "expr": "max(sum by (namespace) (container_cpu_allocation * on(node) group_left() node_cpu_hourly_cost))", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Hourly cost by node",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 3 } },
+      "targets": [
+        { "expr": "sum by (node) (node_total_hourly_cost)", "legendFormat": "{{node}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU cost by namespace ($/hr)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 } },
+      "targets": [
+        { "expr": "sum by (namespace) (container_cpu_allocation * on(node) group_left() node_cpu_hourly_cost)", "legendFormat": "{{namespace}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory cost by namespace ($/hr)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 } },
+      "targets": [
+        { "expr": "sum by (namespace) (container_memory_allocation_bytes / 1024 / 1024 / 1024 * on(node) group_left() node_ram_hourly_cost)", "legendFormat": "{{namespace}}", "refId": "A" }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Total allocated cost by namespace ($/hr, CPU + RAM)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 4 } },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "expr": "sum by (namespace) (container_cpu_allocation * on(node) group_left() node_cpu_hourly_cost) + sum by (namespace) (container_memory_allocation_bytes / 1024 / 1024 / 1024 * on(node) group_left() node_ram_hourly_cost)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

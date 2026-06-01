@@ -1,0 +1,54 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opencost
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # After Prometheus is up (monitoring, wave -2) so OpenCost can query it.
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://opencost.github.io/opencost-helm-chart
+    chart: opencost
+    targetRevision: 2.5.22          # OpenCost v1.120.3
+    helm:
+      # FinOps: OpenCost reads cluster usage from the kube-prometheus-stack
+      # Prometheus and exposes cost-per-namespace / workload / label. Its metrics
+      # are scraped back into Prometheus (ServiceMonitor) and rendered in the
+      # platform-core cost dashboard (observability/grafana/dashboards). Port-forward
+      # svc/opencost: 9090 → UI, 9003 → cost-model API.
+      values: |
+        opencost:
+          prometheus:
+            internal:
+              enabled: true
+              serviceName: kube-prometheus-stack-prometheus
+              namespaceName: monitoring
+              port: 9090
+          exporter:
+            defaultClusterId: platform-core
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+          metrics:
+            serviceMonitor:
+              enabled: true
+              additionalLabels:
+                prometheus: kube-prometheus
+          ui:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

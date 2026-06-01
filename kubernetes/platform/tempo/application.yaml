@@ -1,0 +1,55 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Up early so Grafana (monitoring, wave -2) can resolve the Tempo datasource
+    # and the OTel Collector (wave 0) has somewhere to export traces.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: tempo
+    targetRevision: 1.24.4          # Tempo v2.9.0 — single-binary
+    helm:
+      # Single-binary Tempo for local/dev: ephemeral storage, 24h retention.
+      # Receives OTLP from the OpenTelemetry Collector; queried by Grafana over
+      # its HTTP API (port 3200). Grafana + Prometheus come from the monitoring
+      # Application, so they are not enabled here.
+      values: |
+        fullnameOverride: tempo
+        reportingEnabled: false
+        tempo:
+          retention: 24h
+          # OTLP receivers — the collector ships spans here over gRPC.
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: "0.0.0.0:4317"
+                http:
+                  endpoint: "0.0.0.0:4318"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+        persistence:
+          enabled: false
+        # Let Prometheus scrape Tempo's own metrics.
+        serviceMonitor:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

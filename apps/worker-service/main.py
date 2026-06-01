@@ -26,6 +26,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException, Producer
+from opentelemetry import propagate, trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.propagators.textmap import Getter, Setter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 
 # ---------------------------------------------------------------------------
@@ -45,17 +51,70 @@ SECURITY_PROTOCOL = os.getenv(
     "KAFKA_SECURITY_PROTOCOL", "SASL_SSL" if SASL_USERNAME else "PLAINTEXT"
 )
 
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+def add_trace_context(_logger, _method_name, event_dict):
+    span = trace.get_current_span()
+    context = span.get_span_context()
+    if context.is_valid:
+        event_dict["trace_id"] = f"{context.trace_id:032x}"
+        event_dict["span_id"] = f"{context.span_id:016x}"
+    return event_dict
+
+
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
+        add_trace_context,
         structlog.processors.JSONRenderer(),
     ]
 )
 log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Tracing
+# ---------------------------------------------------------------------------
+def configure_tracing() -> None:
+    # Honour the standard kill switch so tests/CI (and any env without a
+    # collector) don't block on span export. Set OTEL_SDK_DISABLED=true there.
+    if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
+        return
+    service_name = os.getenv("OTEL_SERVICE_NAME", "worker-service")
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+
+
+configure_tracing()
+tracer = trace.get_tracer(__name__)
+
+
+class KafkaHeaderGetter(Getter):
+    def get(self, carrier, key):
+        values = []
+        for header_key, header_value in carrier or []:
+            if header_key.lower() == key.lower() and header_value is not None:
+                values.append(
+                    header_value.decode() if isinstance(header_value, bytes) else str(header_value)
+                )
+        return values or None
+
+    def keys(self, carrier):
+        return [key for key, _value in carrier or []]
+
+
+class KafkaHeaderSetter(Setter):
+    def set(self, carrier, key, value):
+        carrier.append((key, value.encode()))
+
+
+kafka_header_getter = KafkaHeaderGetter()
+kafka_header_setter = KafkaHeaderSetter()
 
 # ---------------------------------------------------------------------------
 # Metrics
@@ -205,8 +264,14 @@ def update_lag(consumer: Consumer) -> None:
 # ---------------------------------------------------------------------------
 # Main consume loop
 # ---------------------------------------------------------------------------
-def process_message(raw_value: bytes, producer: Producer, seen_ids: set) -> None:
+def process_message(
+    raw_value: bytes,
+    producer: Producer,
+    seen_ids: set,
+    headers: list[tuple[str, bytes]] | None = None,
+) -> None:
     """Deserialise → deduplicate → dispatch → DLQ on repeated failure."""
+    context = propagate.extract(headers or [], getter=kafka_header_getter)
     try:
         job = json.loads(raw_value)
     except json.JSONDecodeError as exc:
@@ -230,48 +295,64 @@ def process_message(raw_value: bytes, producer: Producer, seen_ids: set) -> None
         JOBS_PROCESSED.labels(status="error").inc()
         return  # commit and move on — no handler available
 
-    last_exc: Exception | None = None
-    for attempt in range(1, MAX_RETRIES + 1):
-        start = time.perf_counter()
-        try:
-            result = handler(job)
-            elapsed = time.perf_counter() - start
-            JOB_DURATION.observe(elapsed)
-            JOBS_PROCESSED.labels(status="success").inc()
-            log.info(
-                "job_processed",
-                job_id=job_id,
-                job_type=job_type,
-                attempt=attempt,
-                duration_ms=round(elapsed * 1000, 2),
-                result=result,
-            )
-            return
-        except Exception as exc:
-            last_exc = exc
-            log.warning(
-                "job_attempt_failed",
-                job_id=job_id,
-                job_type=job_type,
-                attempt=attempt,
-                error=str(exc),
-            )
-            if attempt < MAX_RETRIES:
-                time.sleep(0.1 * (2 ** (attempt - 1)))  # exponential back-off: 100ms, 200ms
+    with tracer.start_as_current_span(
+        "worker.process",
+        context=context,
+        attributes={"messaging.system": "kafka", "messaging.destination.name": TOPIC_JOBS},
+    ) as span:
+        span.set_attribute("job.id", job_id)
+        span.set_attribute("job.type", job_type)
 
-    # All retries exhausted → send to DLQ
-    dlq_payload = json.dumps(
-        {"original_job": job, "error": str(last_exc), "attempts": MAX_RETRIES}
-    ).encode()
-    producer.produce(TOPIC_DLQ, value=dlq_payload, key=job_id.encode() if job_id else None)
-    producer.flush(timeout=5)
-    JOBS_PROCESSED.labels(status="dlq").inc()
-    log.error(
-        "job_sent_to_dlq",
-        job_id=job_id,
-        job_type=job_type,
-        error=str(last_exc),
-    )
+        last_exc: Exception | None = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            start = time.perf_counter()
+            try:
+                result = handler(job)
+                elapsed = time.perf_counter() - start
+                JOB_DURATION.observe(elapsed)
+                JOBS_PROCESSED.labels(status="success").inc()
+                log.info(
+                    "job_processed",
+                    job_id=job_id,
+                    job_type=job_type,
+                    attempt=attempt,
+                    duration_ms=round(elapsed * 1000, 2),
+                    result=result,
+                )
+                return
+            except Exception as exc:
+                last_exc = exc
+                span.record_exception(exc)
+                log.warning(
+                    "job_attempt_failed",
+                    job_id=job_id,
+                    job_type=job_type,
+                    attempt=attempt,
+                    error=str(exc),
+                )
+                if attempt < MAX_RETRIES:
+                    time.sleep(0.1 * (2 ** (attempt - 1)))  # exponential back-off: 100ms, 200ms
+
+        # All retries exhausted → send to DLQ
+        dlq_payload = json.dumps(
+            {"original_job": job, "error": str(last_exc), "attempts": MAX_RETRIES}
+        ).encode()
+        dlq_headers: list[tuple[str, bytes]] = []
+        propagate.inject(dlq_headers, setter=kafka_header_setter)
+        producer.produce(
+            TOPIC_DLQ,
+            value=dlq_payload,
+            key=job_id.encode() if job_id else None,
+            headers=dlq_headers,
+        )
+        producer.flush(timeout=5)
+        JOBS_PROCESSED.labels(status="dlq").inc()
+        log.error(
+            "job_sent_to_dlq",
+            job_id=job_id,
+            job_type=job_type,
+            error=str(last_exc),
+        )
 
 
 def run() -> None:
@@ -308,7 +389,7 @@ def run() -> None:
                     continue
                 raise KafkaException(msg.error())
 
-            process_message(msg.value(), producer, seen_ids)
+            process_message(msg.value(), producer, seen_ids, headers=msg.headers())
 
             # Manual commit — only after successful processing or DLQ publish
             consumer.commit(message=msg, asynchronous=False)

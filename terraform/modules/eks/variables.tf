@@ -53,7 +53,13 @@ variable "node_desired" {
 }
 
 variable "enable_gpu_nodegroup" {
-  description = "Whether to provision the GPU node group for vLLM"
+  description = "Whether to provision the static GPU managed node group for vLLM. Leave false when Karpenter manages GPU capacity instead."
+  type        = bool
+  default     = false
+}
+
+variable "enable_karpenter" {
+  description = "Whether to provision Karpenter (controller IAM role, node role, SQS interruption queue). Prod only; stays false on local kind."
   type        = bool
   default     = false
 }

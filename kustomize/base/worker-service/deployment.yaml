@@ -49,6 +49,14 @@ spec:
               value: jobs-dlq
             - name: KAFKA_CONSUMER_GROUP
               value: worker-service
+            # OpenTelemetry — the worker extracts trace context from Kafka message
+            # headers and emits a span per job; exported to the collector → Tempo.
+            - name: OTEL_SERVICE_NAME
+              value: worker-service
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.monitoring.svc.cluster.local:4317
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=apps
           livenessProbe:
             httpGet:
               path: /healthz

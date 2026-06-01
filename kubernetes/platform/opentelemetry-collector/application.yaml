@@ -1,0 +1,58 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opentelemetry-collector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # After Tempo (wave -1) so the traces pipeline has an export target.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: 0.158.0         # collector v0.153.0
+    helm:
+      # Central OTLP ingestion point: app workloads in `apps` send spans here
+      # (OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector.monitoring:4317); the
+      # collector batches and forwards them to Tempo. The chart ships a sane base
+      # config (otlp receiver, batch + memory_limiter processors, health_check);
+      # we only add the Tempo exporter and override the traces pipeline.
+      values: |
+        fullnameOverride: otel-collector
+        mode: deployment
+        image:
+          repository: otel/opentelemetry-collector-k8s
+        replicaCount: 1
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 256Mi
+        config:
+          exporters:
+            otlp/tempo:
+              endpoint: tempo.monitoring.svc.cluster.local:4317
+              tls:
+                insecure: true          # in-cluster, internal traffic
+          service:
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [memory_limiter, batch]
+                exporters: [otlp/tempo]
+        # Expose the collector's own metrics to Prometheus.
+        serviceMonitor:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

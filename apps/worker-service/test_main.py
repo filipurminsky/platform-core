@@ -18,8 +18,8 @@ class FakeProducer:
     def __init__(self):
         self.produced = []
 
-    def produce(self, topic, value=None, key=None):
-        self.produced.append({"topic": topic, "value": value, "key": key})
+    def produce(self, topic, value=None, key=None, headers=None):
+        self.produced.append({"topic": topic, "value": value, "key": key, "headers": headers})
 
     def flush(self, timeout=None):
         pass

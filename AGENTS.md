@@ -81,7 +81,7 @@ kubectl label secret in-cluster -n argocd environment=prod --overwrite
 
 - **`kubernetes/apps/`** — ArgoCD ApplicationSets and KEDA ScaledObjects/TriggerAuthentications only. **No Deployments or Services here.**
 - **`kustomize/base/{echo-service,worker-service,vllm-inference,llm-gateway}/`** — the real Kubernetes manifests for the four demo apps.
-- **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, crossplane, backstage). Each points to its upstream Helm chart.
+- **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, crossplane, backstage, monitoring, loki, tempo, opentelemetry-collector, opencost, karpenter). Each points to its upstream Helm chart (or, for config-only slices, a repo path). Prod-only slices (crossplane, karpenter) are ApplicationSets with a cluster generator scoped to `environment=prod`.
 
 ### Application source code (`apps/`)
 
@@ -174,3 +174,21 @@ Kyverno (`kubernetes/platform/kyverno/`, sync-wave -1) enforces this at admissio
 ### Observability wiring
 
 `observability/prometheus/rules/alerts.yaml` is a `PrometheusRule` CR deployed by ArgoCD alongside `kube-prometheus-stack`. Alert PromQL queries reference recording rules defined in `observability/prometheus/slo/recording-rules.yaml`. The Kafka consumer lag alert uses `kafka_consumergroup_lag_sum` which comes from the Strimzi Kafka Exporter sidecar — it is disabled in the dev Kafka overlay to save resources.
+
+Grafana is the single pane for **metrics + logs + traces + cost** (datasources wired in the `monitoring` Application's Helm values):
+- **Metrics** — Prometheus (default datasource, uid `prometheus`).
+- **Logs** — Loki (uid `loki`); a derived field turns the `trace_id` JSON log field into a clickable Tempo link.
+- **Traces** — Tempo (uid `tempo`), fed by the OpenTelemetry Collector. `tracesToLogsV2`/`tracesToMetrics` link a span back to its logs and metrics.
+- **Cost** — OpenCost reads the Prometheus datasource; the `cost-finops` dashboard (in `observability/grafana/dashboards`) shows $/hr by node and by namespace.
+
+**Tracing pipeline:** app workloads (echo-service, llm-gateway, worker-service) export OTLP spans to the in-cluster collector and back to Tempo:
+`app → otel-collector.monitoring:4317 (OTLP) → tempo.monitoring:4317 → Grafana (tempo.monitoring:3200)`.
+Each app sets `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_RESOURCE_ATTRIBUTES` in its base manifest (dev/prod are separate clusters, each with its own Tempo, so traces are inherently per-environment). Trace context propagates over HTTP (FastAPI + httpx instrumentation) and across Kafka via message headers (worker-service extracts it and starts a span per job). `add_trace_context` injects `trace_id`/`span_id` into every structlog line. Tracing honours `OTEL_SDK_DISABLED=true` (set in each app's `conftest.py`) so tests don't block on export. New dashboards ship as labelled ConfigMaps via the `grafana-dashboards` Application — add the JSON under `observability/grafana/dashboards` and register it in that kustomization's `configMapGenerator`.
+
+### Networking — Cilium (local) vs AWS VPC CNI (prod)
+
+Local kind clusters run **Cilium** (eBPF dataplane) with **Hubble** for live flow visibility and NetworkPolicy debugging. `terraform/modules/kind/kind-config.yaml` disables the default CNI (kindnet), and `scripts/bootstrap.sh --mode=local` installs Cilium via Helm *before* applying the App-of-Apps — nodes stay NotReady until it's up, so the script creates the cluster without `--wait` and waits for readiness afterward. Hubble UI: `kubectl port-forward svc/hubble-ui -n kube-system 12000:80`. EKS deliberately keeps the **AWS VPC CNI** (the `vpc-cni` cluster addon) — a low-risk choice; Cilium is the local-first networking demo, not yet the EKS dataplane.
+
+### Karpenter — node autoscaling (prod/EKS only)
+
+Prod uses **Karpenter** for just-in-time node provisioning instead of static managed node groups. The Terraform `karpenter` submodule (in `terraform/modules/eks`, gated by `enable_karpenter`) creates the controller IAM role (IRSA, `kube-system:karpenter`), the node IAM role + access entry, and the SQS interruption queue; subnets and the node security group are tagged `karpenter.sh/discovery=<cluster>` (networking + eks modules). The in-cluster controller + NodePools ship via the prod-only `kubernetes/platform/karpenter` ApplicationSet. There are two NodePools sharing one `EC2NodeClass`: a **default** pool (Spot/on-demand, general burst) and a **gpu** pool (on-demand g4dn/g5, tainted `nvidia.com/gpu`, labelled `role=gpu`) that matches the vLLM Deployment's toleration/nodeSelector — this **replaces the static GPU managed node group** (`enable_gpu_nodegroup=false` in prod). The Helm values + EC2NodeClass carry placeholders (`<KARPENTER_CONTROLLER_ROLE_ARN>`, `<KARPENTER_NODE_IAM_ROLE>`) populated from `terraform output`. Like the rest of the AWS path, this is authored but unverified on a live account.

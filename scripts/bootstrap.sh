@@ -48,12 +48,34 @@ if [[ "$MODE" == "local" ]]; then
   if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
     log "Cluster already exists, skipping creation"
   else
+    # No --wait: the kind-config disables the default CNI, so nodes stay
+    # NotReady until Cilium is installed below.
     kind create cluster \
       --name "$CLUSTER_NAME" \
-      --config terraform/modules/kind/kind-config.yaml \
-      --wait 120s
+      --config terraform/modules/kind/kind-config.yaml
   fi
-  ok "kind cluster ready"
+  ok "kind cluster created"
+
+  # ─── Cilium + Hubble (eBPF dataplane, local-first) ─────────────────────────
+  # Installed here, before ArgoCD, because the cluster has no CNI yet and nothing
+  # can schedule until pods get networking. EKS keeps the AWS VPC CNI (a
+  # deliberate low-risk choice); Cilium is the local networking + flow-visibility
+  # demo. ipam.mode=kubernetes makes Cilium use kind's per-node PodCIDR.
+  log "Installing Cilium + Hubble"
+  helm repo add cilium https://helm.cilium.io --force-update
+  helm upgrade --install cilium cilium/cilium \
+    --namespace kube-system \
+    --version "1.16.5" \
+    --set ipam.mode=kubernetes \
+    --set image.pullPolicy=IfNotPresent \
+    --set operator.replicas=1 \
+    --set hubble.enabled=true \
+    --set hubble.relay.enabled=true \
+    --set hubble.ui.enabled=true \
+    --wait --timeout 5m
+  log "Waiting for nodes to become Ready (Cilium now provides the CNI)"
+  kubectl wait --for=condition=Ready nodes --all --timeout=180s
+  ok "Cilium + Hubble ready"
 
 elif [[ "$MODE" == "aws" ]]; then
   log "Updating kubeconfig for EKS cluster"
@@ -129,7 +151,9 @@ if [[ "$MODE" == "local" ]]; then
   echo ""
   echo "Port-forward what you need (run in separate terminals), e.g.:"
   echo "  kubectl port-forward svc/argocd-server -n argocd     8080:80    # http://localhost:8080  (admin / above)"
-  echo "  kubectl port-forward svc/grafana       -n monitoring 3000:80    # http://localhost:3000  (admin / admin)"
+  echo "  kubectl port-forward svc/grafana       -n monitoring 3000:80    # http://localhost:3000  (admin / admin) — metrics, logs, traces, cost"
+  echo "  kubectl port-forward svc/hubble-ui     -n kube-system 12000:80  # http://localhost:12000 — live Cilium network flows"
+  echo "  kubectl port-forward svc/opencost      -n monitoring 9090:9090  # http://localhost:9090 — OpenCost UI (cost-model API on :9003)"
   echo ""
   echo "Apps reachable via the ingress on http://localhost (add to /etc/hosts):"
   echo "  127.0.0.1  echo.platform-core.local"

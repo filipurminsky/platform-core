@@ -49,16 +49,43 @@ spec:
                 foldersFromFilesStructure: true
             datasources:
               enabled: true
-          # Loki is deployed by the `loki` Application in this namespace; wire it
-          # as a datasource so logs are queryable alongside metrics (LGTM).
+          # Loki (logs) and Tempo (traces) are deployed by their own Applications
+          # in this namespace; wire both so Grafana covers the full metrics + logs
+          # + traces (LGTM) story. The Tempo datasource links spans back to Loki
+          # logs (tracesToLogsV2) and Prometheus metrics, and a derived field on
+          # Loki turns the trace_id JSON log field into a clickable Tempo link.
           additionalDataSources:
             - name: Loki
               type: loki
+              uid: loki
               access: proxy
               url: http://loki.monitoring.svc.cluster.local:3100
               isDefault: false
               jsonData:
                 maxLines: 1000
+                derivedFields:
+                  - name: trace_id
+                    matcherRegex: '"trace_id":"(\w+)"'
+                    datasourceUid: tempo
+                    url: "$${__value.raw}"
+            - name: Tempo
+              type: tempo
+              uid: tempo
+              access: proxy
+              url: http://tempo.monitoring.svc.cluster.local:3200
+              isDefault: false
+              jsonData:
+                tracesToLogsV2:
+                  datasourceUid: loki
+                  filterByTraceID: true
+                  spanStartTimeShift: "-5m"
+                  spanEndTimeShift: "5m"
+                tracesToMetrics:
+                  datasourceUid: prometheus
+                serviceMap:
+                  datasourceUid: prometheus
+                nodeGraph:
+                  enabled: true
           resources:
             requests:
               cpu: 50m

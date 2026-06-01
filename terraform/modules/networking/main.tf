@@ -22,6 +22,10 @@ module "vpc" {
   private_subnet_tags = {
     "kubernetes.io/cluster/${local.name}" = "shared"
     "kubernetes.io/role/internal-elb"     = "1"
+    # Karpenter discovers which subnets to launch nodes in via this tag
+    # (matches subnetSelectorTerms in the EC2NodeClass). Harmless where
+    # Karpenter isn't deployed (e.g. dev).
+    "karpenter.sh/discovery" = local.name
   }
 
   public_subnet_tags = {

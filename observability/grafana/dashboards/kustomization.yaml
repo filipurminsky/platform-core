@@ -35,3 +35,6 @@ configMapGenerator:
   - name: dashboard-cluster-health
     files:
       - cluster-health.json
+  - name: dashboard-cost-finops
+    files:
+      - cost-finops.json

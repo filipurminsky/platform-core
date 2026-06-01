@@ -1,7 +1,8 @@
 # TODO
 
-Outstanding work for platform-core, ordered by leverage. Reflects the repo at
-commit `cd7d3cb` (2026-06-01). Legend: ⬜ not started · 🟡 partial.
+Outstanding work for platform-core, ordered by leverage. Reflects the repo after
+the supply-chain/policy/KRaft work (commit `89a3641`) plus the platform extension
+in section E. Legend: ⬜ not started · 🟡 partial · ✅ done.
 
 ## A. Correctness & honesty (cheap, high-impact — do first)
 
@@ -45,15 +46,19 @@ commit `cd7d3cb` (2026-06-01). Legend: ⬜ not started · 🟡 partial.
 
 ## B. End-to-end verification (does it actually run?)
 
-- ⬜ **Full local smoke test.** `bootstrap.sh --mode=local`, confirm every ArgoCD
-  Application reaches Healthy/Synced, then exercise: canary auto-rollback
-  (`canary-demo.sh bad`), worker KEDA scale-from-zero on Kafka lag, vLLM CPU inference
-  via llm-gateway, Kyverno rejecting an unsigned image, and a Loki log query. Capture
-  output for the README. (The CI `e2e-smoke` job is a start — extend it.)
+- ⬜ **Full local smoke test.** `bootstrap.sh --mode=local`, confirm Cilium comes up and
+  nodes go Ready, every ArgoCD Application reaches Healthy/Synced, then exercise: canary
+  auto-rollback (`canary-demo.sh bad`), worker KEDA scale-from-zero on Kafka lag, vLLM CPU
+  inference via llm-gateway, Kyverno rejecting an unsigned image, a Loki log query, **a
+  request trace appearing in Tempo/Grafana**, **Hubble showing app flows**, and **OpenCost
+  reporting namespace cost**. Capture output for the README. (The CI `e2e-smoke` job is a
+  start — extend it.)
 - ⬜ **Validate the AWS path.** At minimum `terraform plan` against a real account for
   `environments/{dev,prod}`; ideally a throwaway EKS apply + `--mode=aws` bootstrap,
-  including the GPU node group, `github-oidc` role assumption from CI, and the
-  Crossplane S3 claim provisioning a real bucket.
+  including **Karpenter** (controller healthy, default NodePool provisions general nodes,
+  GPU NodePool provisions for vLLM, interruption queue wired), the `github-oidc` role
+  assumption from CI, and the Crossplane S3 claim provisioning a real bucket. Substitute
+  the `terraform output` values into the Karpenter Helm values + EC2NodeClass placeholders.
 - ⬜ **Exercise Terraform plan OIDC in CI.** `terraform-plan.yaml` no longer uses static
   AWS keys, but the workflow should be proven from a PR with `AWS_OIDC_ROLE_ARN`
   configured. Add a clear skip/failure mode when the repo variable is absent.
@@ -106,3 +111,30 @@ commit `cd7d3cb` (2026-06-01). Legend: ⬜ not started · 🟡 partial.
   `apps`. Align the policy with where vLLM actually runs.
 - ⬜ **Automate the spec's Implementation Status table.** It drifted from the repo within
   a day. Stamp it with the commit SHA it describes and add a CI check (or generate it).
+
+## E. Platform extension — tracing, networking, cost, autoscaling
+
+- ✅ **Distributed tracing (OpenTelemetry + Tempo).** Added `platform/tempo` (single-binary
+  Tempo, OTLP receivers) and `platform/opentelemetry-collector` (OTLP→Tempo pipeline) in
+  `monitoring`; wired a Grafana Tempo datasource with tracesToLogs/Metrics correlation and a
+  `trace_id`→Tempo derived field on Loki. Apps already had OTel code — wired `OTEL_*` env into
+  their base manifests (export to `otel-collector.monitoring:4317`). **Fixed two latent bugs
+  the instrumentation had:** stale `uv.lock`s (OTel was in `pyproject` but never locked → the
+  `--frozen` Docker build would fail) and `opentelemetry-instrumentation 0.46b0` importing
+  `pkg_resources` (gone from setuptools ≥81) → echo/llm-gateway crashed on import. Bumped the
+  OTel stack to 1.29.0 / 0.50b0, added an `OTEL_SDK_DISABLED` guard + `conftest.py` so tests
+  don't block on export. All three app test suites pass.
+- ✅ **Cilium + Hubble (local).** `kind-config.yaml` disables the default CNI; `bootstrap.sh
+  --mode=local` installs Cilium (eBPF, `ipam.mode=kubernetes`) + Hubble before the App-of-Apps
+  and waits for node readiness. EKS keeps the AWS VPC CNI (documented, deliberate). Hubble UI
+  port-forward documented.
+- ✅ **Karpenter (prod/EKS).** Terraform `karpenter` submodule (controller IRSA role, node role
+  + access entry, SQS interruption queue) gated by `enable_karpenter`; `karpenter.sh/discovery`
+  tags on subnets/SG; prod-only `platform/karpenter` ApplicationSet with one `EC2NodeClass` +
+  default/GPU `NodePool`s. Replaced the static prod GPU managed node group
+  (`enable_gpu_nodegroup=false`). Terraform validates for dev+prod. **Unverified on a live
+  account** (see section B) — Helm/EC2NodeClass carry `terraform output` placeholders.
+- ✅ **OpenCost (FinOps).** `platform/opencost` wired to the kube-prometheus-stack Prometheus,
+  ServiceMonitor scraping its metrics, and a `cost-finops` Grafana dashboard (cost by node /
+  namespace). All three charts (Tempo, OTel Collector, OpenCost) `helm template` cleanly with
+  the embedded values.

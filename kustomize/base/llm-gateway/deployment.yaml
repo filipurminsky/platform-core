@@ -38,6 +38,14 @@ spec:
               value: "60"
             - name: REQUEST_TIMEOUT_SECONDS
               value: "120"
+            # OpenTelemetry — FastAPI spans + httpx propagation to vLLM, so a
+            # request is traced gateway → vLLM. Exported to the collector → Tempo.
+            - name: OTEL_SERVICE_NAME
+              value: llm-gateway
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.monitoring.svc.cluster.local:4317
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace=apps
           # Liveness AND readiness both hit /healthz (self-check), NOT /readyz.
           # /readyz probes the upstream vLLM /health, but vLLM is KEDA
           # scale-to-zero — gating readiness on it would remove the gateway from

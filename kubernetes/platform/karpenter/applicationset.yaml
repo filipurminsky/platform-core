@@ -1,0 +1,120 @@
+# Karpenter — intelligent node provisioning for prod/EKS. Scoped to AWS clusters
+# only (environment=prod, set by bootstrap.sh --mode=aws); on local kind there is
+# no AWS API, so the whole slice is skipped (kind uses its own nodes).
+#
+# Two apps: the controller (Helm chart, wave -1) then the NodePools + EC2NodeClass
+# (config/, wave 0). The AWS-side prerequisites (controller IAM role, node IAM
+# role + access entry, SQS interruption queue) are created by the Terraform
+# `karpenter` submodule (terraform/modules/eks). The placeholders below are
+# populated from `terraform output` — see terraform/environments/prod.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: karpenter
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["prod"]
+  template:
+    metadata:
+      name: karpenter
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        # Controller + its CRDs (NodePool, EC2NodeClass, NodeClaim) must exist
+        # before karpenter-config applies any of those resources.
+        argocd.argoproj.io/sync-wave: "-1"
+    spec:
+      project: default
+      source:
+        # OCI Helm chart. The ArgoCD repo for public.ecr.aws must have
+        # enableOCI=true (helm OCI registry).
+        repoURL: public.ecr.aws/karpenter
+        chart: karpenter
+        targetRevision: "1.0.8" # Karpenter v1 (karpenter.sh/v1)
+        helm:
+          values: |
+            settings:
+              clusterName: platform-core-prod
+              # `terraform output karpenter_interruption_queue`
+              interruptionQueue: Karpenter-platform-core-prod
+            serviceAccount:
+              name: karpenter
+              annotations:
+                # `terraform output karpenter_controller_role_arn`
+                eks.amazonaws.com/role-arn: <KARPENTER_CONTROLLER_ROLE_ARN>
+            controller:
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  memory: 512Mi
+            # Run the controller on the static baseline node group, never on a
+            # node it manages itself.
+            nodeSelector:
+              role: platform
+      destination:
+        server: "{{.server}}"
+        namespace: kube-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+---
+# Karpenter NodePools + EC2NodeClass. Synced after the controller (wave -1)
+# registers the karpenter.sh / karpenter.k8s.aws CRDs. The source path holds
+# only Karpenter CRs (no ApplicationSet), so this app never re-applies itself.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: karpenter-config
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["prod"]
+  template:
+    metadata:
+      name: karpenter-config
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kubernetes/platform/karpenter/config
+      destination:
+        server: "{{.server}}"
+        namespace: kube-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        retry:
+          limit: 10
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m
+        syncOptions:
+          - ServerSideApply=true

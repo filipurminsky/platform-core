@@ -20,6 +20,13 @@ import time
 import httpx
 import structlog
 from fastapi import FastAPI, HTTPException, Request, Response
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 # ---------------------------------------------------------------------------
@@ -29,17 +36,47 @@ VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://vllm-inference:8000")
 RATE_LIMIT_RPM = int(os.getenv("RATE_LIMIT_RPM", "60"))
 REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "120"))
 
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
+def add_trace_context(_logger, _method_name, event_dict):
+    span = trace.get_current_span()
+    context = span.get_span_context()
+    if context.is_valid:
+        event_dict["trace_id"] = f"{context.trace_id:032x}"
+        event_dict["span_id"] = f"{context.span_id:016x}"
+    return event_dict
+
+
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
+        add_trace_context,
         structlog.processors.JSONRenderer(),
     ]
 )
 log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Tracing
+# ---------------------------------------------------------------------------
+def configure_tracing() -> None:
+    # Honour the standard kill switch so tests/CI (and any env without a
+    # collector) don't block on span export. Set OTEL_SDK_DISABLED=true there.
+    if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
+        return
+    service_name = os.getenv("OTEL_SERVICE_NAME", "llm-gateway")
+    resource = Resource.create({"service.name": service_name})
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+    HTTPXClientInstrumentor().instrument()
+
+
+configure_tracing()
 
 # ---------------------------------------------------------------------------
 # Metrics
@@ -112,6 +149,7 @@ http_client: httpx.AsyncClient | None = None
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI(title="llm-gateway", version="0.1.0")
+FastAPIInstrumentor.instrument_app(app)
 
 
 @app.on_event("startup")

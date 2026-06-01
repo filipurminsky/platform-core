@@ -4,6 +4,13 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: platform-core
+networking:
+  # Default CNI (kindnet) is disabled — scripts/bootstrap.sh installs Cilium
+  # (eBPF dataplane + Hubble flow visibility) before ArgoCD reconciles. Nodes
+  # stay NotReady until Cilium is up, which is why bootstrap.sh creates the
+  # cluster without --wait and waits for readiness after the Cilium install.
+  disableDefaultCNI: true
+  podSubnet: "10.244.0.0/16"
 nodes:
   - role: control-plane
     # Pin k8s to 1.30 — the pinned component versions (Strimzi 0.40, etc.) predate
