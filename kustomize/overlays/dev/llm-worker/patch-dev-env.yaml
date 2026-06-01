@@ -1,0 +1,21 @@
+# Dev environment: point S3 at MinIO, provide MinIO credentials.
+# S3_ENDPOINT_URL tells boto3 to use path-style MinIO instead of AWS S3.
+# S3_BUCKET and REDIS_URL base values are already correct for dev (audio-pipeline, redis.platform).
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: S3_ENDPOINT_URL
+    value: http://minio.platform.svc.cluster.local:9000
+
+# Dev-only static MinIO creds (matches the MinIO root user and audio-api's overlay).
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: AWS_ACCESS_KEY_ID
+    value: minio
+
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: AWS_SECRET_ACCESS_KEY
+    value: minio123

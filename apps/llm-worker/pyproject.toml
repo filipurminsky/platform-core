@@ -1,0 +1,29 @@
+[project]
+name = "llm-worker"
+version = "0.1.0"
+description = "Kafka consumer: audio.transcripts → LLM summarisation → audio.summaries; scales to zero via KEDA."
+requires-python = ">=3.12"
+dependencies = [
+    "confluent-kafka==2.4.0",
+    "httpx==0.27.0",
+    "boto3",
+    "redis",
+    "prometheus-client==0.20.0",
+    "structlog==24.1.0",
+    "opentelemetry-api==1.29.0",
+    "opentelemetry-sdk==1.29.0",
+    "opentelemetry-exporter-otlp-proto-grpc==1.29.0",
+    "opentelemetry-instrumentation-httpx==0.50b0",
+]
+
+[dependency-groups]
+# Test-only deps. uv installs the `dev` group by default on `uv sync`.
+dev = [
+    "pytest==8.2.0",
+]
+
+[tool.uv]
+# Flat single-module app (main.py), not an installable package — sync deps only.
+package = false
+
+# Ruff config is inherited from the repo-root pyproject.toml.

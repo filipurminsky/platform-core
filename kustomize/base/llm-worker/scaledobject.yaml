@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: llm-worker
+  namespace: apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: llm-worker
+  minReplicaCount: 0          # true scale-to-zero when audio.transcripts topic is idle
+  maxReplicaCount: 3          # modest cap — LLM calls are latency-bound not throughput-bound
+  cooldownPeriod: 300         # seconds before scaling down after idle (generous: GPU cold start)
+  pollingInterval: 15         # how often KEDA checks consumer lag
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
+        consumerGroup: llm-worker
+        topic: audio.transcripts
+        lagThreshold: "5"           # scale up when lag > 5 messages per partition
+        activationLagThreshold: "1" # activate (scale from 0->1) when any lag exists
+        offsetResetPolicy: latest

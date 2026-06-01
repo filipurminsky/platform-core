@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-worker
+  labels:
+    app: llm-worker
+spec:
+  type: ClusterIP
+  selector:
+    app: llm-worker
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

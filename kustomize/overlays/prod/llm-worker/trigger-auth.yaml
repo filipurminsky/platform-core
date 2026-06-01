@@ -1,0 +1,9 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: kafka-trigger-auth-llm-worker
+spec:
+  secretTargetRef:
+    - parameter: password
+      name: llm-worker         # Strimzi-generated secret name = KafkaUser name
+      key: password
