@@ -6,11 +6,8 @@
     name: S3_ENDPOINT_URL
     value: http://minio.platform.svc.cluster.local:9000
 
-- op: add
-  path: /spec/template/spec/containers/0/env/-
-  value:
-    name: S3_BUCKET
-    value: audio-pipeline
+# NB: S3_BUCKET is already set in the base deployment (its dev value is correct),
+# so it is NOT re-added here — a duplicate env key breaks server-side-apply updates.
 
 - op: add
   path: /spec/template/spec/containers/0/env/-

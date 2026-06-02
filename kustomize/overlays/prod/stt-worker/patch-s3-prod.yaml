@@ -1,12 +1,11 @@
 # Prod S3: bucket name from Crossplane connection secret, region eu-west-1.
 # No S3_ENDPOINT_URL in prod (AWS default endpoint resolution via IRSA).
 #
-# We append S3_BUCKET from the secret after the base value; in the container's
-# Linux process environment, the last assignment for a given name wins.
-# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are NOT appended — prod uses IRSA.
-
-- op: add
-  path: /spec/template/spec/containers/0/env/-
+# Replace the base S3_BUCKET in place (env index 11) rather than appending —
+# a second S3_BUCKET is a duplicate env key that server-side apply rejects.
+# AWS creds are NOT set — prod uses IRSA.
+- op: replace
+  path: /spec/template/spec/containers/0/env/11
   value:
     name: S3_BUCKET
     valueFrom:
