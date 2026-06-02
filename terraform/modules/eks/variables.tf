@@ -20,8 +20,8 @@ variable "vpc_id" {
   type        = string
 }
 
-variable "private_subnet_ids" {
-  description = "Private subnet IDs for worker nodes"
+variable "public_subnet_ids" {
+  description = "Public subnet IDs for worker nodes (egress via IGW, no NAT gateway)"
   type        = list(string)
 }
 

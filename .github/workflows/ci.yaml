@@ -73,7 +73,7 @@ jobs:
           KUSTOMIZE_VERSION: "5.4.3"
         run: |
           curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz && sudo mv kustomize /usr/local/bin/
+            | tar -xz -C /tmp kustomize && sudo mv /tmp/kustomize /usr/local/bin/
 
       - name: Set up kubeconform
         run: |
@@ -148,7 +148,7 @@ jobs:
           KUSTOMIZE_VERSION: "5.4.3"
         run: |
           curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz && sudo mv kustomize /usr/local/bin/
+            | tar -xz -C /tmp kustomize && sudo mv /tmp/kustomize /usr/local/bin/
 
       # --combine evaluates the whole rendered overlay as one set, so policies can
       # check RELATIONSHIPS (e.g. does a NetworkPolicy actually select each

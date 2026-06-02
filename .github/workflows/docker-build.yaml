@@ -147,7 +147,7 @@ jobs:
           # Pinned direct download — the upstream install_kustomize.sh script
           # breaks intermittently (its release-asset glob fails to find the tarball).
           curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz && sudo mv kustomize /usr/local/bin/
+            | tar -xz -C /tmp kustomize && sudo mv /tmp/kustomize /usr/local/bin/
           KUSTOMIZE="$(command -v kustomize)"
           ( cd services/${{ matrix.app }}/k8s/overlays/prod \
             && "$KUSTOMIZE" edit set image "${{ matrix.app }}=${{ steps.ref.outputs.repo }}@${DIGEST}" )

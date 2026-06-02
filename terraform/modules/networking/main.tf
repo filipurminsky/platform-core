@@ -18,7 +18,7 @@ module "vpc" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  map_public_ip_on_launch = true # Nodes in public subnets need public IPs
+  map_public_ip_on_launch = true # Nodes run in public subnets and need public IPs for IGW egress (avoids NAT gateway cost)
 
   # Required tags for EKS to discover subnets
   private_subnet_tags = {

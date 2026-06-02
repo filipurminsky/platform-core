@@ -68,15 +68,14 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    """Readiness: probe the upstream /health endpoint."""
-    try:
-        resp = await http_client.get("/health", timeout=5.0)
-        if resp.status_code == 200:
-            return {"status": "ready", "upstream": "ok"}
-        raise HTTPException(status_code=503, detail="upstream not ready")
-    except httpx.RequestError as exc:
-        log.warning("readyz_upstream_unreachable", error=str(exc))
-        raise HTTPException(status_code=503, detail="upstream unreachable") from exc
+    """Readiness: self-check only.
+    We avoid probing upstream (vLLM) here because it may be scaled to zero;
+    probing it would fail, keeping the gateway 'not ready' and preventing
+    the very traffic that would trigger KEDA to scale the upstream back up.
+    """
+    if http_client is None:
+        raise HTTPException(status_code=503, detail="http_client not initialized")
+    return {"status": "ready"}
 
 
 @app.get("/metrics")

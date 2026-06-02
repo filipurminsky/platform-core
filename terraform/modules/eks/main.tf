@@ -16,7 +16,7 @@ module "eks" {
   cluster_version = var.kubernetes_version
 
   vpc_id     = var.vpc_id
-  subnet_ids = var.public_subnet_ids # Use public subnets for all nodes
+  subnet_ids = var.public_subnet_ids # Nodes run in public subnets (egress via IGW, no NAT gateway cost)
 
   # Allow kubectl from the internet (for a showcase project)
   cluster_endpoint_public_access       = true
@@ -59,7 +59,7 @@ module "gpu_nodegroup" {
 
   cluster_name  = module.eks.cluster_name
   node_role_arn = module.eks.eks_managed_node_groups["platform"].iam_role_arn
-  subnet_ids    = var.public_subnet_ids # Use public subnets
+  subnet_ids    = var.public_subnet_ids # Nodes run in public subnets (egress via IGW, no NAT gateway cost)
 
   instance_type = var.gpu_instance_type # default: g4dn.xlarge
   min_size      = 0                     # scale-to-zero when idle

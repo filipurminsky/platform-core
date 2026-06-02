@@ -33,8 +33,8 @@ module "eks" {
   project     = "platform-core"
   environment = "dev"
 
-  vpc_id             = module.networking.vpc_id
-  private_subnet_ids = module.networking.private_subnet_ids
+  vpc_id            = module.networking.vpc_id
+  public_subnet_ids = module.networking.public_subnet_ids
 
   kubernetes_version  = "1.29"
   node_instance_types = ["m5.large"]

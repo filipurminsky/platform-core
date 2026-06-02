@@ -7,17 +7,21 @@
 # Findings that CAN be fixed in-repo are fixed in the manifests, not listed here.
 
 misconfigurations:
-  # KSV014 (readOnlyRootFilesystem) — the vLLM serving container writes model
+  # KSV014 (readOnlyRootFilesystem) — GPU model-serving containers write model
   # weights, HuggingFace metadata and Torch/Triton compile caches to $HOME and
   # /tmp at runtime, so an immutable root filesystem would break model loads.
   # vLLM is already special-cased for GPU/privilege in .kube-linter.yaml; the
-  # same exception is accepted here. The busybox init container in these files
-  # IS hardened (readOnlyRootFilesystem: true) — only the serving container is
-  # exempted.
+  # same exception is accepted here. stt-worker (NeMo Parakeet) and tts-worker
+  # (Kokoro) are the same class of workload — they write runtime scratch/model
+  # caches and carry the same documented readOnlyRootFilesystem: false. The
+  # busybox init container in these files IS hardened (readOnlyRootFilesystem:
+  # true) — only the serving container is exempted.
   - id: AVD-KSV-0014
     paths:
       - "helm/vllm/templates/deployment.yaml"
       - "services/vllm-inference/k8s/base/deployment.yaml"
+      - "services/stt-worker/k8s/base/deployment.yaml"
+      - "services/tts-worker/k8s/base/deployment.yaml"
 
   # KSV053 (no pods/exec) & KSV056 (no service/network control) — tenant-admin
   # is intentionally a "full control over workload resources" role: teams need
@@ -48,6 +52,15 @@ misconfigurations:
   - id: AVD-KSV-0109
     paths:
       - "helm/backstage/templates/configmap.yaml"
+
+  # AWS-0164 (subnet auto-assigns public IPs) — intentional cost trade-off.
+  # This showcase runs EKS worker nodes in public subnets so they reach the
+  # internet directly via the Internet Gateway, which avoids paying for a NAT
+  # gateway (enable_nat_gateway = false). Nodes therefore need public IPs
+  # (map_public_ip_on_launch = true). Fires inside the upstream
+  # terraform-aws-modules/vpc module on aws_subnet.public; accepted as a
+  # deliberate design choice, not configurable away without reintroducing NAT.
+  - id: AVD-AWS-0164
 
   # AWS-0130 (IMDSv2 token required) & AWS-0104 (egress to public internet) —
   # both originate inside the upstream terraform-aws-modules/eks module that
