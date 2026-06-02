@@ -26,13 +26,16 @@ spec:
         - port: 9093    # Kafka TLS
         - port: 6379    # Redis
         - port: 9000    # MinIO
-    # LLM gateway in the apps namespace
+    # LLM gateway in the apps namespace. Cilium enforces egress on the backend
+    # pod port after Service translation, so allow the gateway's container port
+    # (8080), not just the Service port (80).
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: apps
       ports:
-        - port: 80      # llm-gateway HTTP
+        - port: 80      # llm-gateway Service port
+        - port: 8080    # llm-gateway container port (post-Service-translation)
     # DNS
     - ports:
         - port: 53
