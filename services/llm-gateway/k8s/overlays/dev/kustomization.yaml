@@ -5,6 +5,7 @@ namespace: apps
 
 resources:
   - ../../base
+  - mock-vllm.yaml
 
 labels:
   - pairs:
@@ -14,6 +15,10 @@ labels:
 
 patches:
   - path: patch-resources.yaml
+    target:
+      kind: Deployment
+      name: llm-gateway
+  - path: patch-upstream.yaml
     target:
       kind: Deployment
       name: llm-gateway

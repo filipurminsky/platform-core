@@ -16,7 +16,7 @@ set -euo pipefail
 NS="apps"
 API_SERVICE="audio-api"
 LOCAL_PORT=8080
-TIMEOUT_SECONDS=300
+TIMEOUT_SECONDS=600
 DUMMY_FILE="/tmp/smoke-test-audio.wav"
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────

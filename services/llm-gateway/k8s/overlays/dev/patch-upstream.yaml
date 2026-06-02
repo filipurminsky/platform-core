@@ -1,0 +1,14 @@
+# Dev: point the gateway at the in-cluster OpenAI mock (mock-vllm.yaml) instead of
+# the real vllm-inference, which cannot run on a GPU-less kind node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+spec:
+  template:
+    spec:
+      containers:
+        - name: llm-gateway
+          env:
+            - name: VLLM_BASE_URL
+              value: http://vllm-mock:8000

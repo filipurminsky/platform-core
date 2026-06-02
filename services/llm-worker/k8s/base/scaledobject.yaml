@@ -20,4 +20,4 @@ spec:
         topic: audio.transcripts
         lagThreshold: "5"           # scale up when lag > 5 messages per partition
         activationLagThreshold: "1" # activate (scale from 0->1) when any lag exists
-        offsetResetPolicy: latest
+        offsetResetPolicy: earliest
