@@ -6,77 +6,20 @@ Endpoints:
   GET /healthz   → liveness probe (always 200)
   GET /readyz    → readiness probe (always 200)
   GET /metrics   → Prometheus exposition format
+
+Logging/tracing setup and metric definitions live in the `app` package; this
+module holds the FastAPI app, request-metrics middleware, and the routes.
 """
 
-import os
 import socket
 import time
 
-import structlog
+from app.config import APP_VERSION
+from app.metrics import REQUEST_COUNT, REQUEST_LATENCY
+from app.observability import log
 from fastapi import FastAPI, Request, Response
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
-
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-def add_trace_context(_logger, _method_name, event_dict):
-    span = trace.get_current_span()
-    context = span.get_span_context()
-    if context.is_valid:
-        event_dict["trace_id"] = f"{context.trace_id:032x}"
-        event_dict["span_id"] = f"{context.span_id:016x}"
-    return event_dict
-
-
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        add_trace_context,
-        structlog.processors.JSONRenderer(),
-    ]
-)
-log = structlog.get_logger()
-
-
-# ---------------------------------------------------------------------------
-# Tracing
-# ---------------------------------------------------------------------------
-def configure_tracing() -> None:
-    # Honour the standard kill switch so tests/CI (and any env without a
-    # collector) don't block on span export. Set OTEL_SDK_DISABLED=true there.
-    if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
-        return
-    service_name = os.getenv("OTEL_SERVICE_NAME", "echo-service")
-    resource = Resource.create({"service.name": service_name})
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
-
-
-configure_tracing()
-
-# ---------------------------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------------------------
-REQUEST_COUNT = Counter(
-    "echo_requests_total",
-    "Total HTTP requests received",
-    ["method", "path", "status"],
-)
-REQUEST_LATENCY = Histogram(
-    "echo_request_duration_seconds",
-    "HTTP request latency",
-    ["method", "path"],
-    buckets=[0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
-)
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 # ---------------------------------------------------------------------------
 # App
@@ -137,7 +80,7 @@ async def echo(request: Request):
 
     return {
         "service": "echo-service",
-        "version": os.getenv("APP_VERSION", "dev"),
+        "version": APP_VERSION,
         "hostname": HOSTNAME,
         "uptime_seconds": round(time.time() - START_TIME, 1),
         "request": {

@@ -9,6 +9,7 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-grpc==1.29.0",
     "opentelemetry-sdk==1.29.0",
     "prometheus-client==0.20.0",
+    "pydantic-settings==2.14.1",
     "structlog==24.1.0",
 ]
 

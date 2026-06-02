@@ -194,7 +194,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [echo-service, worker-service, llm-gateway]
+        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
     steps:
       - uses: actions/checkout@v4
 
@@ -204,19 +204,20 @@ jobs:
           enable-cache: true
 
       # ruff is a static analyzer — no need to install the app's deps to lint.
-      # Config is the repo-root pyproject.toml ([tool.ruff]).
+      # Config is the repo-root pyproject.toml ([tool.ruff]). Lints the whole
+      # app dir (main.py + the app/ package + tests); ruff excludes .venv etc.
       - name: Ruff lint
-        run: uvx ruff check apps/${{ matrix.app }}/main.py
+        run: uvx ruff check apps/${{ matrix.app }}
 
       - name: Ruff format check
-        run: uvx ruff format --check apps/${{ matrix.app }}/main.py
+        run: uvx ruff format --check apps/${{ matrix.app }}
 
   app-test:
     name: Python tests (apps)
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [echo-service, worker-service, llm-gateway]
+        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
     steps:
       - uses: actions/checkout@v4
 
@@ -239,7 +240,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [echo-service, worker-service, llm-gateway]
+        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
     steps:
       - uses: actions/checkout@v4
 

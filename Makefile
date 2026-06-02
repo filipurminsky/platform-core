@@ -3,7 +3,7 @@
 # (.github/workflows/ci.yaml) and the runbook in CLAUDE.md, so "green locally"
 # means "green in CI".
 
-APPS        := echo-service worker-service llm-gateway
+APPS        := echo-service worker-service llm-gateway audio-api stt-worker tts-worker llm-worker
 DEV_OVERLAY := kustomize/overlays/dev
 PROD_OVERLAY:= kustomize/overlays/prod
 
@@ -36,12 +36,12 @@ test: ## Run unit tests for all apps (uv run pytest)
 lint: ## Lint + format-check the apps (ruff via uvx, config in root pyproject.toml)
 	@for app in $(APPS); do \
 	  echo "== $$app =="; \
-	  uvx ruff check apps/$$app/main.py && uvx ruff format --check apps/$$app/main.py || exit 1; \
+	  uvx ruff check apps/$$app && uvx ruff format --check apps/$$app || exit 1; \
 	done
 
 .PHONY: fmt
 fmt: ## Auto-format the apps (ruff format)
-	@for app in $(APPS); do uvx ruff format apps/$$app/main.py; done
+	@for app in $(APPS); do uvx ruff format apps/$$app; done
 
 .PHONY: images
 images: ## Build all app container images locally (no push)

@@ -22,6 +22,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 ENV PATH="/app/.venv/bin:$PATH"
 
 COPY main.py .
+COPY app ./app
 
 RUN useradd --no-create-home --shell /bin/false appuser
 USER appuser

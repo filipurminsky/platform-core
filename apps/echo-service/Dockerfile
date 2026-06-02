@@ -18,6 +18,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy source
 COPY main.py .
+COPY app ./app
 
 # Non-root user
 RUN useradd --no-create-home --shell /bin/false appuser

@@ -8,6 +8,10 @@ Responsibilities:
   - GET /healthz, GET /readyz, GET /metrics: standard probes + Prometheus metrics.
   - Structured JSON logging, W3C trace context propagation via Kafka headers.
 
+Config, logging/tracing, metrics, and Kafka helpers live in the `app` package;
+this module holds the FastAPI app, the external-client singletons (overridable
+in tests), lifecycle hooks, auth check, and the routes.
+
 Env:
   API_TOKEN           — bearer token; if unset, auth is skipped (dev convenience).
   MAX_UPLOAD_BYTES    — default 26214400 (25 MB).
@@ -26,125 +30,30 @@ Env:
 
 import datetime
 import json
-import os
-import socket
 import uuid
 
 import boto3
 import redis as redis_lib
-import structlog
+from app.config import (
+    ALLOWED_CONTENT_TYPES,
+    API_TOKEN,
+    JOB_STATE_TTL_SECONDS,
+    KAFKA_TOPIC_JOBS,
+    MAX_UPLOAD_BYTES,
+    REDIS_URL,
+    S3_BUCKET,
+    S3_ENDPOINT_URL,
+    S3_REGION,
+)
+from app.kafka_io import _kafka_config, kafka_header_setter
+from app.metrics import UPLOAD_BYTES, UPLOADS_TOTAL
+from app.observability import log
 from botocore.config import Config
 from confluent_kafka import Producer
 from fastapi import FastAPI, Header, HTTPException, Request, Response, UploadFile
-from opentelemetry import propagate, trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry import propagate
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.propagators.textmap import Setter
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
-
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
-API_TOKEN = os.getenv("API_TOKEN", "")  # empty → no auth check
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))  # 25 MB
-ALLOWED_CONTENT_TYPES = set(
-    os.getenv(
-        "ALLOWED_CONTENT_TYPES",
-        "audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/ogg,audio/flac",
-    ).split(",")
-)
-
-S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "")
-S3_BUCKET = os.getenv("S3_BUCKET", "audio-pipeline")
-S3_REGION = os.getenv("S3_REGION", "eu-west-1")
-
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-JOB_STATE_TTL_SECONDS = int(os.getenv("JOB_STATE_TTL_SECONDS", "604800"))
-
-KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-KAFKA_TOPIC_JOBS = os.getenv("KAFKA_TOPIC_JOBS", "audio.jobs")
-KAFKA_SASL_USERNAME = os.getenv("KAFKA_SASL_USERNAME", "")
-KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", "")
-KAFKA_SECURITY_PROTOCOL = os.getenv(
-    "KAFKA_SECURITY_PROTOCOL", "SASL_SSL" if KAFKA_SASL_USERNAME else "PLAINTEXT"
-)
-
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-def add_trace_context(_logger, _method_name, event_dict):
-    span = trace.get_current_span()
-    context = span.get_span_context()
-    if context.is_valid:
-        event_dict["trace_id"] = f"{context.trace_id:032x}"
-        event_dict["span_id"] = f"{context.span_id:016x}"
-    return event_dict
-
-
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        add_trace_context,
-        structlog.processors.JSONRenderer(),
-    ]
-)
-log = structlog.get_logger()
-
-
-# ---------------------------------------------------------------------------
-# Tracing
-# ---------------------------------------------------------------------------
-def configure_tracing() -> None:
-    if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
-        return
-    service_name = os.getenv("OTEL_SERVICE_NAME", "audio-api")
-    resource = Resource.create({"service.name": service_name})
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
-
-
-configure_tracing()
-
-
-# ---------------------------------------------------------------------------
-# Kafka header setter (for W3C traceparent injection)
-# ---------------------------------------------------------------------------
-class KafkaHeaderSetter(Setter):
-    def set(self, carrier, key, value):
-        carrier.append((key, value.encode()))
-
-
-kafka_header_setter = KafkaHeaderSetter()
-
-
-# ---------------------------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------------------------
-UPLOADS_TOTAL = Counter(
-    "audio_uploads_total",
-    "Audio upload requests by status",
-    ["status"],  # success | rejected_size | rejected_type | auth_error
-)
-UPLOAD_BYTES = Histogram(
-    "audio_upload_bytes",
-    "Size of accepted audio uploads in bytes",
-    buckets=[
-        10_000,
-        100_000,
-        500_000,
-        1_000_000,
-        5_000_000,
-        10_000_000,
-        25_000_000,
-    ],
-)
-
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 # ---------------------------------------------------------------------------
 # Module-level singletons (overridable in tests via monkeypatch)
@@ -152,28 +61,6 @@ UPLOAD_BYTES = Histogram(
 s3_client = None
 redis_client = None
 kafka_producer = None
-
-
-# ---------------------------------------------------------------------------
-# Kafka helpers (mirrors worker-service _kafka_config pattern)
-# ---------------------------------------------------------------------------
-def _kafka_config(extra: dict | None = None) -> dict:
-    cfg = {
-        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-        "client.id": f"audio-api-{socket.gethostname()}",
-    }
-    if KAFKA_SASL_USERNAME:
-        cfg.update(
-            {
-                "security.protocol": KAFKA_SECURITY_PROTOCOL,
-                "sasl.mechanism": "SCRAM-SHA-512",
-                "sasl.username": KAFKA_SASL_USERNAME,
-                "sasl.password": KAFKA_SASL_PASSWORD,
-            }
-        )
-    if extra:
-        cfg.update(extra)
-    return cfg
 
 
 # ---------------------------------------------------------------------------

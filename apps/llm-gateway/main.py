@@ -10,138 +10,27 @@ Responsibilities:
 
 Rate limiting: token-bucket per client IP, 60 req/min by default (env: RATE_LIMIT_RPM).
 Upstream: env VLLM_BASE_URL (default http://vllm-inference:8000).
+
+Config, logging/tracing, metrics, and the rate-limiter class live in the `app`
+package; this module holds the FastAPI app, shared client + limiter state, and
+the routes.
 """
 
-import asyncio
-import collections
-import os
 import time
 
 import httpx
-import structlog
+from app.config import RATE_LIMIT_RPM, REQUEST_TIMEOUT, VLLM_BASE_URL
+from app.metrics import PROXY_LATENCY, PROXY_REQUESTS, RATE_LIMITED, UPSTREAM_ERRORS
+from app.observability import log
+from app.rate_limiter import SlidingWindowRateLimiter
 from fastapi import FastAPI, HTTPException, Request, Response
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 # ---------------------------------------------------------------------------
-# Config
+# Shared, mutable state (overridable in tests via monkeypatch)
 # ---------------------------------------------------------------------------
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://vllm-inference:8000")
-RATE_LIMIT_RPM = int(os.getenv("RATE_LIMIT_RPM", "60"))
-REQUEST_TIMEOUT = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "120"))
-
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-def add_trace_context(_logger, _method_name, event_dict):
-    span = trace.get_current_span()
-    context = span.get_span_context()
-    if context.is_valid:
-        event_dict["trace_id"] = f"{context.trace_id:032x}"
-        event_dict["span_id"] = f"{context.span_id:016x}"
-    return event_dict
-
-
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        add_trace_context,
-        structlog.processors.JSONRenderer(),
-    ]
-)
-log = structlog.get_logger()
-
-
-# ---------------------------------------------------------------------------
-# Tracing
-# ---------------------------------------------------------------------------
-def configure_tracing() -> None:
-    # Honour the standard kill switch so tests/CI (and any env without a
-    # collector) don't block on span export. Set OTEL_SDK_DISABLED=true there.
-    if os.getenv("OTEL_SDK_DISABLED", "").lower() == "true":
-        return
-    service_name = os.getenv("OTEL_SERVICE_NAME", "llm-gateway")
-    resource = Resource.create({"service.name": service_name})
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
-    HTTPXClientInstrumentor().instrument()
-
-
-configure_tracing()
-
-# ---------------------------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------------------------
-PROXY_REQUESTS = Counter(
-    "gateway_requests_total",
-    "Requests proxied to vLLM",
-    ["method", "path", "status"],
-)
-PROXY_LATENCY = Histogram(
-    "gateway_request_duration_seconds",
-    "End-to-end latency including vLLM processing",
-    ["path"],
-    buckets=[0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0],
-)
-UPSTREAM_ERRORS = Counter(
-    "gateway_upstream_errors_total",
-    "Upstream connection or timeout errors",
-)
-RATE_LIMITED = Counter(
-    "gateway_rate_limited_total",
-    "Requests rejected by the rate limiter",
-)
-
-
-# ---------------------------------------------------------------------------
-# Rate limiter — sliding-window per client IP (good enough for demo scale)
-# ---------------------------------------------------------------------------
-class SlidingWindowRateLimiter:
-    """Thread-safe sliding window rate limiter (1-minute window)."""
-
-    WINDOW = 60  # seconds
-
-    def __init__(self, limit: int):
-        self._limit = limit
-        self._windows: dict[str, collections.deque] = {}
-        self._lock = asyncio.Lock()
-
-    async def is_allowed(self, client_ip: str) -> tuple[bool, int]:
-        """Returns (allowed, remaining)."""
-        now = time.time()
-        async with self._lock:
-            dq = self._windows.setdefault(client_ip, collections.deque())
-            # Drop timestamps outside the window
-            while dq and dq[0] < now - self.WINDOW:
-                dq.popleft()
-            if len(dq) >= self._limit:
-                return False, 0
-            dq.append(now)
-            return True, self._limit - len(dq)
-
-    async def reset_at(self, client_ip: str) -> int:
-        """Epoch second when the oldest request in the window expires."""
-        async with self._lock:
-            dq = self._windows.get(client_ip)
-            if dq:
-                return int(dq[0] + self.WINDOW)
-            return int(time.time() + self.WINDOW)
-
-
 limiter = SlidingWindowRateLimiter(RATE_LIMIT_RPM)
-
-# ---------------------------------------------------------------------------
-# HTTP client (shared, connection-pooled)
-# ---------------------------------------------------------------------------
 http_client: httpx.AsyncClient | None = None
 
 
