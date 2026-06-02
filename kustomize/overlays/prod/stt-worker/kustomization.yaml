@@ -35,13 +35,11 @@ replicas:
   - name: stt-worker
     count: 0
 
-configMapGenerator:
-  - name: env-config
-    literals:
-      - ENVIRONMENT=prod
-      - LOG_LEVEL=info
-generatorOptions:
-  disableNameSuffixHash: true
+# env-config (ENVIRONMENT/LOG_LEVEL) is a single namespace-wide ConfigMap owned
+# by the worker-service Application; this app only references it via the
+# Deployment's configMapKeyRef. Re-generating an identically-named ConfigMap here
+# makes multiple ArgoCD Applications contend for apps/env-config (perpetual
+# OutOfSync) — one owner, many readers.
 
 # Pinned by immutable digest on promotion: docker-build.yaml runs
 # `kustomize edit set image stt-worker=<repo>@sha256:<digest>`. Never
