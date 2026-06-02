@@ -4,7 +4,9 @@ metadata:
   name: tts-worker
   labels:
     app: tts-worker
+    app.kubernetes.io/name: tts-worker
 spec:
+  revisionHistoryLimit: 3
   replicas: 0                  # KEDA manages replica count; starts at zero (scale-to-zero)
   selector:
     matchLabels:
@@ -13,10 +15,7 @@ spec:
     metadata:
       labels:
         app: tts-worker
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "9090"
+        app.kubernetes.io/name: tts-worker
     spec:
       serviceAccountName: tts-worker
       # Allow in-flight TTS jobs to finish before SIGKILL; Kokoro CPU synthesis
@@ -25,6 +24,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: tts-worker
           image: tts-worker:latest

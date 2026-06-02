@@ -4,7 +4,9 @@ metadata:
   name: llm-worker
   labels:
     app: llm-worker
+    app.kubernetes.io/name: llm-worker
 spec:
+  revisionHistoryLimit: 3
   replicas: 0                  # KEDA manages replica count; starts at zero
   selector:
     matchLabels:
@@ -13,16 +15,15 @@ spec:
     metadata:
       labels:
         app: llm-worker
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "9090"
+        app.kubernetes.io/name: llm-worker
     spec:
       serviceAccountName: llm-worker
       terminationGracePeriodSeconds: 60    # allow in-flight summarisation jobs to drain
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: llm-worker
           image: llm-worker:latest

@@ -4,7 +4,9 @@ metadata:
   name: llm-gateway
   labels:
     app: llm-gateway
+    app.kubernetes.io/name: llm-gateway
 spec:
+  revisionHistoryLimit: 3
   replicas: 2                  # steady HTTP proxy (not KEDA-managed); dev overlay drops to 1
   selector:
     matchLabels:
@@ -13,15 +15,23 @@ spec:
     metadata:
       labels:
         app: llm-gateway
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "8080"
+        app.kubernetes.io/name: llm-gateway
     spec:
       serviceAccountName: llm-gateway
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Spread the replicas across nodes so a single node loss can't take out the
+      # whole service (the PDB's minAvailable:1 only helps if pods are on >1 node).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: llm-gateway
       containers:
         - name: llm-gateway
           image: llm-gateway:latest

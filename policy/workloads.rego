@@ -53,6 +53,15 @@ deny contains msg if {
 	msg := sprintf("%s '%s': pod must not run as root (runAsUser: 0)", [w.kind, w.metadata.name])
 }
 
+# Every workload must set a seccomp profile (RuntimeDefault/Localhost). We require
+# it at the pod level so it applies to every container including init containers;
+# this is what lets the apps namespace move toward the PSS `restricted` profile.
+deny contains msg if {
+	some w in workloads
+	not w.spec.template.spec.securityContext.seccompProfile.type
+	msg := sprintf("%s '%s': pod securityContext is missing seccompProfile.type (set RuntimeDefault)", [w.kind, w.metadata.name])
+}
+
 # Workloads should carry the app.kubernetes.io/part-of label.
 warn contains msg if {
 	some w in workloads

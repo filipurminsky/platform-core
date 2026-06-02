@@ -4,7 +4,9 @@ metadata:
   name: stt-worker
   labels:
     app: stt-worker
+    app.kubernetes.io/name: stt-worker
 spec:
+  revisionHistoryLimit: 3
   replicas: 0                  # KEDA manages replica count; starts at zero
   selector:
     matchLabels:
@@ -13,10 +15,7 @@ spec:
     metadata:
       labels:
         app: stt-worker
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "9090"
+        app.kubernetes.io/name: stt-worker
     spec:
       serviceAccountName: stt-worker
       terminationGracePeriodSeconds: 60    # allow in-flight jobs to drain
@@ -34,6 +33,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: stt-worker
           image: stt-worker:latest

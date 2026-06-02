@@ -1,0 +1,21 @@
+# The shared paved-road namespace for the demo applications. Tenant namespaces get
+# their PSA labels from kubernetes/tenants/team-*/namespace.yaml; this is the
+# equivalent for the platform-owned `apps` namespace, which is otherwise created
+# label-less by each app ApplicationSet's CreateNamespace=true.
+#
+# Pod Security Admission: ENFORCE baseline (blocks privileged / hostPath /
+# hostNetwork / hostPID etc.) and WARN + AUDIT against restricted. Restricted is
+# not enforced yet because vllm-inference does not run fully non-root on the GPU
+# image path; warn/audit surfaces that gap without blocking the (unverified) prod
+# GPU path. Tighten enforce to `restricted` once every workload is compliant.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apps
+  labels:
+    app.kubernetes.io/managed-by: argocd
+    app.kubernetes.io/part-of: platform-core
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

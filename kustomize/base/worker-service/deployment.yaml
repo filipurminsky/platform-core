@@ -4,7 +4,9 @@ metadata:
   name: worker-service
   labels:
     app: worker-service
+    app.kubernetes.io/name: worker-service
 spec:
+  revisionHistoryLimit: 3
   replicas: 0                  # KEDA manages replica count; starts at zero
   selector:
     matchLabels:
@@ -13,16 +15,15 @@ spec:
     metadata:
       labels:
         app: worker-service
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "9090"
+        app.kubernetes.io/name: worker-service
     spec:
       serviceAccountName: worker-service
       terminationGracePeriodSeconds: 60    # allow in-flight jobs to drain
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: worker-service
           image: worker-service:latest

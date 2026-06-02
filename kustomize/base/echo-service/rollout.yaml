@@ -50,10 +50,6 @@ spec:
         app: echo-service
         app.kubernetes.io/name: echo-service
         app.kubernetes.io/part-of: platform-core
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: echo-service
       securityContext:
@@ -62,6 +58,15 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      # Spread the replicas across nodes so a single node loss can't take out the
+      # whole service (the PDB's minAvailable:1 only helps if pods are on >1 node).
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: echo-service
       containers:
         - name: echo-service
           image: echo-service:latest

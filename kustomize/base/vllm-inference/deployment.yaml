@@ -4,7 +4,9 @@ metadata:
   name: vllm-inference
   labels:
     app: vllm-inference
+    app.kubernetes.io/name: vllm-inference
 spec:
+  revisionHistoryLimit: 3
   replicas: 0                  # KEDA manages; starts at zero
   selector:
     matchLabels:
@@ -13,12 +15,16 @@ spec:
     metadata:
       labels:
         app: vllm-inference
-      annotations:
-        prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "8000"
+        app.kubernetes.io/name: vllm-inference
     spec:
       serviceAccountName: vllm-inference
+      # seccomp only: the upstream vllm/vllm-openai GPU image is not yet verified to
+      # run non-root, so runAsNonRoot is deliberately omitted here. This is the one
+      # workload that does not meet the PSS `restricted` profile — hence the apps
+      # namespace enforces `baseline` and only warns/audits `restricted`.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       runtimeClassName: nvidia    # patched out in dev overlay (no GPU)
       nodeSelector:
         role: gpu                 # patched out in dev overlay
