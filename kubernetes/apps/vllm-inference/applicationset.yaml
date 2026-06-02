@@ -25,7 +25,7 @@ spec:
       source:
         repoURL: https://github.com/filipurminsky/platform-core.git
         targetRevision: main
-        path: kustomize/overlays/{{.metadata.labels.environment}}/vllm-inference
+        path: services/vllm-inference/k8s/overlays/{{.metadata.labels.environment}}
       destination:
         server: "{{.server}}"
         namespace: apps

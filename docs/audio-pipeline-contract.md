@@ -15,7 +15,7 @@ audio-api ──audio.jobs──▶ stt-worker ──audio.transcripts──▶ 
 
 Each worker: consume → read input blob from object storage by key → process →
 write output blob to object storage → `SET` Redis job-state → produce next event.
-Reuse the `apps/worker-service` pattern verbatim: confluent-kafka consumer,
+Reuse the `services/worker-service` pattern verbatim: confluent-kafka consumer,
 `enable.auto.commit=false` (commit only after the output event is produced),
 job-id dedup, retry → per-stage DLQ, SIGTERM drain, metrics HTTP server on
 `:9090` (`/metrics`, `/healthz`, `/readyz`), trace context extracted from Kafka
@@ -132,15 +132,15 @@ event carries `created_at` forward so the terminal stage can compute it).
 
 ## 8. Naming / placement conventions (from AGENTS.md)
 
-- Source: `apps/<svc>/` (uv project: `main.py`, `pyproject.toml`, `uv.lock`,
+- Source: `services/<svc>/` (uv project: `main.py`, `pyproject.toml`, `uv.lock`,
   `test_main.py`, `conftest.py` setting `OTEL_SDK_DISABLED=true`, `Dockerfile`,
   `catalog-info.yaml`).
-- Manifests: `kustomize/base/<svc>/` (Deployment/Svc/ServiceMonitor/NetworkPolicy/PDB;
+- Manifests: `services/<svc>/k8s/base/` (Deployment/Svc/ServiceMonitor/NetworkPolicy/PDB;
   for workers also `scaledobject.yaml`, `serviceaccount.yaml`).
-- Per-env overlays: `kustomize/overlays/{dev,prod}/<svc>/` (own kustomization +
+- Per-env overlays: `services/<svc>/k8s/overlays/{dev,prod}/` (own kustomization +
   patches; prod pins image to ECR digest placeholder `unpromoted`, dev `:latest`).
-- ArgoCD: `kubernetes/apps/<svc>/applicationset.yaml` (cluster generator,
-  `path: kustomize/overlays/{{.metadata.labels.environment}}/<svc>`, project
+- ArgoCD: `kubernetes/services/<svc>/applicationset.yaml` (cluster generator,
+  `path: services/<svc>/k8s/overlays/{{.metadata.labels.environment}}`, project
   `platform-apps`, namespace `apps`).
 - Env wiring in base manifests: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`
   (`http://otel-collector.monitoring.svc.cluster.local:4317`),

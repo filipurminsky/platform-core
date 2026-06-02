@@ -4,8 +4,8 @@
 # means "green in CI".
 
 APPS        := echo-service worker-service llm-gateway audio-api stt-worker tts-worker llm-worker
-DEV_OVERLAY := kustomize/overlays/dev
-PROD_OVERLAY:= kustomize/overlays/prod
+DEV_OVERLAY := kustomize/validation/dev
+PROD_OVERLAY:= kustomize/validation/prod
 
 .DEFAULT_GOAL := help
 
@@ -23,30 +23,30 @@ hooks: ## Install git pre-commit + pre-push hooks (.pre-commit-config.yaml)
 .PHONY: deps
 deps: ## Sync each app's locked dependencies into its uv venv (.venv)
 	@for app in $(APPS); do \
-	  echo "== $$app =="; ( cd apps/$$app && uv sync --frozen ) || exit 1; \
+	  echo "== $$app =="; ( cd services/$$app && uv sync --frozen ) || exit 1; \
 	done
 
 .PHONY: test
 test: ## Run unit tests for all apps (uv run pytest)
 	@for app in $(APPS); do \
-	  echo "== $$app =="; ( cd apps/$$app && uv run --frozen pytest -q ) || exit 1; \
+	  echo "== $$app =="; ( cd services/$$app && uv run --frozen pytest -q ) || exit 1; \
 	done
 
 .PHONY: lint
 lint: ## Lint + format-check the apps (ruff via uvx, config in root pyproject.toml)
 	@for app in $(APPS); do \
 	  echo "== $$app =="; \
-	  uvx ruff check apps/$$app && uvx ruff format --check apps/$$app || exit 1; \
+	  uvx ruff check services/$$app && uvx ruff format --check services/$$app || exit 1; \
 	done
 
 .PHONY: fmt
 fmt: ## Auto-format the apps (ruff format)
-	@for app in $(APPS); do uvx ruff format apps/$$app; done
+	@for app in $(APPS); do uvx ruff format services/$$app; done
 
 .PHONY: images
 images: ## Build all app container images locally (no push)
 	@for app in $(APPS); do \
-	  echo "== $$app =="; docker build -t platform-core/$$app:dev apps/$$app || exit 1; \
+	  echo "== $$app =="; docker build -t platform-core/$$app:dev services/$$app || exit 1; \
 	done
 
 # ── Kubernetes manifests ────────────────────────────────────────────────────────

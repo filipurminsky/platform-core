@@ -10,7 +10,7 @@ For iterating on the three services (`echo-service`, `worker-service`, `llm-gate
 Uses Docker Compose: Kafka (KRaft), the apps, and a vLLM mock.
 
 ```bash
-cd apps
+cd services
 docker compose up -d
 docker compose logs -f worker-service
 
@@ -23,7 +23,7 @@ docker compose exec kafka kafka-console-producer.sh \
 curl http://localhost:8080/v1/models
 ```
 
-No Kubernetes needed. This is the right loop for editing `apps/*/main.py`.
+No Kubernetes needed. This is the right loop for editing `services/*/main.py`.
 
 ---
 

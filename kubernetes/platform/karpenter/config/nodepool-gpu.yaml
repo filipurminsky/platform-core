@@ -1,6 +1,6 @@
 # GPU NodePool — replaces the old static GPU managed node group for vLLM. Nodes
 # are tainted nvidia.com/gpu and labelled role=gpu, matching the vLLM Deployment's
-# toleration + nodeSelector (kustomize/base/vllm-inference). When KEDA scales vLLM
+# toleration + nodeSelector (services/vllm-inference/k8s/base). When KEDA scales vLLM
 # above zero, Karpenter provisions a GPU node on demand; when vLLM scales back to
 # zero, the empty node is reclaimed. On-demand only (Spot GPU is frequently
 # interrupted and the model reload is expensive).

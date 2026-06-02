@@ -1,0 +1,23 @@
+# Code ownership for platform-core.
+#
+# GitHub applies the LAST matching pattern, so order matters: the catch-all comes
+# first, then progressively more specific overrides. Pair this with a branch
+# ruleset on `main` that REQUIRES code-owner review — and add `github-actions[bot]`
+# to that ruleset's bypass allowlist so the digest-promotion job
+# (.github/workflows/docker-build.yaml, which direct-pushes to main) is unaffected.
+#
+# NOTE: replace @org/platform-team and @org/app-team with your real GitHub team
+# slugs (or @usernames) before enabling the ruleset.
+
+# Default: the platform team owns everything not matched below.
+*                          @org/platform-team
+
+# Application team owns each service's source + co-located k8s manifests.
+/services/                 @org/app-team
+
+# …except echo-service, which is the platform's canary self-test.
+/services/echo-service/    @org/platform-team
+
+# GitOps registration (ApplicationSets) stays platform-reviewed — it governs what
+# is admitted to the cluster (project, namespace, sync policy).
+/kubernetes/apps/          @org/platform-team

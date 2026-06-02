@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "apps/**"
+      - "services/**"
   workflow_dispatch:
 
 env:
@@ -33,14 +33,14 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: "apps/${{ matrix.app }}/uv.lock"
+          cache-dependency-glob: "services/${{ matrix.app }}/uv.lock"
 
       - name: Install deps (runtime + test) from lockfile
-        working-directory: apps/${{ matrix.app }}
+        working-directory: services/${{ matrix.app }}
         run: uv sync --frozen
 
       - name: Run pytest
-        working-directory: apps/${{ matrix.app }}
+        working-directory: services/${{ matrix.app }}
         run: uv run --frozen pytest -q
 
   build:
@@ -90,7 +90,7 @@ jobs:
       - name: Build image for scanning (local, no push)
         uses: docker/build-push-action@v5
         with:
-          context: apps/${{ matrix.app }}
+          context: services/${{ matrix.app }}
           load: true
           tags: ${{ matrix.app }}:scan
           cache-from: type=gha
@@ -114,7 +114,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: apps/${{ matrix.app }}
+          context: services/${{ matrix.app }}
           push: true
           tags: ${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }}
           sbom: true
@@ -149,11 +149,11 @@ jobs:
           curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
             | tar -xz && sudo mv kustomize /usr/local/bin/
           KUSTOMIZE="$(command -v kustomize)"
-          ( cd kustomize/overlays/prod/${{ matrix.app }} \
+          ( cd services/${{ matrix.app }}/k8s/overlays/prod \
             && "$KUSTOMIZE" edit set image "${{ matrix.app }}=${{ steps.ref.outputs.repo }}@${DIGEST}" )
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add kustomize/overlays/prod/${{ matrix.app }}
+          git add services/${{ matrix.app }}/k8s/overlays/prod
           git commit -m "chore(${{ matrix.app }}): promote ${{ steps.ref.outputs.sha }} (${DIGEST})" || exit 0
           for attempt in 1 2 3 4 5; do
             if git pull --rebase --autostash origin main && git push; then

@@ -68,6 +68,6 @@ kubectl -n apps describe ingress echo-service echo-service-echo-service-canary
 
 - If the gate fired on a **legitimate** release, the thresholds may be too tight
   for normal variance — tune `successCondition` / `count` / `interval` in
-  `kustomize/base/echo-service/analysistemplate.yaml`, with data.
+  `services/echo-service/k8s/base/analysistemplate.yaml`, with data.
 - Add the failure mode to pre-merge tests (see `tests/`) so CI catches it before
   a canary ever starts.

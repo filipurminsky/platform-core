@@ -17,7 +17,7 @@ misconfigurations:
   - id: AVD-KSV-0014
     paths:
       - "helm/vllm/templates/deployment.yaml"
-      - "kustomize/base/vllm-inference/deployment.yaml"
+      - "services/vllm-inference/k8s/base/deployment.yaml"
 
   # KSV053 (no pods/exec) & KSV056 (no service/network control) — tenant-admin
   # is intentionally a "full control over workload resources" role: teams need

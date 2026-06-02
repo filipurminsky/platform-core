@@ -137,9 +137,13 @@ platform-core/
 │   │   ├── kafka/           # Strimzi Kafka cluster + topics + users
 │   │   ├── keda/            # KEDA operator
 │   │   └── crossplane/      # Crossplane + AWS S3 self-service API (XRD/Composition)
-│   └── apps/                # ArgoCD Applications for demo workloads
+│   └── apps/                # ArgoCD ApplicationSets (GitOps registration, one per service)
+├── services/                # One folder per service: source + co-located k8s manifests
+│   ├── echo-service/        #   main.py, Dockerfile, catalog-info.yaml, …
+│   │   └── k8s/             #   base/ + overlays/{dev,prod}/ (what ArgoCD deploys)
+│   └── <svc>/               #   worker-service, llm-gateway, audio-api, stt/tts/llm-worker, vllm-inference
 ├── helm/                    # Custom Helm charts (demo-app, vllm, platform-services)
-├── kustomize/               # Base manifests + dev/prod overlays
+├── kustomize/validation/    # CI-only aggregate overlay (kubeconform + OPA --combine)
 ├── backstage/               # Backstage config, catalog, scaffolding templates
 ├── observability/           # Prometheus rules, Grafana dashboards, Loki config
 ├── .github/workflows/       # CI, Terraform plan, Docker build pipelines

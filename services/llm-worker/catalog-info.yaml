@@ -1,0 +1,30 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: llm-worker
+  description: Kafka consumer that summarises transcripts via the llm-gateway and produces audio.summaries events with action items
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - python
+    - kafka
+    - keda
+    - llm
+    - audio
+    - demo
+  links:
+    - url: https://github.com/filipurminsky/platform-core/tree/main/services/llm-worker
+      title: Source
+      icon: github
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:platform-team
+  system: platform-core
+  consumesApis:
+    - audio-transcripts-topic
+  providesApis:
+    - audio-summaries-topic
+  dependsOn:
+    - component:llm-gateway

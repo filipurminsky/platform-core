@@ -24,7 +24,7 @@ spec:
       source:
         repoURL: https://github.com/filipurminsky/platform-core.git
         targetRevision: main
-        path: kustomize/overlays/{{.metadata.labels.environment}}/worker-service
+        path: services/worker-service/k8s/overlays/{{.metadata.labels.environment}}
       destination:
         server: "{{.server}}"
         namespace: apps

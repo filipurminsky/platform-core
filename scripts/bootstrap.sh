@@ -101,7 +101,7 @@ ok "ArgoCD installed"
 
 # ─── Label the destination cluster with its environment ──────────────────────
 # The app ApplicationSets use a cluster generator that reads this `environment`
-# label to pick the dev vs prod overlay (kustomize/overlays/<env>/...). Declaring
+# label to pick the dev vs prod overlay (services/<svc>/k8s/overlays/<env>/...). Declaring
 # a secret for the in-cluster server lets us attach that label to the local
 # cluster. Without it the generator matches nothing and no apps are created.
 log "Labelling in-cluster as environment=$ENVIRONMENT"

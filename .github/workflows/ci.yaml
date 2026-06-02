@@ -82,14 +82,14 @@ jobs:
 
       - name: Build + validate dev overlay
         run: |
-          kustomize build kustomize/overlays/dev \
+          kustomize build kustomize/validation/dev \
             | kubeconform -strict -summary -schema-location default \
               -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       - name: Build + validate dev app overlays
         run: |
-          for overlay in kustomize/overlays/dev/*/; do
+          for overlay in services/*/k8s/overlays/dev/; do
             kustomize build "$overlay" \
               | kubeconform -strict -summary -schema-location default \
                 -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
@@ -98,14 +98,14 @@ jobs:
 
       - name: Build + validate prod overlay
         run: |
-          kustomize build kustomize/overlays/prod \
+          kustomize build kustomize/validation/prod \
             | kubeconform -strict -summary -schema-location default \
               -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
       - name: Build + validate prod app overlays
         run: |
-          for overlay in kustomize/overlays/prod/*/; do
+          for overlay in services/*/k8s/overlays/prod/; do
             kustomize build "$overlay" \
               | kubeconform -strict -summary -schema-location default \
                 -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
@@ -155,12 +155,12 @@ jobs:
       # workload's pods?), not just per-document shape.
       - name: Run OPA policies (dev overlay)
         run: |
-          kustomize build kustomize/overlays/dev \
+          kustomize build kustomize/validation/dev \
             | conftest test --combine --policy policy/ -
 
       - name: Run OPA policies (prod overlay)
         run: |
-          kustomize build kustomize/overlays/prod \
+          kustomize build kustomize/validation/prod \
             | conftest test --combine --policy policy/ -
 
   terraform-validate:
@@ -207,10 +207,10 @@ jobs:
       # Config is the repo-root pyproject.toml ([tool.ruff]). Lints the whole
       # app dir (main.py + the app/ package + tests); ruff excludes .venv etc.
       - name: Ruff lint
-        run: uvx ruff check apps/${{ matrix.app }}
+        run: uvx ruff check services/${{ matrix.app }}
 
       - name: Ruff format check
-        run: uvx ruff format --check apps/${{ matrix.app }}
+        run: uvx ruff format --check services/${{ matrix.app }}
 
   app-test:
     name: Python tests (apps)
@@ -225,14 +225,14 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: "apps/${{ matrix.app }}/uv.lock"
+          cache-dependency-glob: "services/${{ matrix.app }}/uv.lock"
 
       - name: Install deps (runtime + test) from lockfile
-        working-directory: apps/${{ matrix.app }}
+        working-directory: services/${{ matrix.app }}
         run: uv sync --frozen
 
       - name: Run pytest
-        working-directory: apps/${{ matrix.app }}
+        working-directory: services/${{ matrix.app }}
         run: uv run --frozen pytest -q
 
   app-build:
@@ -250,7 +250,7 @@ jobs:
       - name: Build image (no push)
         uses: docker/build-push-action@v5
         with:
-          context: apps/${{ matrix.app }}
+          context: services/${{ matrix.app }}
           push: false
           tags: platform-core/${{ matrix.app }}:ci
           cache-from: type=gha
@@ -367,13 +367,13 @@ jobs:
 
       - name: Build + load echo-service image
         run: |
-          docker build -t echo-service:latest apps/echo-service
+          docker build -t echo-service:latest services/echo-service
           kind load docker-image echo-service:latest --name "${KIND_CLUSTER}"
 
       - name: Deploy echo-service (dev overlay)
         run: |
           kubectl create namespace apps
-          kubectl apply -k kustomize/overlays/dev/echo-service
+          kubectl apply -k services/echo-service/k8s/overlays/dev
 
       - name: Install kubectl-argo-rollouts plugin
         run: |

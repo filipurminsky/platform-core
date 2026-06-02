@@ -1,0 +1,23 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: echo-service
+  description: HTTP echo service — returns request metadata; used to validate platform connectivity
+  annotations:
+    github.com/project-slug: filipurminsky/platform-core
+    backstage.io/techdocs-ref: dir:.
+  tags:
+    - python
+    - fastapi
+    - demo
+  links:
+    - url: https://github.com/filipurminsky/platform-core/tree/main/services/echo-service
+      title: Source
+      icon: github
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:platform-team
+  system: platform-core
+  providesApis:
+    - echo-api

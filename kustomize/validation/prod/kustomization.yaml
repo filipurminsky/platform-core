@@ -1,0 +1,16 @@
+# Whole-cluster render for CI ONLY (kubeconform + OPA `--combine` relationship
+# checks). ArgoCD deploys the per-app overlays (services/<svc>/k8s/overlays/prod)
+# individually — this just composes them so policies can see the full apps-namespace
+# resource set at once. Only worker-service's overlay GENERATES env-config; the
+# other services reference it via configMapKeyRef, so this renders exactly one.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../../services/echo-service/k8s/overlays/prod
+  - ../../../services/worker-service/k8s/overlays/prod
+  - ../../../services/llm-gateway/k8s/overlays/prod
+  - ../../../services/vllm-inference/k8s/overlays/prod
+  - ../../../services/audio-api/k8s/overlays/prod
+  - ../../../services/stt-worker/k8s/overlays/prod
+  - ../../../services/tts-worker/k8s/overlays/prod
+  - ../../../services/llm-worker/k8s/overlays/prod

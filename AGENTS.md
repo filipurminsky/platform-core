@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Kustomize — build and validate manifests
-kustomize build kustomize/overlays/dev  | kubeconform -strict -summary -schema-location default
-kustomize build kustomize/overlays/prod | kubeconform -strict -summary -schema-location default
+kustomize build kustomize/validation/dev  | kubeconform -strict -summary -schema-location default
+kustomize build kustomize/validation/prod | kubeconform -strict -summary -schema-location default
 kustomize build kubernetes/platform/kafka/overlays/dev  | kubeconform -strict -summary
 kustomize build kubernetes/platform/kafka/overlays/prod | kubeconform -strict -summary
 
@@ -24,7 +24,7 @@ cd terraform/environments/dev  && terraform init -backend=false && terraform val
 cd terraform/environments/prod && terraform init -backend=false && terraform validate
 
 # OPA policy check (requires conftest)
-kustomize build kustomize/overlays/dev | conftest test --policy policy/ -
+kustomize build kustomize/validation/dev | conftest test --combine --policy policy/ -
 
 # kube-linter
 kube-linter lint kubernetes/ --config .kube-linter.yaml
@@ -53,22 +53,28 @@ kubectl apply -k tests/load
 
 ## Architecture
 
-### Two separate kustomize trees
+### Where deployable manifests live
 
-There are **two independent kustomize hierarchies** — confusing them is the most common mistake:
+Application manifests are **co-located per service** under `services/<svc>/k8s/`
+(`base/` + `overlays/{dev,prod}/`) — everything for a service lives in the one
+folder it owns. Three independent kustomize hierarchies feed ArgoCD:
 
 | Tree | Purpose | ArgoCD points here? |
 |------|---------|---------------------|
-| `kustomize/base/` + `kustomize/overlays/{dev,prod}/` | App Deployments, Services, PDBs, NetworkPolicies, ServiceMonitors | Yes — via the `echo-service`/`worker-service`/`vllm-inference` ApplicationSets |
+| `services/<svc>/k8s/base/` + `k8s/overlays/{dev,prod}/` | App Deployments/Rollouts, Services, PDBs, NetworkPolicies, ServiceMonitors, ScaledObjects | Yes — each `kubernetes/apps/<svc>/applicationset.yaml` points at `services/<svc>/k8s/overlays/{{env}}` |
 | `kubernetes/platform/kafka/base/` + `overlays/{dev,prod}/` | Strimzi Kafka, KafkaTopic, KafkaUser CRs | Yes — via the `kafka` ApplicationSet |
 | `kubernetes/tenants/team-*/` | Per-team Namespace, ResourceQuota, LimitRange, NetworkPolicies, RBAC | Yes — via `tenants` ApplicationSet |
+
+`kustomize/validation/{dev,prod}/` is a **CI-only** aggregate that composes every
+service's overlay so kubeconform and the OPA `--combine` relationship checks see
+the whole `apps` namespace at once. ArgoCD never points at it.
 
 ### Environment (dev vs prod) is cluster-labelled, not hardcoded
 
 The app/kafka manifests are **ApplicationSets** with a **cluster generator** (`kubernetes/apps/*/applicationset.yaml`, `kubernetes/platform/kafka/applicationset.yaml`). Each templates the overlay path from the destination cluster's `environment` label:
 
 ```
-path: kustomize/overlays/{{.metadata.labels.environment}}/echo-service
+path: services/echo-service/k8s/overlays/{{.metadata.labels.environment}}
 ```
 
 `bootstrap.sh` sets that label by declaring an `in-cluster` cluster Secret: `--mode=local` → `environment=dev`, `--mode=aws` → `environment=prod`. **Switching environments never requires editing a manifest** — and the generator's `environment Exists` selector means no apps sync until the cluster is labelled. To flip a running cluster, relabel the secret:
@@ -79,29 +85,34 @@ kubectl label secret in-cluster -n argocd environment=prod --overwrite
 
 ### Where Kubernetes manifests actually live
 
-- **`kubernetes/apps/`** — ArgoCD ApplicationSets and KEDA ScaledObjects/TriggerAuthentications only. **No Deployments or Services here.**
-- **`kustomize/base/{echo-service,worker-service,vllm-inference,llm-gateway}/`** — the real Kubernetes manifests for the four demo apps.
+- **`kubernetes/apps/<svc>/`** — the service's ArgoCD `ApplicationSet` only (GitOps registration: project, namespace, sync policy). **No Deployments or Services here.**
+- **`services/<svc>/k8s/base/`** — the real Kubernetes manifests (Deployment/Rollout, Service, ServiceMonitor, NetworkPolicy, PDB, ScaledObject). Per-env patches live in `services/<svc>/k8s/overlays/{dev,prod}/`.
 - **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, crossplane, backstage, monitoring, loki, tempo, opentelemetry-collector, opencost, karpenter). Each points to its upstream Helm chart (or, for config-only slices, a repo path). Prod-only slices (crossplane, karpenter) are ApplicationSets with a cluster generator scoped to `environment=prod`.
 
-### Application source code (`apps/`)
+### Application source code & manifests (`services/<svc>/`)
 
-**Do not confuse `apps/` (root) with `kubernetes/apps/`.** `apps/` holds the *source code and container builds* for the four demo services; `kubernetes/apps/` holds their *ArgoCD ApplicationSets*. The deployable manifests live in neither — they're in `kustomize/base/<svc>/`.
+Each service is **co-located in one folder it owns**: `services/<svc>/` holds the
+*source code and container build* (top level) and its *Kubernetes manifests*
+(`k8s/base/` + `k8s/overlays/{dev,prod}/`). The only piece kept outside is the
+*ArgoCD ApplicationSet* (`kubernetes/apps/<svc>/applicationset.yaml`) — GitOps
+registration stays platform-reviewed; its `path:` points back at the service's
+overlay.
 
-Each `apps/<service>/` is a self-contained Python project:
+Each `services/<service>/` source is a self-contained Python project:
 
 - **`echo-service`** — FastAPI HTTP demo (probes, `/metrics`, request echo). Deployed as an Argo Rollout (canary).
 - **`worker-service`** — Kafka consumer (confluent-kafka, no web framework). Manual-commit processing with dedup, retry → DLQ, graceful SIGTERM drain; exposes metrics on `:9090`. Scaled by KEDA on consumer lag.
 - **`llm-gateway`** — FastAPI reverse proxy in front of vLLM: per-IP sliding-window rate limiting, upstream error mapping (429/502/504), metrics. Deployed as a plain Deployment (2 replicas, 1 in dev). Its Kubernetes readiness probe is `/healthz` (self-check), **not** the app's `/readyz` — `/readyz` gates on the upstream vLLM `/health`, but vLLM is KEDA scale-to-zero, so gating readiness on it would remove the gateway from Service endpoints whenever vLLM is idle and deadlock scale-from-zero.
 
-Each service is a **uv project**: `main.py` (single-module app), `pyproject.toml` (`[project.dependencies]` runtime + `[dependency-groups].dev` for `pytest`/`httpx`, all pinned; `tool.uv.package = false` since it's a flat module, not a wheel), a committed `uv.lock`, `test_main.py` (unit tests — run `uv run pytest -q` from the service dir), `Dockerfile` (python:3.12-slim, non-root, deps installed via `uv sync --frozen --no-dev`), and `catalog-info.yaml` (Backstage catalog entry). Common tasks are wrapped in the root `Makefile` (`make deps|test|lint|fmt`). Lint/format with `ruff` (config in the **repo-root** `pyproject.toml`, inherited by each app); CI runs `ruff` (via `uvx`) + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. uv.lock files are kept current by Renovate (`pep621` manager + monthly lockfile maintenance). There is also an `apps/docker-compose.yml` for running the stack locally without Kubernetes.
+Each service is a **uv project**: `main.py` (single-module app), `pyproject.toml` (`[project.dependencies]` runtime + `[dependency-groups].dev` for `pytest`/`httpx`, all pinned; `tool.uv.package = false` since it's a flat module, not a wheel), a committed `uv.lock`, `test_main.py` (unit tests — run `uv run pytest -q` from the service dir), `Dockerfile` (python:3.12-slim, non-root, deps installed via `uv sync --frozen --no-dev`), and `catalog-info.yaml` (Backstage catalog entry). Common tasks are wrapped in the root `Makefile` (`make deps|test|lint|fmt`). Lint/format with `ruff` (config in the **repo-root** `pyproject.toml`, inherited by each app); CI runs `ruff` (via `uvx`) + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. uv.lock files are kept current by Renovate (`pep621` manager + monthly lockfile maintenance). There is also a `services/docker-compose.yml` for running the stack locally without Kubernetes.
 
 ### App-of-Apps flow
 
-`kubernetes/platform/argocd/app-of-apps.yaml` → ArgoCD watches `kubernetes/platform/` → each subdirectory is an independent ArgoCD Application → platform services are deployed from upstream Helm charts; apps are deployed from `kustomize/overlays/`.
+`kubernetes/platform/argocd/app-of-apps.yaml` → ArgoCD watches `kubernetes/platform/` → each subdirectory is an independent ArgoCD Application → platform services are deployed from upstream Helm charts; apps are deployed from `services/<svc>/k8s/overlays/` (the path each ApplicationSet points at).
 
 ### Dev vs prod differences
 
-The dev overlay (`kustomize/overlays/dev/`) does three things the prod overlay does not:
+Each service's dev overlay (`services/<svc>/k8s/overlays/dev/`) does things its prod overlay does not — notably for `vllm-inference`:
 1. `patch-vllm-model.yaml` — removes `runtimeClassName`, `nodeSelector`, `tolerations`, and GPU resource requests from the vllm-inference Deployment; switches model arg to `TinyLlama/TinyLlama-1.1B-Chat-v1.0` with `--device cpu`
 2. `patch-vllm-pvc.yaml` — changes storage class from `gp3` to `standard` (kind hostPath)
 3. `patch-resources.yaml` — reduces CPU/memory requests on all Deployments
@@ -129,7 +140,7 @@ Key invariants when editing: **Roles are shared, RoleBindings are per-tenant**; 
 
 ### Image promotion path
 
-`docker-build.yaml` runs on every push to `main` that touches `apps/**`: **test → build (local, no push) → Trivy scan (HIGH/CRITICAL gate) → push with SBOM+provenance → cosign sign → promote**. The scan runs on the locally-loaded image *before* anything reaches ECR, so a vulnerable image is never pushed/signed/promoted (the two build steps share the GHA layer cache, so the push build is not a full rebuild). Promotion pins the **immutable digest** (`kustomize edit set image <app>=<repo>@sha256:<digest>`) into the **per-app** overlay the ApplicationSet actually deploys — `kustomize/overlays/prod/<app>/`, NOT the aggregate `overlays/prod/`. The matrix runs per-app in parallel, each editing its own overlay dir, with a rebase-and-retry around the push. ArgoCD picks up the commit and syncs. No manual image tag editing, and no mutable `:latest` in prod.
+`docker-build.yaml` runs on every push to `main` that touches `services/**`: **test → build (local, no push) → Trivy scan (HIGH/CRITICAL gate) → push with SBOM+provenance → cosign sign → promote**. The scan runs on the locally-loaded image *before* anything reaches ECR, so a vulnerable image is never pushed/signed/promoted (the two build steps share the GHA layer cache, so the push build is not a full rebuild). Promotion pins the **immutable digest** (`kustomize edit set image <app>=<repo>@sha256:<digest>`) into the **per-app** overlay the ApplicationSet actually deploys — `services/<app>/k8s/overlays/prod/`, NOT the CI validation aggregate `kustomize/validation/prod/`. The matrix runs per-app in parallel, each editing its own overlay dir, with a rebase-and-retry around the push. ArgoCD picks up the commit and syncs. No manual image tag editing, and no mutable `:latest` in prod.
 
 ### Terraform module structure
 
@@ -156,8 +167,8 @@ CI runs conftest with **`--combine`**, so policies see the whole rendered overla
 
 ### Progressive delivery (echo-service is a Rollout, not a Deployment)
 
-`echo-service` is an **Argo Rollouts `Rollout`** (`kustomize/base/echo-service/rollout.yaml`), not a Deployment — this trips up two things:
-- The kustomize **`replicas:` transformer does not support `Rollout`**. Per-env replicas/resources for echo-service are set with **JSON6902 patches** (`overlays/{dev,prod}/patch-echo-resources.yaml`, targeting `kind: Rollout`). worker-service/vllm-inference are still Deployments and use the normal `replicas:` transformer + strategic-merge patches.
+`echo-service` is an **Argo Rollouts `Rollout`** (`services/echo-service/k8s/base/rollout.yaml`), not a Deployment — this trips up two things:
+- The kustomize **`replicas:` transformer does not support `Rollout`**. Per-env replicas/resources for echo-service are set with **JSON6902 patches** (`services/echo-service/k8s/overlays/{dev,prod}/patch-echo-resources.yaml`, targeting `kind: Rollout`). worker-service/vllm-inference are still Deployments and use the normal `replicas:` transformer + strategic-merge patches.
 - Canary analysis (`analysistemplate.yaml`) scopes its Prometheus queries to canary pods via the `rollouts-pod-template-hash` label, which only reaches the metrics because the ServiceMonitor sets `podTargetLabels: [rollouts-pod-template-hash]`. If you change the ServiceMonitor, keep that.
 
 Flow: nginx traffic routing splits 10→50→100%; each pause runs `echo-service-slo` (success-rate ≥ 99%, p90 ≤ 0.5s); `failureLimit: 1` aborts + auto-reverts. The `argo-rollouts` controller is a platform service (sync-wave -1). The echo-service ArgoCD Application uses the `platform-apps` AppProject (change-freeze sync window).
