@@ -52,11 +52,11 @@ Developer → Backstage Portal → Git Repository
 | Internal developer platform | Backstage with scaffolding templates, catalog, and plugins |
 | Multi-tenancy | Namespace-per-team via ApplicationSet + ResourceQuota/LimitRange tiers + zero-trust NetworkPolicies + per-tenant RBAC |
 | GitOps / SDLC automation | ArgoCD App-of-Apps + GitHub Actions (lint / validate / plan) |
-| Event-driven architecture | Kafka (Strimzi) + consumer groups + DLQ + idempotent processing |
+| Event-driven architecture | Kafka (Strimzi) + consumer groups + DLQ + idempotent processing ([SLOs](docs/slo-definitions.md)) |
 | Scale-to-zero autoscaling | KEDA Kafka consumer-lag trigger (worker) + Prometheus trigger (vLLM) |
-| SLO / error budgets | Prometheus recording rules + Grafana burn-rate dashboards + runbooks |
+| SLO / error budgets | Prometheus recording rules + Grafana burn-rate dashboards + runbooks ([Definitions](docs/slo-definitions.md)) |
 | AI workload infrastructure | vLLM + GPU scheduling + inference SLOs + llm-gateway |
-| Observability | Prometheus + Grafana + Loki + structured alerting |
+| Observability | Prometheus + Grafana + Loki + Tempo + structured alerting ([Reference](docs/slo-definitions.md)) |
 | Progressive delivery | Argo Rollouts canary + Prometheus SLO analysis + automatic rollback on error-budget burn |
 | Supply chain security | cosign keyless signing + SBOM + SLSA provenance + Trivy scan + GitHub OIDC (no static keys) |
 | Dependency hygiene | Renovate keeps Actions, Python deps, base images, Helm charts, Crossplane providers & `kindest/node` current via CI-gated PRs |

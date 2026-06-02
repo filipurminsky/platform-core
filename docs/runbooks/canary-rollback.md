@@ -10,7 +10,7 @@ A canary deploy was automatically aborted and traffic reverted to the previous
 `failureLimit` — i.e. the canary pods breached an SLO query:
 
 - `success-rate` dropped below **99%** (non-5xx ratio), or
-- `p90-latency-seconds` exceeded **0.5s**.
+- `p95-latency-seconds` exceeded **0.5s**.
 
 This is the system working as designed: a bad release was caught before it
 reached 100% of traffic.

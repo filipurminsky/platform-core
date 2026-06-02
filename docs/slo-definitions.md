@@ -1,56 +1,62 @@
 # SLO / SLA / Error Budget Definitions
 
+This document defines the Service Level Objectives (SLOs) for the platform-core services. These targets drive our alerting, error budget policies, and progressive delivery gates.
+
+## Unified SLO Table
+
+| Service Tier | SLI | Target | Window | Alert / Gate Threshold |
+|--------------|-----|--------|--------|------------------------|
+| **Platform (HTTP)** | Availability | **99.5%** | 30 days | Burn rate > 14× for 1h |
+| (echo, gateway) | Latency (p95) | **≤ 500 ms** | 5 min | > 500 ms for 10 min |
+| | Error Rate | **< 0.5%** | 5 min | > 0.5% for 5 min |
+| **vLLM Inference** | Availability | **99.0%** | 30 days | Burn rate > 14× for 1h |
+| | Latency (p90) | **≤ 5 s** | 5 min | > 5 s for 5 min |
+| | Error Rate | **< 1%** | 5 min | > 1% for 5 min |
+| **Worker (Kafka)** | Processing | **> 99%** | 5 min | < 99% success for 5 min |
+| | Consumer Lag | **< 100 msg** | N/A | Sustained > 100 for 5 min |
+| | DLQ Volume | **0** | Instant | Any message in DLQ |
+
+---
+
 ## Principles
 
-- **SLI** (Service Level Indicator) — the metric measured (e.g., request success rate)
-- **SLO** (Service Level Objective) — the target for the SLI (e.g., 99.5% over 30 days)
+- **SLI** (Service Level Indicator) — the metric measured (e.g., request success rate).
+- **SLO** (Service Level Objective) — the target for the SLI (e.g., 99.5% over 30 days).
 - **Error budget** — the allowed failure budget = `1 - SLO`. At 99.5% availability, the budget is 0.5% of requests, or ~3.6 hours/month.
 - **Burn rate** — how fast the budget is consumed vs. the 30-day window. A burn rate of 14× means the budget will be exhausted in `30 / 14 ≈ 2 days`.
 
 ---
 
-## HTTP Services (echo-service, llm-gateway)
+## Implementation Details
 
-| SLI | Target | Window | Alert threshold |
-|-----|--------|--------|-----------------|
-| Availability (non-5xx / total) | 99.5% | 30 days | burn rate > 14× for 1 h |
-| Latency p95 | ≤ 500 ms | 5 min rolling | p95 > 500 ms for 10 min |
-| Error rate | < 0.5% | 5 min rolling | > 0.5% for 5 min |
-
-**PromQL — availability:**
+### PromQL — Availability (Platform)
 ```promql
 sum(rate(http_requests_total{status!~"5.."}[30d]))
 / sum(rate(http_requests_total[30d]))
 ```
 
-**PromQL — latency p95:**
+### PromQL — Latency p95 (Platform)
 ```promql
 histogram_quantile(0.95,
   sum by (le) (rate(http_request_duration_seconds_bucket[5m]))
 )
 ```
 
----
-
-## vLLM Inference Service
-
-| SLI | Target | Window | Alert threshold |
-|-----|--------|--------|-----------------|
-| Availability | 99.0% | 30 days | burn rate > 14× for 1 h |
-| Latency p90 | ≤ 5 s | 5 min rolling | p90 > 5 s for 5 min |
-| Error rate | < 1% | 5 min rolling | > 1% for 5 min |
-
-Error budget (99.0% target): **7.2 hours / month** of acceptable downtime.
+### PromQL — vLLM Latency p90
+```promql
+histogram_quantile(0.90,
+  sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket[5m]))
+)
+```
 
 ---
 
-## Kafka / worker-service
+## Progressive Delivery Gate (Canary)
 
-| SLI | Target | Window | Alert threshold |
-|-----|--------|--------|-----------------|
-| Consumer lag | < 100 messages | sustained | > 100 for 5 min |
-| DLQ messages | 0 | instantaneous | any message in DLQ |
-| Processing success rate | > 99% | 5 min rolling | < 99% for 5 min |
+For services using Argo Rollouts (e.g., `echo-service`), the canary analysis matches the **Platform (HTTP)** SLOs exactly to ensure no release degrades the overall service health.
+
+- **Gate:** Success Rate ≥ 99% AND **p95 Latency ≤ 500 ms**.
+- **Window:** Analysis runs at each step of the rollout, measuring the canary ReplicaSet specifically.
 
 ---
 

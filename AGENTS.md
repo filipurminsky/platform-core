@@ -171,7 +171,8 @@ CI runs conftest with **`--combine`**, so policies see the whole rendered overla
 - The kustomize **`replicas:` transformer does not support `Rollout`**. Per-env replicas/resources for echo-service are set with **JSON6902 patches** (`services/echo-service/k8s/overlays/{dev,prod}/patch-echo-resources.yaml`, targeting `kind: Rollout`). worker-service/vllm-inference are still Deployments and use the normal `replicas:` transformer + strategic-merge patches.
 - Canary analysis (`analysistemplate.yaml`) scopes its Prometheus queries to canary pods via the `rollouts-pod-template-hash` label, which only reaches the metrics because the ServiceMonitor sets `podTargetLabels: [rollouts-pod-template-hash]`. If you change the ServiceMonitor, keep that.
 
-Flow: nginx traffic routing splits 10→50→100%; each pause runs `echo-service-slo` (success-rate ≥ 99%, p90 ≤ 0.5s); `failureLimit: 1` aborts + auto-reverts. The `argo-rollouts` controller is a platform service (sync-wave -1). The echo-service ArgoCD Application uses the `platform-apps` AppProject (change-freeze sync window).
+Flow: nginx traffic routing splits 10→50→100%; each pause runs `echo-service-slo` (success-rate ≥ 99%, p95 ≤ 0.5s); `failureLimit: 1` aborts + auto-reverts.
+ The `argo-rollouts` controller is a platform service (sync-wave -1). The echo-service ArgoCD Application uses the `platform-apps` AppProject (change-freeze sync window).
 
 ### Supply chain & admission (cosign keyless + Kyverno)
 

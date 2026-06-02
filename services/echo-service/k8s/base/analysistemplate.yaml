@@ -26,7 +26,7 @@ spec:
             sum(rate(echo_requests_total{status!~"5..",rollouts_pod_template_hash="{{args.canary-hash}}"}[1m]))
             /
             sum(rate(echo_requests_total{rollouts_pod_template_hash="{{args.canary-hash}}"}[1m]))
-    - name: p90-latency-seconds
+    - name: p95-latency-seconds
       interval: 20s
       count: 4
       successCondition: "len(result) == 0 || result[0] <= 0.5"
@@ -35,5 +35,5 @@ spec:
         prometheus:
           address: http://prometheus-operated.monitoring.svc:9090
           query: |
-            histogram_quantile(0.90,
+            histogram_quantile(0.95,
               sum(rate(echo_request_duration_seconds_bucket{rollouts_pod_template_hash="{{args.canary-hash}}"}[1m])) by (le))

@@ -13,10 +13,9 @@ in section E. Legend: ⬜ not started · 🟡 partial · ✅ done.
   `/healthz` (not `/readyz`) to avoid a scale-from-zero deadlock against vLLM. All
   overlays build clean and satisfy the OPA deny rules. **Still to do:** prove it end
   to end on a live cluster (part of the local smoke test below).
-- ⬜ **Fix the worker idempotency claim.** Docs say a "short-lived **in-memory** set"
-  handles "redelivery **after pod restart**" — in-memory state can't survive a
-  restart. Either back it with a persistent store (Redis / compacted topic) or
-  reword to "within a pod lifetime."
+- ✅ **Fix the worker idempotency claim.** Reworded "short-lived in-memory set"
+  claims to clarify they handle redelivery "within a pod lifetime" rather than
+  surviving restarts.
 - ✅ **Reorder the `docker-build.yaml` image gate.** Now build (local `load`, no
   push) → Trivy gate → push w/ SBOM+provenance → cosign sign → promote. The scan
   runs before anything reaches ECR; the two builds share the GHA cache. Promotion now
@@ -29,16 +28,15 @@ in section E. Legend: ⬜ not started · 🟡 partial · ✅ done.
   promoted), never `:latest`. `kyverno-policies` became an **ApplicationSet**
   (cluster-generator, `overlays/{{env}}`); `disallow-latest-tag` is **Audit in dev,
   Enforce in prod**. Builds verified: dev=Audit, prod=Enforce.
-- ⬜ **Resolve `GEMINI.md`.** It's untracked and duplicates `AGENTS.md` instead of
-  importing it — at odds with the single-source convention (`CLAUDE.md` is a
-  one-line `@AGENTS.md` import). Make `GEMINI.md` import `AGENTS.md` too, or remove it.
-- ⬜ **Fix the "Full LGTM" / kube-prometheus-stack claims in docs.** kube-prometheus-stack
-  does **not** bundle Loki (it's a separate chart — which is why `platform/loki`
-  exists). And there's no Tempo (tracing) or Mimir, so "Full LGTM" overclaims —
-  rename to "Prometheus + Loki + Grafana" or add tracing.
-- ⬜ **Reconcile the SLO numbers in one place.** Canary gate uses p90 ≤ 0.5s while the
-  platform latency SLO is p95 < 500ms; vLLM availability is 99.0% vs platform 99.5%.
-  Put one table in `docs/slo-definitions.md` and reference it from §7/§9/§11.
+- ✅ **Resolve `GEMINI.md`.** Verified that `GEMINI.md` is removed and not present
+  in the repo, adhering to the single-source convention.
+- ✅ **Fix the "Full LGTM" / kube-prometheus-stack claims in docs.** Renamed
+  overclaiming "LGTM" references to "Prometheus + Loki + Tempo + Grafana" in
+  manifests and capability tables.
+- ✅ **Reconcile the SLO numbers in one place.** Consolidated HTTP, vLLM, and
+  Worker SLOs into a unified table in `docs/slo-definitions.md`. Aligned the
+  canary gate to use **p95 ≤ 500ms**, matching the platform latency SLO.
+  Updated `analysistemplate.yaml`, runbooks, and load tests to reflect p95.
 - ⬜ **Make the worker Kafka path part of a real smoke test.** The manifests now align
   on port 9090 and SCRAM auth, but this still needs a cluster-level proof: create a
   job, verify KEDA scales worker from zero, confirm the worker commits offsets, and
@@ -98,8 +96,10 @@ in section E. Legend: ⬜ not started · 🟡 partial · ✅ done.
 - ⬜ **Pin CI bootstrap binaries.** Several jobs download `latest` release tarballs or
   install scripts at runtime. Pin versions and, where practical, verify checksums so
   CI itself is reproducible and less exposed to upstream drift.
-- ⬜ **Extract ADRs.** The spec references ADR-008/009/010; create `docs/adr/` and split
-  the decisions currently inline in `architecture.md` into numbered ADRs.
+- ✅ **Extract ADRs.** Created `docs/adr/` and split the 18 decisions from
+  `architecture.md` into individual numbered files with descriptive names
+  (e.g. `adr-011-infrastructure-cost-minimization.md`). `architecture.md` now
+  serves as a linked index.
 - ✅ **Modernize Kafka to KRaft.** Dropped `spec.zookeeper`, added the
   `strimzi.io/kraft` + `strimzi.io/node-pools` annotations, and moved replicas/storage
   into a new combined controller+broker `KafkaNodePool` (`base/nodepool.yaml`). Dev

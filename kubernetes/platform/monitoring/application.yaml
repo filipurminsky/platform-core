@@ -51,9 +51,10 @@ spec:
               enabled: true
           # Loki (logs) and Tempo (traces) are deployed by their own Applications
           # in this namespace; wire both so Grafana covers the full metrics + logs
-          # + traces (LGTM) story. The Tempo datasource links spans back to Loki
-          # logs (tracesToLogsV2) and Prometheus metrics, and a derived field on
-          # Loki turns the trace_id JSON log field into a clickable Tempo link.
+          # + traces (Prometheus, Loki, Tempo) story. The Tempo datasource links
+          # spans back to Loki logs (tracesToLogsV2) and Prometheus metrics, and a
+          # derived field on Loki turns the trace_id JSON log field into a clickable
+          # Tempo link.
           additionalDataSources:
             - name: Loki
               type: loki

@@ -81,7 +81,7 @@ def process_message(
     transcript_key = event.get("transcript_key", f"transcripts/{job_id}")
     created_at = event.get("created_at", datetime.now(UTC).isoformat())
 
-    # Deduplication — in-memory; survives restarts via committed Kafka offset
+    # Deduplication — in-memory (within a pod lifetime)
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return

@@ -106,7 +106,7 @@ def process_message(
     summary_key = event.get("summary_key", f"summaries/{job_id}")
     created_at: str = event.get("created_at", "")
 
-    # Deduplication (in-memory; restarts are safe because offset is uncommitted)
+    # Deduplication — in-memory (within a pod lifetime)
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return

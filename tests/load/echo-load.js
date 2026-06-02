@@ -29,7 +29,7 @@ export const options = {
   },
   thresholds: {
     http_req_failed: ["rate<0.01"], // < 1% errors (mirrors the SLO)
-    http_req_duration: ["p(90)<500"], // p90 < 500ms
+    http_req_duration: ["p(95)<500"], // p95 < 500ms
   },
 };
 

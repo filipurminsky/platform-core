@@ -59,7 +59,7 @@ def process_message(
     job_id = job.get("id", "")
     job_type = job.get("type", "unknown")
 
-    # Deduplication — in-memory; survives restarts via committed Kafka offset
+    # Deduplication — in-memory (within a pod lifetime)
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return
