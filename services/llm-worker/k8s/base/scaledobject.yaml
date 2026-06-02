@@ -19,5 +19,5 @@ spec:
         consumerGroup: llm-worker
         topic: audio.transcripts
         lagThreshold: "5"           # scale up when lag > 5 messages per partition
-        activationLagThreshold: "1" # activate (scale from 0->1) when any lag exists
+        activationLagThreshold: "0" # activate (scale 0->1) on ANY lag; KEDA activates on lag > threshold, so 1 msg/job needs 0
         offsetResetPolicy: earliest
