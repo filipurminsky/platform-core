@@ -21,6 +21,14 @@ spec:
               kubernetes.io/metadata.name: monitoring
       ports:
         - port: 8080
+    # llm-worker calls the gateway's OpenAI-compatible API (contract §6:
+    # workers never talk to vLLM directly, only via this gateway).
+    - from:
+        - podSelector:
+            matchLabels:
+              app: llm-worker
+      ports:
+        - port: 8080
   egress:
     # Egress to the vLLM inference service (in this namespace) plus DNS. The
     # vllm-inference NetworkPolicy already allows ingress from app: llm-gateway.
