@@ -16,9 +16,9 @@ module "eks" {
   cluster_version = var.kubernetes_version
 
   vpc_id     = var.vpc_id
-  subnet_ids = var.private_subnet_ids
+  subnet_ids = var.public_subnet_ids # Use public subnets for all nodes
 
-  # Allow kubectl from the VPC (adjust for bastion / VPN CIDR)
+  # Allow kubectl from the internet (for a showcase project)
   cluster_endpoint_public_access       = true
   cluster_endpoint_public_access_cidrs = var.allowed_cidrs
 
@@ -31,6 +31,7 @@ module "eks" {
   # Default managed node group — general workloads
   eks_managed_node_groups = {
     platform = {
+      capacity_type  = "SPOT"
       instance_types = var.node_instance_types
       min_size       = var.node_min
       max_size       = var.node_max
@@ -58,7 +59,7 @@ module "gpu_nodegroup" {
 
   cluster_name  = module.eks.cluster_name
   node_role_arn = module.eks.eks_managed_node_groups["platform"].iam_role_arn
-  subnet_ids    = var.private_subnet_ids
+  subnet_ids    = var.public_subnet_ids # Use public subnets
 
   instance_type = var.gpu_instance_type # default: g4dn.xlarge
   min_size      = 0                     # scale-to-zero when idle

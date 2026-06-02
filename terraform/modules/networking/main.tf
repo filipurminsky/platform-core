@@ -13,24 +13,26 @@ module "vpc" {
   private_subnets = var.private_subnet_cidrs
   public_subnets  = var.public_subnet_cidrs
 
-  enable_nat_gateway   = true
-  single_nat_gateway   = var.environment == "dev" # cost optimisation in dev
+  enable_nat_gateway   = false
+  single_nat_gateway   = false
   enable_dns_hostnames = true
   enable_dns_support   = true
+
+  map_public_ip_on_launch = true # Nodes in public subnets need public IPs
 
   # Required tags for EKS to discover subnets
   private_subnet_tags = {
     "kubernetes.io/cluster/${local.name}" = "shared"
     "kubernetes.io/role/internal-elb"     = "1"
-    # Karpenter discovers which subnets to launch nodes in via this tag
-    # (matches subnetSelectorTerms in the EC2NodeClass). Harmless where
-    # Karpenter isn't deployed (e.g. dev).
-    "karpenter.sh/discovery" = local.name
   }
 
   public_subnet_tags = {
     "kubernetes.io/cluster/${local.name}" = "shared"
     "kubernetes.io/role/elb"              = "1"
+    # Karpenter discovers which subnets to launch nodes in via this tag
+    # (matches subnetSelectorTerms in the EC2NodeClass). Harmless where
+    # Karpenter isn't deployed (e.g. dev).
+    "karpenter.sh/discovery" = local.name
   }
 
   tags = {

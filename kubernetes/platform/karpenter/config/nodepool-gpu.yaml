@@ -12,8 +12,9 @@
 #       * vllm-inference                               — 1 × nvidia.com/gpu
 #   - limits.nvidia.com/gpu=2 allows Karpenter to scale up to 2 GPU nodes,
 #     one per workload. Cost lever: g4dn.xlarge ≈ $0.53/hr, g5.xlarge ≈ $1.01/hr
-#     (on-demand eu-west-1). Scale-to-zero (KEDA cooldownPeriod=300s) reclaims
-#     idle GPU nodes automatically to avoid paying for idle capacity.
+#     (on-demand eu-west-1). Spot instances (used here) offer ~70% discount.
+#     Scale-to-zero (KEDA cooldownPeriod=300s) reclaims idle GPU nodes
+#     automatically to avoid paying for idle capacity.
 #   - Raise this limit only if a third GPU workload is introduced.
 apiVersion: karpenter.sh/v1
 kind: NodePool
@@ -40,7 +41,7 @@ spec:
           values: ["amd64"]
         - key: karpenter.sh/capacity-type
           operator: In
-          values: ["on-demand"]
+          values: ["spot"]
         - key: node.kubernetes.io/instance-type
           operator: In
           values: ["g4dn.xlarge", "g5.xlarge"]

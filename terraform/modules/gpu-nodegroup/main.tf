@@ -8,6 +8,7 @@ resource "aws_eks_node_group" "gpu" {
   node_role_arn   = var.node_role_arn
   subnet_ids      = var.subnet_ids
 
+  capacity_type  = "SPOT"
   instance_types = [var.instance_type] # default: g4dn.xlarge (NVIDIA T4)
   ami_type       = "AL2_x86_64_GPU"    # Amazon Linux 2 with NVIDIA drivers
 

@@ -132,6 +132,22 @@ This document captures the key design decisions made for platform-core, the reas
 **Reasoning:**
 - CI-only policy is advisory: anyone with `kubectl apply` (or a compromised controller) bypasses every rule. Admission control makes the guardrails non-bypassable at the API server.
 - **Graduated enforcement** reflects real org dynamics: `Enforce` strict standards on the governed paved road (`tenant-*` namespaces); rely on operators + CI for platform's own namespaces (e.g. Strimzi broker pods legitimately need root). This mirrors the namespace/PSA split from the multi-tenancy work.
-- `verifyImages` is the runtime counterpart to ADR-009 signing: the chain is only as strong as its enforcement point.
+- **verifyImages** is the runtime counterpart to ADR-009 signing: the chain is only as strong as its enforcement point.
 
 **Trade-offs:** A failing/over-strict admission webhook can block deploys cluster-wide (`failurePolicy: Fail` on the signature policy is deliberate but operationally sharp — it needs the controller healthy). Image verification adds admission latency. Accepted: enforcement is the point; the alternative (advisory policy) provides little real assurance.
+
+---
+
+## ADR-011: Infrastructure cost minimization (Spot + Public Subnets)
+
+**Decision:** Optimize for minimum AWS burn rate by using **EC2 Spot instances** for all node groups and running all nodes in **public subnets** to avoid NAT Gateway charges ($32/month/AZ).
+
+**Reasoning:**
+- **Showcase economics** — as a non-revenue-generating reference implementation, reducing the idle monthly bill from ~$150 to ~$40 (EKS control plane + minimal spot nodes) is a priority.
+- **Spot utility** — Karpenter and EKS Managed Node Groups handle Spot interruptions gracefully. The Kafka-based architecture (worker-service) is idempotent, and the vLLM inference service is backed by an Argo Rollouts canary that can handle individual pod terminations.
+- **NAT Gateway elimination** — NAT Gateways are one of the highest idle costs in a small EKS cluster. Moving nodes to public subnets and using `map_public_ip_on_launch` allows nodes to reach ECR and the internet for free.
+
+**Trade-offs:**
+- **Interruption risk** — a GPU Spot interruption will cause a 2–5 minute cold start as the model reloads on a new node. Accepted: for a demo, a 70% cost saving justifies the rare interruption.
+- **Security surface** — nodes having public IPs increases the theoretical attack surface. Mitigated by strict Security Groups (EKS defaults + Karpenter) and the fact that no services are exposed via NodePort; all traffic enters through the LoadBalancer.
+- **Complexity** — requires ensuring Karpenter and EKS are explicitly configured for Spot and public subnet discovery.
