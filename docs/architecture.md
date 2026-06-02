@@ -151,3 +151,94 @@ This document captures the key design decisions made for platform-core, the reas
 - **Interruption risk** — a GPU Spot interruption will cause a 2–5 minute cold start as the model reloads on a new node. Accepted: for a demo, a 70% cost saving justifies the rare interruption.
 - **Security surface** — nodes having public IPs increases the theoretical attack surface. Mitigated by strict Security Groups (EKS defaults + Karpenter) and the fact that no services are exposed via NodePort; all traffic enters through the LoadBalancer.
 - **Complexity** — requires ensuring Karpenter and EKS are explicitly configured for Spot and public subnet discovery.
+
+---
+
+## ADR-012: Co-location of Application Source and Kubernetes Manifests
+
+**Decision:** Store Kubernetes manifests (`k8s/` folder) alongside the application source code in `services/<svc>/`.
+
+**Reasoning:**
+- **Single-PR delivery** — code changes and their corresponding infrastructure updates (e.g., environment variables, resource limits) are committed together, ensuring they stay in sync.
+- **Developer autonomy** — app teams own their deployment definitions within their service's folder, reducing friction between dev and platform teams.
+- **Simplified CI context** — it's immediately clear which manifests belong to which codebase.
+
+**Trade-offs:** Can lead to structural drift across services if not governed by shared policies (Kyverno/OPA).
+
+---
+
+## ADR-013: Split IaC Responsibility: Terraform vs. Crossplane
+
+**Decision:** Use Terraform for "Day-0" foundation (VPC, EKS, IAM OIDC) and Crossplane for "Day-2" app-facing infrastructure (S3, RDS).
+
+**Reasoning:**
+- **Bootstrap safety** — Terraform is better for provisioning the environment that Crossplane itself depends on (avoiding circular dependencies).
+- **GitOps for Cloud** — Crossplane allows app teams to self-serve cloud resources using standard Kubernetes YAML, reconciled by ArgoCD.
+- **Infrastructure as Data** — reduces the need for app teams to learn HCL or manage Terraform state; they interact only with Kubernetes CRDs.
+
+**Trade-offs:** Requires managing two different IaC tools and state stores.
+
+---
+
+## ADR-014: Dynamic Environment Selection via Cluster Labels
+
+**Decision:** Use ArgoCD ApplicationSet cluster generators and labels (e.g., `environment: prod`) to dynamically select Kustomize overlays.
+
+**Reasoning:**
+- **Decoupled definitions** — application manifests are environment-agnostic; the target cluster's metadata determines which overlay is applied.
+- **Simplified scaling** — adding a new environment only requires labelling a new cluster/secret rather than editing multiple application manifests.
+- **Consistency** — ensures the same ApplicationSet logic can drive multiple environment types (dev/test/prod) without duplication.
+
+**Trade-offs:** Adds an abstraction layer that can make tracing the source of truth slightly more complex for new users.
+
+---
+
+## ADR-015: Immutable Image Promotion via Digest Pinning
+
+**Decision:** Pin application images in production using their unique SHA256 digest rather than mutable tags (like `:latest` or `:v1.0.0`).
+
+**Reasoning:**
+- **Guarantee of integrity** — ensures the exact image built, scanned, and verified in CI is what runs in production.
+- **Atomic updates** — avoids race conditions where a tag might be updated while a deployment is in progress.
+- **Auditability** — the digest is an immutable reference to the exact binary state of the service.
+
+**Trade-offs:** Requires CI automation to update digests in manifests as they are not human-readable.
+
+---
+
+## ADR-016: Component-based Multi-tenancy
+
+**Decision:** Use Kustomize Components to share common security and resource policies across team namespaces.
+
+**Reasoning:**
+- **DRY policies** — shared NetworkPolicies and RBAC roles are defined once in `tenants/_template/` and applied to all tenants.
+- **Flexible tiers** — `small`/`medium`/`large` presets (ResourceQuotas/LimitRanges) are applied as components, allowing easy "t-shirt sizing" for team namespaces.
+- **Separation of concerns** — Roles are shared, but RoleBindings are per-tenant, ensuring strict isolation while maintaining a consistent governance model.
+
+**Trade-offs:** Kustomize Components are more abstract than simple bases and require specialized knowledge.
+
+---
+
+## ADR-017: Local-first eBPF Networking with Cilium
+
+**Decision:** Use Cilium as the CNI for local development (kind clusters) to provide eBPF-based observability and policy enforcement.
+
+**Reasoning:**
+- **Hubble visibility** — provides deep, live flow visibility and NetworkPolicy debugging via the Hubble UI.
+- **Security parity** — allows developers to test and verify NetworkPolicies locally with the same eBPF-backed logic used in advanced production environments.
+- **Performance** — eBPF-based networking is more efficient than standard iptables-based routing.
+
+**Trade-offs:** Increases local bootstrap complexity; EKS continues to use AWS VPC CNI for simplicity and stability in this reference implementation.
+
+---
+
+## ADR-018: Just-in-Time Node Provisioning with Karpenter
+
+**Decision:** Use Karpenter for node provisioning in EKS, replacing static Managed Node Groups and Cluster Autoscaler.
+
+**Reasoning:**
+- **Efficiency** — Karpenter provisions nodes based on exact pod requirements (e.g., GPU, specific instance types), significantly reducing waste.
+- **Speed** — much faster scaling than Cluster Autoscaler as it bypasses the overhead of waiting for node group state updates.
+- **Granularity** — allows for heterogeneous clusters with different instance types and purchase models (Spot/On-Demand) mixed dynamically.
+
+**Trade-offs:** Adds another controller to manage and requires specific IAM/tagging configurations.
