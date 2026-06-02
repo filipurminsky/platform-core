@@ -4,11 +4,14 @@
 # job state (status, keys, error) under key `job:<job_id>` with a 7-day TTL,
 # and audio-api reads it for the status endpoint.
 #
-# Service DNS: redis.platform.svc.cluster.local:6379  (fullnameOverride=redis)
+# Service DNS: redis.platform.svc.cluster.local:6379
 # Client env var: REDIS_URL=redis://redis.platform.svc.cluster.local:6379/0
 #
-# Auth is disabled (demo setup). For prod hardening, enable Bitnami auth
-# and wire the password via External Secrets Operator.
+# Deploys the in-repo manifest under manifests/ (a single-replica upstream
+# redis:7.4-alpine Deployment + Service). We deliberately do NOT use the
+# Bitnami Helm chart: Bitnami removed older image tags from Docker Hub and the
+# chart names its Service `redis-master`, which breaks the contract DNS name.
+# Auth is disabled (demo). For prod hardening, add auth + External Secrets.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -31,34 +34,9 @@ spec:
     spec:
       project: default
       source:
-        repoURL: https://charts.bitnami.com/bitnami
-        chart: redis
-        # Pin to a tested release; bump deliberately.
-        targetRevision: "20.6.0"
-        helm:
-          values: |
-            # Standalone (no sentinel/cluster) — sufficient for job-state store.
-            architecture: standalone
-
-            # fullnameOverride ensures the Service is named `redis` so workers
-            # reach it at redis.platform.svc.cluster.local:6379 per the contract.
-            fullnameOverride: redis
-
-            auth:
-              # Auth disabled for this demo. Enable and wire a Secret for prod hardening.
-              enabled: false
-
-            master:
-              resources:
-                requests:
-                  cpu: 100m
-                  memory: 128Mi
-                limits:
-                  memory: 256Mi
-              persistence:
-                # Small persistence for dev/kind; disable for ephemeral test clusters.
-                enabled: true
-                size: 1Gi
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kubernetes/platform/redis/manifests
       destination:
         server: "{{.server}}"
         namespace: platform

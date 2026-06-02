@@ -1,0 +1,87 @@
+# Minimal single-instance Redis for the AI audio pipeline job-state store.
+#
+# Replaces the Bitnami Helm chart: Bitnami removed older image tags from Docker
+# Hub (docker.io/bitnami/redis:<tag> now 404s) and its chart names the Service
+# `redis-master`, but the pipeline contract requires `redis.platform.svc:6379`.
+# A hand-rolled manifest with the upstream image pins both the image and the
+# Service name, and is plenty for a single-replica demo state store.
+#
+# Service DNS: redis.platform.svc.cluster.local:6379
+# Client env:  REDIS_URL=redis://redis.platform.svc.cluster.local:6379/0
+# Auth disabled (demo); job state carries a 7-day TTL set by the workers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: platform
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: platform-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        app.kubernetes.io/part-of: platform-core
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999          # `redis` user in the official image
+        fsGroup: 999            # make the /data emptyDir group-writable
+      containers:
+        - name: redis
+          image: redis:7.4-alpine
+          imagePullPolicy: IfNotPresent
+          args: ["--save", "", "--appendonly", "no"]   # in-memory only; state is disposable (TTL'd)
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: platform
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: platform-core
+spec:
+  type: ClusterIP
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
