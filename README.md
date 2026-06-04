@@ -18,67 +18,22 @@ Designed to run **locally** (kind cluster, zero AWS cost) or on **AWS EKS** (pro
 
 ## Architecture
 
+A developer pushes to Git; ArgoCD syncs it onto a Kubernetes cluster that
+Terraform provisioned (EKS in the cloud, kind locally).
+
 ```mermaid
-flowchart TB
-    Dev([Developer]) --> BS[Backstage Portal]
-    BS --> Git[(Git Repository)]
-    Git --> Argo[ArgoCD · GitOps]
-
-    Terraform[/Terraform/] -.provisions.-> Cluster
-    Terraform -.-> Infra{{AWS EKS · or · kind local}}
-    Argo ==>|App-of-Apps sync| Cluster
-
-    subgraph Cluster [Kubernetes Cluster]
-        direction TB
-
-        subgraph Apps [App Teams]
-            direction TB
-            echo[echo-service<br/>Argo Rollout · canary]
-            worker[worker-service<br/>KEDA scale-to-zero]
-            gw[llm-gateway<br/>rate-limit · trace]
-            vllm[vllm-inference<br/>GPU/CPU · scale-to-zero]
-            gw --> vllm
-        end
-
-        subgraph Audio [AI Audio Pipeline · event-driven]
-            direction LR
-            api[audio-api] -->|audio.jobs| stt[stt-worker]
-            stt -->|audio.transcripts| llm[llm-worker]
-            llm -->|audio.summaries| tts[tts-worker]
-            llm -.calls.-> gw
-        end
-
-        subgraph Plat [Platform Services]
-            direction TB
-            kafka[(Kafka · Strimzi)]
-            keda[KEDA]
-            redis[(Redis)]
-            minio[(MinIO · dev S3)]
-            cm[cert-manager]
-            eso[External Secrets]
-        end
-
-        subgraph Obs [Observability]
-            direction TB
-            prom[Prometheus]
-            graf[Grafana]
-            loki[Loki · logs]
-            tempo[Tempo · traces]
-        end
-    end
-
-    worker -. consumer-lag .-> keda
-    api -. consumer-lag .-> keda
-    keda -. scales .-> worker
-    keda -. scales .-> Audio
-    worker --- kafka
-    Audio --- kafka
-    api --- redis
-    Audio --- minio
-    prom --> graf
-    loki --> graf
-    tempo --> graf
+flowchart LR
+    Dev([Developer]) -->|git push| Git[(Git)]
+    Git -->|GitOps sync| Argo[ArgoCD]
+    Argo --> Cluster[Kubernetes Cluster]
+    Terraform -.provisions.-> Cluster
 ```
+
+Inside the cluster:
+
+- **Apps** — echo-service, worker-service, the llm-gateway + vLLM inference, and the AI audio pipeline (`audio-api → stt → llm → tts`).
+- **Platform services** — Kafka (Strimzi), KEDA autoscaling, Redis, MinIO, cert-manager, External Secrets.
+- **Observability** — Prometheus, Grafana, Loki (logs), Tempo (traces).
 
 ---
 
