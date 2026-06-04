@@ -77,7 +77,11 @@ pipeline** in section F (commit `c8334e0`). Legend: ⬜ not started · 🟡 part
   `KafkaConsumerLagHigh` / `KafkaDLQNonEmpty` alerts and the consumer-lag dashboard
   panels have no data on local kind. Enable it in dev (cheap), or scope those
   alerts/panels to prod and say so.
-- ⬜ **AKHQ Kafka UI.** Optional platform service for topic / consumer-group inspection.
+- ✅ **AKHQ Kafka UI.** Dev-only platform service for topic / consumer-group
+  inspection (`kubernetes/platform/akhq/applicationset.yaml`, cluster generator
+  scoped to `environment=dev`, like MinIO). Plaintext connection to the Strimzi
+  bootstrap; prod is intentionally excluded (would need SCRAM/SASL wiring).
+  Exposed at `http://akhq.platform-core.local`.
 - ⬜ **`helm/platform-services` umbrella.** Currently a `Chart.yaml` stub — either flesh
   it out or delete it and remove the references.
 - ✅ **Turn the OPA NetworkPolicy check into a real relationship check.** CI now runs

@@ -74,6 +74,27 @@ jobs:
               -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
               -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
+      - name: Helm template + kubeconform (akhq — dev-only platform service)
+        # AKHQ is a platform ApplicationSet pointing at an upstream Helm chart, so
+        # the kubeconform sweep over kubernetes/ skips it (ApplicationSet). Render
+        # it here to validate the pinned chart version + the inline values (incl.
+        # the version-sensitive `ingress` schema). Values are read straight from
+        # the ApplicationSet so this never drifts from what ArgoCD deploys.
+        run: |
+          APP=kubernetes/platform/akhq/applicationset.yaml
+          # GitHub runners ship mikefarah yq (raw scalar output by default).
+          REPO=$(yq '.spec.template.spec.source.repoURL' "$APP")
+          CHART=$(yq '.spec.template.spec.source.chart' "$APP")
+          VERSION=$(yq '.spec.template.spec.source.targetRevision' "$APP")
+          yq '.spec.template.spec.source.helm.values' "$APP" > /tmp/akhq-values.yaml
+          helm repo add akhq "$REPO"
+          helm repo update akhq
+          helm template akhq "akhq/${CHART}" --version "$VERSION" -f /tmp/akhq-values.yaml \
+            | kubeconform -strict -summary \
+              -schema-location default \
+              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+              -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+
   kustomize-validate:
     name: Kustomize build + validate
     runs-on: ubuntu-latest

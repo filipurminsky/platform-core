@@ -18,26 +18,66 @@ Designed to run **locally** (kind cluster, zero AWS cost) or on **AWS EKS** (pro
 
 ## Architecture
 
-```
-Developer → Backstage Portal → Git Repository
-                                      ↓
-                               ArgoCD (GitOps)
-                                      ↓
-                            Kubernetes Cluster
-              ┌───────────────────────┼─────────────────────┐
-         App Teams             Platform Services        Observability
-        /         \           /    |     |     \            Stack
-  echo-       worker- ←── Kafka  KEDA  Backstage  cert-   Prometheus
-  service     service   (Strimzi)  ↑             manager  Grafana+Loki
-  (HPA)      (KEDA)         │      │
-                  ↑          │      │
-                  └──────────┴──────┘
-              consumer-lag triggers replica scale-out/in
+```mermaid
+flowchart TB
+    Dev([Developer]) --> BS[Backstage Portal]
+    BS --> Git[(Git Repository)]
+    Git --> Argo[ArgoCD · GitOps]
 
-  llm-gateway ──────────────────────→ vLLM Inference Service
-  (rate-limit, trace)                  (GPU / CPU, scale-to-zero)
+    Terraform[/Terraform/] -.provisions.-> Cluster
+    Terraform -.-> Infra{{AWS EKS · or · kind local}}
+    Argo ==>|App-of-Apps sync| Cluster
 
-  Terraform → AWS EKS (cloud) | kind cluster (local dev, zero cost)
+    subgraph Cluster [Kubernetes Cluster]
+        direction TB
+
+        subgraph Apps [App Teams]
+            direction TB
+            echo[echo-service<br/>Argo Rollout · canary]
+            worker[worker-service<br/>KEDA scale-to-zero]
+            gw[llm-gateway<br/>rate-limit · trace]
+            vllm[vllm-inference<br/>GPU/CPU · scale-to-zero]
+            gw --> vllm
+        end
+
+        subgraph Audio [AI Audio Pipeline · event-driven]
+            direction LR
+            api[audio-api] -->|audio.jobs| stt[stt-worker]
+            stt -->|audio.transcripts| llm[llm-worker]
+            llm -->|audio.summaries| tts[tts-worker]
+            llm -.calls.-> gw
+        end
+
+        subgraph Plat [Platform Services]
+            direction TB
+            kafka[(Kafka · Strimzi)]
+            keda[KEDA]
+            redis[(Redis)]
+            minio[(MinIO · dev S3)]
+            cm[cert-manager]
+            eso[External Secrets]
+        end
+
+        subgraph Obs [Observability]
+            direction TB
+            prom[Prometheus]
+            graf[Grafana]
+            loki[Loki · logs]
+            tempo[Tempo · traces]
+        end
+    end
+
+    worker -. consumer-lag .-> keda
+    api -. consumer-lag .-> keda
+    keda -. scales .-> worker
+    keda -. scales .-> Audio
+    worker --- kafka
+    Audio --- kafka
+    api --- redis
+    Audio --- minio
+    prom --> graf
+    loki --> graf
+    tempo --> graf
 ```
 
 ---
@@ -46,7 +86,7 @@ Developer → Backstage Portal → Git Repository
 
 | Capability | Implementation |
 |---|---|
-| Kubernetes cluster operations | EKS + Kustomize overlays + HPA + PDB + Network Policies |
+| Kubernetes cluster operations | EKS + Kustomize overlays + Argo Rollouts canary + PDB + Network Policies |
 | Terraform IaC | Modular AWS + kind modules + GPU node group + remote state |
 | Cloud infra self-service | Crossplane S3 API — teams claim a secure bucket via `kubectl`; XRD + Composition + IRSA (AWS-only slice) |
 | Internal developer platform | Backstage with scaffolding templates, catalog, and plugins |
@@ -102,12 +142,14 @@ cd platform-core
 #   ArgoCD       →  http://localhost:8080
 #   Grafana      →  http://localhost:3000
 #   vLLM API     →  http://localhost:8000/v1
-#   AKHQ (Kafka) →  http://localhost:9080
+#   AKHQ (Kafka) →  http://akhq.platform-core.local  (dev only)
 
-# Trigger worker-service autoscaling by producing test jobs:
-kubectl exec -n platform deploy/kafka-producer-tool -- \
-  kafka-console-producer.sh \
-    --bootstrap-server kafka.platform.svc:9092 \
+# Trigger worker-service autoscaling by producing test jobs
+# (spins up a throwaway Strimzi producer pod and pipes in the sample job):
+kubectl -n platform run kafka-producer --rm -i --restart=Never \
+  --image=quay.io/strimzi/kafka:0.40.0-kafka-3.7.0 -- \
+  bin/kafka-console-producer.sh \
+    --bootstrap-server platform-kafka-kafka-bootstrap.platform.svc:9092 \
     --topic jobs < scripts/sample-job.json
 ```
 

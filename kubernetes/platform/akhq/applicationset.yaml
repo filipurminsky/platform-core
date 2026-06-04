@@ -1,0 +1,89 @@
+# AKHQ — dev-only Kafka web UI for topic / consumer-group / message inspection.
+#
+# Convenience surface for local development. Browse topics, peek at messages,
+# and watch consumer-group lag without dropping into console-consumer pods.
+# This duplicates nothing functional: prod relies on Grafana + Kafka Exporter
+# for lag and `kubectl get kafkatopics` (Strimzi CRs) for topic state.
+#
+# Scoped to dev only (cluster generator matches environment=dev), like MinIO.
+# The reason it is dev-only is the listener auth split: the dev Kafka overlay
+# REMOVES listener authentication (plaintext), so the connection below works
+# as-is. Prod listeners require SCRAM-SHA-512 — wiring AKHQ there would need an
+# `akhq` KafkaUser CR + SASL_PLAINTEXT/jaas config, which we deliberately skip.
+#
+# Access in dev: http://akhq.platform-core.local (ingress-nginx), or
+#   kubectl -n platform port-forward svc/akhq 9080:8080
+#
+# NB: pin/verify the chart version and confirm the `ingress` value schema for
+# that version with `helm template akhq akhq/akhq -f <these values>` before
+# relying on the rendered Ingress — the chart's ingress block has changed shape
+# across releases.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: akhq
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["dev"]
+  template:
+    metadata:
+      name: akhq
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: https://akhq.io/
+        chart: akhq
+        # Pin to a recent stable release; bump deliberately after testing.
+        targetRevision: "0.25.1"
+        helm:
+          values: |
+            # Single replica — dev/kind convenience UI, not HA.
+            replicaCount: 1
+
+            # Point AKHQ at the Strimzi plaintext bootstrap listener. The dev
+            # Kafka overlay removes listener auth, so no SASL config is needed.
+            configuration:
+              akhq:
+                connections:
+                  platform-kafka:
+                    properties:
+                      bootstrap.servers: "platform-kafka-kafka-bootstrap.platform.svc:9092"
+
+            resources:
+              requests:
+                cpu: 50m
+                memory: 256Mi
+              limits:
+                memory: 512Mi
+
+            service:
+              type: ClusterIP
+              httpPort: 8080
+
+            # Expose via ingress-nginx, matching the echo.* / audio.* hosts.
+            ingress:
+              enabled: true
+              ingressClassName: nginx
+              hosts:
+                - akhq.platform-core.local
+              paths:
+                - /
+      destination:
+        server: "{{.server}}"
+        namespace: platform
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
