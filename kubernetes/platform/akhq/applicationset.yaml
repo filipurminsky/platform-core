@@ -44,7 +44,7 @@ spec:
         repoURL: https://akhq.io/
         chart: akhq
         # Pin to a recent stable release; bump deliberately after testing.
-        targetRevision: "0.25.1"
+        targetRevision: "0.27.0"
         helm:
           values: |
             # Single replica — dev/kind convenience UI, not HA.
