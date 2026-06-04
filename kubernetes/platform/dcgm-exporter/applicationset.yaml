@@ -1,0 +1,70 @@
+# NVIDIA DCGM exporter — per-GPU utilization / memory / power metrics for the
+# audio-ai-pipeline + vLLM GPU workloads. Scoped to AWS clusters only
+# (environment=prod, set by bootstrap.sh --mode=aws): local kind has no GPUs, so
+# the whole slice is skipped there — the dashboard's GPU panel simply shows
+# "No data" on kind, by design.
+#
+# Runs as a DaemonSet on the Karpenter `gpu` NodePool only (nodeSelector role=gpu
+# + toleration for the nvidia.com/gpu taint — see
+# kubernetes/platform/karpenter/config/nodepool-gpu.yaml). Its ServiceMonitor
+# carries `prometheus: kube-prometheus` so the kube-prometheus-stack Prometheus
+# scrapes the DCGM_FI_DEV_* metrics back in.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: dcgm-exporter
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["prod"]
+  template:
+    metadata:
+      name: dcgm-exporter
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        # After kube-prometheus-stack (monitoring, wave -2) so the ServiceMonitor
+        # CRD exists before this applies one.
+        argocd.argoproj.io/sync-wave: "1"
+    spec:
+      project: default
+      source:
+        repoURL: https://nvidia.github.io/dcgm-exporter/helm-charts
+        chart: dcgm-exporter
+        targetRevision: "4.8.2"
+        helm:
+          values: |
+            # Only schedule on the Karpenter GPU NodePool.
+            nodeSelector:
+              role: gpu
+            tolerations:
+              - key: nvidia.com/gpu
+                operator: Equal
+                value: "true"
+                effect: NoSchedule
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                memory: 256Mi
+            serviceMonitor:
+              enabled: true
+              interval: 15s
+              # Picked up by the kube-prometheus-stack Prometheus selector.
+              additionalLabels:
+                prometheus: kube-prometheus
+      destination:
+        server: "{{.server}}"
+        namespace: monitoring
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

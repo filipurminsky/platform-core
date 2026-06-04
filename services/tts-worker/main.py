@@ -55,6 +55,7 @@ from app.metrics import (
     PIPELINE_COMPLETED,
     PIPELINE_E2E_DURATION,
     PIPELINE_FAILED,
+    PIPELINE_QUEUE_WAIT,
     TTS_GENERATION_DURATION,
     TTS_JOBS,
 )
@@ -112,6 +113,11 @@ def process_message(
         return
     if job_id:
         seen_ids.add(job_id)
+
+    # Queue wait — how long the job sat between creation and this stage starting (§7).
+    _qw_ts = _parse_created_at(created_at)
+    if _qw_ts is not None:
+        PIPELINE_QUEUE_WAIT.labels(stage="tts").observe(max(0.0, time.time() - _qw_ts))
 
     speech_key = f"speech/{job_id}"
 

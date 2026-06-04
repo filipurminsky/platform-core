@@ -101,6 +101,32 @@ def test_happy_path_stub(monkeypatch):
     assert "created_at" in produced_value  # carried forward
 
 
+def test_metrics_transcript_size_and_queue_wait(monkeypatch):
+    """Happy path records the transcript-size and queue-wait histograms."""
+    from prometheus_client import REGISTRY
+
+    monkeypatch.setattr(main, "STT_BACKEND", "stub")
+
+    before_size = REGISTRY.get_sample_value("stt_transcript_bytes_count") or 0.0
+    before_wait = (
+        REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "stt"}) or 0.0
+    )
+
+    event = _make_event(job_id="metrics-job-1")
+    main.process_message(
+        json.dumps(event).encode(),
+        _make_mock_producer(),
+        _make_mock_s3(audio_bytes=b"A" * 32_000),
+        _make_mock_redis(),
+        set(),
+    )
+
+    after_size = REGISTRY.get_sample_value("stt_transcript_bytes_count") or 0.0
+    after_wait = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "stt"})
+    assert after_size == before_size + 1
+    assert after_wait == before_wait + 1
+
+
 def test_happy_path_dedup(monkeypatch):
     """Processing the same job_id twice should skip the second invocation."""
     monkeypatch.setattr(main, "STT_BACKEND", "stub")

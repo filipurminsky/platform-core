@@ -115,10 +115,17 @@ exchange **keys**, never inline payloads.
 
 | Service | Metrics |
 |---------|---------|
-| stt-worker | `stt_jobs_total{status}`, `stt_job_duration_seconds`, `stt_errors_total` |
-| llm-worker | `llm_jobs_total{status}`, `llm_tokens_generated_total`, `llm_request_duration_seconds` |
+| stt-worker | `stt_jobs_total{status}`, `stt_job_duration_seconds`, `stt_errors_total`, `stt_transcript_bytes` (size of the written transcript) |
+| llm-worker | `llm_jobs_total{status}`, `llm_tokens_generated_total`, `llm_request_duration_seconds`, `llm_summary_bytes` (size of the written summary JSON) |
 | tts-worker | `tts_jobs_total{status}`, `tts_generation_duration_seconds` |
-| pipeline (all workers contribute) | `pipeline_jobs_completed_total`, `pipeline_jobs_failed_total`, `pipeline_end_to_end_duration_seconds` |
+| pipeline (all workers contribute) | `pipeline_jobs_completed_total`, `pipeline_jobs_failed_total{stage}`, `pipeline_end_to_end_duration_seconds`, `pipeline_queue_wait_seconds{stage}` (now − event `created_at` at receipt) |
+
+> `pipeline_queue_wait_seconds{stage=stt\|llm\|tts}` is the **shared queue-wait
+> histogram** — defined identically in every worker's `app/metrics.py` (like
+> `pipeline_jobs_failed_total`) and observed once per message, right after dedup,
+> using the same `_parse_created_at` helper that the e2e metric uses. These are
+> **additive** producer-side metrics: no Kafka envelope or event-value change, so
+> the frozen seam in §1–§3 is untouched.
 
 `pipeline_jobs_completed_total` / `pipeline_end_to_end_duration_seconds` are
 incremented by **tts-worker** (the terminal stage; end-to-end measured from the

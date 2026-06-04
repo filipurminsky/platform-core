@@ -42,7 +42,14 @@ from app.config import (
 )
 from app.job_state import make_redis_client, set_job_state
 from app.kafka_io import kafka_header_getter, kafka_header_setter, make_consumer, make_producer
-from app.metrics import PIPELINE_JOBS_FAILED, STT_ERRORS_TOTAL, STT_JOB_DURATION, STT_JOBS_TOTAL
+from app.metrics import (
+    PIPELINE_JOBS_FAILED,
+    PIPELINE_QUEUE_WAIT,
+    STT_ERRORS_TOTAL,
+    STT_JOB_DURATION,
+    STT_JOBS_TOTAL,
+    STT_TRANSCRIPT_BYTES,
+)
 from app.metrics_server import start_metrics_server
 from app.observability import log, tracer
 from app.storage import make_s3_client
@@ -56,6 +63,17 @@ def transcribe(audio_bytes: bytes) -> tuple[str, str, float]:
         return _transcribe_nemo(audio_bytes)
     # Default: stub
     return _transcribe_stub(audio_bytes)
+
+
+def _parse_created_at(created_at: str) -> float | None:
+    """Return a UTC timestamp float from an ISO-8601 string, or None on parse error."""
+    try:
+        dt = datetime.fromisoformat(created_at)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
 
 
 def process_message(
@@ -92,6 +110,11 @@ def process_message(
     if job_id:
         seen_ids.add(job_id)
 
+    # Queue wait — how long the job sat between creation and this stage starting (§7).
+    _qw_ts = _parse_created_at(created_at)
+    if _qw_ts is not None:
+        PIPELINE_QUEUE_WAIT.labels(stage="stt").observe(max(0.0, time.time() - _qw_ts))
+
     with tracer.start_as_current_span(
         "stt.process",
         context=context,
@@ -119,15 +142,17 @@ def process_message(
 
                 # 3. Write transcript to S3 (idempotent — deterministic key)
                 transcript_key = f"transcripts/{job_id}"
+                transcript_bytes = transcript_text.encode("utf-8")
                 s3.put_object(
                     Bucket=S3_BUCKET,
                     Key=transcript_key,
-                    Body=transcript_text.encode("utf-8"),
+                    Body=transcript_bytes,
                     ContentType="text/plain",
                 )
 
                 elapsed = time.perf_counter() - start
                 STT_JOB_DURATION.observe(elapsed)
+                STT_TRANSCRIPT_BYTES.observe(len(transcript_bytes))
 
                 # 4. Update Redis: set transcript key in state
                 try:

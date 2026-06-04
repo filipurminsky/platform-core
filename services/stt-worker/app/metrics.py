@@ -16,9 +16,22 @@ STT_ERRORS_TOTAL = Counter(
     "stt_errors_total",
     "Total STT processing errors",
 )
+STT_TRANSCRIPT_BYTES = Histogram(
+    "stt_transcript_bytes",
+    "Size of the transcript written to object storage",
+    buckets=[256, 1024, 4096, 16384, 65536, 262144, 1048576],
+)
 # Shared pipeline metric — incremented by whichever worker dead-letters (§7)
 PIPELINE_JOBS_FAILED = Counter(
     "pipeline_jobs_failed_total",
     "Pipeline jobs that were dead-lettered",
     ["stage"],
+)
+# Shared queue-wait metric — seconds a job waited between creation (audio-api) and
+# this stage starting to process it. Same name/labels in every worker (§7).
+PIPELINE_QUEUE_WAIT = Histogram(
+    "pipeline_queue_wait_seconds",
+    "Seconds a job waited between creation and this stage starting",
+    ["stage"],
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
 )

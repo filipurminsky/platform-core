@@ -156,6 +156,69 @@
       "targets": [
         { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(llm_tokens_generated_total[5m]))", "legendFormat": "tokens/s" }
       ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Queue Wait p95 by Stage (s)",
+      "description": "Seconds a job waited between creation (audio-api) and each worker starting to process it — pipeline_queue_wait_seconds, computed as now - event created_at. Works on local kind and prod.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(pipeline_queue_wait_seconds_bucket[5m])) by (le, stage))", "legendFormat": "{{stage}}" }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "GPU Utilization % (prod)",
+      "description": "Per-GPU utilization from the DCGM exporter (DCGM_FI_DEV_GPU_UTIL), plus vLLM KV-cache occupancy. PROD/EKS ONLY — local kind has no GPU, so this panel shows \"No data\" there by design.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(DCGM_FI_DEV_GPU_UTIL) by (pod)", "legendFormat": "{{pod}}" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(vllm:gpu_cache_usage_perc) * 100", "legendFormat": "vLLM KV-cache" }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Transcript Size p50 / p95 (bytes)",
+      "description": "Size of the transcript written to object storage by stt-worker (stt_transcript_bytes).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.50, sum(rate(stt_transcript_bytes_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(stt_transcript_bytes_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Summary Size p50 / p95 (bytes)",
+      "description": "Size of the summary JSON written to object storage by llm-worker (llm_summary_bytes).",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.50, sum(rate(llm_summary_bytes_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.95, sum(rate(llm_summary_bytes_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Audio Services Cost ($/hr)",
+      "description": "OpenCost-derived hourly cost (CPU + RAM allocation × node hourly rate) for the four audio-pipeline workloads in the apps namespace. Dev/kind shows low costs; prod reflects GPU node rates when STT/TTS scale up.",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 52 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(container_cpu_allocation{namespace=\"apps\", pod=~\"(audio-api|stt-worker|llm-worker|tts-worker)-.*\"} * on(node) group_left() node_cpu_hourly_cost) + sum(container_memory_allocation_bytes{namespace=\"apps\", pod=~\"(audio-api|stt-worker|llm-worker|tts-worker)-.*\"} / 1024 / 1024 / 1024 * on(node) group_left() node_ram_hourly_cost)", "legendFormat": "audio services $/hr" }
+      ]
     }
   ]
 }

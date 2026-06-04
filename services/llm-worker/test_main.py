@@ -179,6 +179,33 @@ def test_happy_path(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+def test_metrics_summary_size_and_queue_wait(monkeypatch):
+    """Happy path records the summary-size and queue-wait histograms."""
+    from prometheus_client import REGISTRY
+
+    s3 = _make_s3_mock()
+    r = _make_redis_mock()
+    producer = _make_producer_mock()
+    chat_resp = _chat_completion_response("SUMMARY:\nok\n\nACTION_ITEMS:\n- do x", 10)
+    fake_http_response = MagicMock()
+    fake_http_response.raise_for_status = MagicMock()
+    fake_http_response.json.return_value = chat_resp
+    http_client = MagicMock()
+    http_client.post.return_value = fake_http_response
+
+    before_size = REGISTRY.get_sample_value("llm_summary_bytes_count") or 0.0
+    before_wait = (
+        REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "llm"}) or 0.0
+    )
+
+    main.process_message(json.dumps(INBOUND_EVENT).encode(), producer, set(), s3, r, http_client)
+
+    after_size = REGISTRY.get_sample_value("llm_summary_bytes_count") or 0.0
+    after_wait = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "llm"})
+    assert after_size == before_size + 1
+    assert after_wait == before_wait + 1
+
+
 def test_gateway_error_goes_to_dlq(monkeypatch):
     """
     When the LLM gateway raises an error on every attempt, the job is dead-lettered:

@@ -50,12 +50,29 @@ from app.config import (
 from app.gateway import _parse_llm_response, call_llm_gateway  # noqa: F401  (_parse re-exported)
 from app.job_state import make_redis_client, mark_done, mark_failed, mark_summarizing
 from app.kafka_io import kafka_header_getter, kafka_header_setter, make_consumer, make_producer
-from app.metrics import LLM_JOBS, LLM_TOKENS, PIPELINE_FAILED
+from app.metrics import (
+    LLM_JOBS,
+    LLM_SUMMARY_BYTES,
+    LLM_TOKENS,
+    PIPELINE_FAILED,
+    PIPELINE_QUEUE_WAIT,
+)
 from app.metrics_server import start_metrics_server
 from app.observability import log, tracer
 from app.storage import make_s3_client
 from confluent_kafka import KafkaError, KafkaException
 from opentelemetry import propagate
+
+
+def _parse_created_at(created_at: str) -> float | None:
+    """Return a UTC timestamp float from an ISO-8601 string, or None on parse error."""
+    try:
+        dt = datetime.fromisoformat(created_at)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.timestamp()
+    except (ValueError, TypeError):
+        return None
 
 
 def process_message(
@@ -87,6 +104,11 @@ def process_message(
         return
     if job_id:
         seen_ids.add(job_id)
+
+    # Queue wait — how long the job sat between creation and this stage starting (§7).
+    _qw_ts = _parse_created_at(created_at)
+    if _qw_ts is not None:
+        PIPELINE_QUEUE_WAIT.labels(stage="llm").observe(max(0.0, time.time() - _qw_ts))
 
     with tracer.start_as_current_span(
         "llm-worker.process",
@@ -121,12 +143,14 @@ def process_message(
                     "model": LLM_MODEL,
                     "created_at": created_at,
                 }
+                summary_body = json.dumps(summary_doc).encode("utf-8")
                 s3.put_object(
                     Bucket=S3_BUCKET,
                     Key=summary_key,
-                    Body=json.dumps(summary_doc).encode("utf-8"),
+                    Body=summary_body,
                     ContentType="application/json",
                 )
+                LLM_SUMMARY_BYTES.observe(len(summary_body))
 
                 # Update Redis with summary key
                 mark_done(r, job_id, summary_key)

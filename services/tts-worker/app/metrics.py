@@ -30,3 +30,11 @@ PIPELINE_FAILED = Counter(
     "Pipeline jobs dead-lettered by stage",
     ["stage"],
 )
+# Shared queue-wait metric — seconds a job waited between creation (audio-api) and
+# this stage starting to process it. Same name/labels in every worker (§7).
+PIPELINE_QUEUE_WAIT = Histogram(
+    "pipeline_queue_wait_seconds",
+    "Seconds a job waited between creation and this stage starting",
+    ["stage"],
+    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+)

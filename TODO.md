@@ -1,8 +1,10 @@
 # TODO
 
 Outstanding work for platform-core, ordered by leverage. Reflects the repo after
-the supply-chain/policy/KRaft work (commit `89a3641`) plus the platform extension
-in section E. Legend: ⬜ not started · 🟡 partial · ✅ done.
+the supply-chain/policy/KRaft work (commit `89a3641`), the platform extension in
+section E, the **`services/` co-location refactor** (ADR-012), and the **AI audio
+pipeline** in section F (commit `c8334e0`). Legend: ⬜ not started · 🟡 partial ·
+✅ done.
 
 ## A. Correctness & honesty (cheap, high-impact — do first)
 
@@ -48,15 +50,20 @@ in section E. Legend: ⬜ not started · 🟡 partial · ✅ done.
   nodes go Ready, every ArgoCD Application reaches Healthy/Synced, then exercise: canary
   auto-rollback (`canary-demo.sh bad`), worker KEDA scale-from-zero on Kafka lag, vLLM CPU
   inference via llm-gateway, Kyverno rejecting an unsigned image, a Loki log query, **a
-  request trace appearing in Tempo/Grafana**, **Hubble showing app flows**, and **OpenCost
-  reporting namespace cost**. Capture output for the README. (The CI `e2e-smoke` job is a
-  start — extend it.)
+  request trace appearing in Tempo/Grafana**, **Hubble showing app flows**, **OpenCost
+  reporting namespace cost**, and **the audio pipeline end-to-end** (`POST /v1/audio/jobs`
+  → STT→LLM→TTS with `stub` backends → a `speech/<job_id>` object in MinIO and Redis
+  job-state `done`). Capture output for the README. (The CI `e2e-smoke` job and
+  `scripts/smoke-test.sh` are a start — extend them.)
 - ⬜ **Validate the AWS path.** At minimum `terraform plan` against a real account for
   `environments/{dev,prod}`; ideally a throwaway EKS apply + `--mode=aws` bootstrap,
   including **Karpenter** (controller healthy, default NodePool provisions general nodes,
   GPU NodePool provisions for vLLM, interruption queue wired), the `github-oidc` role
-  assumption from CI, and the Crossplane S3 claim provisioning a real bucket. Substitute
-  the `terraform output` values into the Karpenter Helm values + EC2NodeClass placeholders.
+  assumption from CI, and the Crossplane S3 claim provisioning a real bucket. Also prove
+  the **audio pipeline prod path**: the `nemo`/`kokoro` GPU model images build + load their
+  lazy-imported deps, stt/tts-worker scale-from-zero onto the GPU NodePool, and the
+  pipeline writes to the Crossplane bucket via IRSA (no MinIO). Substitute the
+  `terraform output` values into the Karpenter Helm values + EC2NodeClass placeholders.
 - ⬜ **Exercise Terraform plan OIDC in CI.** `terraform-plan.yaml` no longer uses static
   AWS keys, but the workflow should be proven from a PR with `AWS_OIDC_ROLE_ARN`
   configured. Add a clear skip/failure mode when the repo variable is absent.
@@ -138,3 +145,53 @@ in section E. Legend: ⬜ not started · 🟡 partial · ✅ done.
   ServiceMonitor scraping its metrics, and a `cost-finops` Grafana dashboard (cost by node /
   namespace). All three charts (Tempo, OTel Collector, OpenCost) `helm template` cleanly with
   the embedded values.
+
+## F. AI audio pipeline (STT → LLM → TTS over Kafka)
+
+A multi-stage event-driven AI workflow (upload → speech-to-text → summarize → text-to-speech),
+built in parallel "chunks" against a frozen seam contract. Contract: `docs/audio-pipeline-contract.md`.
+
+- ✅ **Chunk 0 — freeze the inter-chunk contract.** `docs/audio-pipeline-contract.md`: Kafka
+  envelope (key=`job_id`, W3C trace headers, `created_at` carried forward), the 7 `audio.*`
+  topics + per-stage DLQs, object-storage key scheme (`audio/transcripts/summaries/speech/`),
+  Redis job-state schema, the `llm-gateway` LLM contract, metric names, and the locked
+  decisions (Redis job-state, MinIO-dev/Crossplane-S3-prod, pluggable `stub`/GPU backends).
+- ✅ **Chunk 1 — platform infra.** 7 `audio.*` KafkaTopics + DLQs and per-service KafkaUsers;
+  **MinIO** (dev-only ApplicationSet) object store; **Redis** (all-env, in-repo upstream
+  manifest after dropping the Bitnami chart) job-state store; prod Crossplane S3 claim. Fixed
+  duplicate `S3_BUCKET`/`REDIS_URL`/`S3_REGION` env keys and stopped re-generating the shared
+  env-config ConfigMap.
+- ✅ **Chunk 2 — `audio-api`.** FastAPI upload (`POST /v1/audio/jobs`, size/MIME validation),
+  S3/MinIO write, Redis `queued` state, `audio.jobs` produce, `GET /jobs/{id}` status.
+- ✅ **Chunk 3 — `stt-worker`.** Parakeet/NeMo speech-to-text (pluggable `STT_BACKEND=stub|nemo`),
+  writes the full transcript blob, produces `audio.transcripts`.
+- ✅ **Chunk 4 — `llm-worker`.** Summarization via the existing `llm-gateway` (never vLLM
+  directly); writes structured summary + `action_items[]`, produces `audio.summaries`.
+- ✅ **Chunk 5 — `tts-worker`.** Kokoro text-to-speech terminal stage (`TTS_BACKEND=stub|kokoro`),
+  writes `speech/<job_id>`, produces `audio.results`, sets Redis `done`, increments the
+  pipeline end-to-end metrics.
+- ✅ **Chunk 6 — observability.** `audio-ai-pipeline` Grafana dashboard + per-stage DLQ /
+  failure alerts.
+- ✅ **Chunk 7 — Backstage.** All four services + their topic APIs registered in the catalog.
+- ✅ **Dashboard deep-dive (perf/size/cost/GPU/queue).** Added worker metrics
+  `pipeline_queue_wait_seconds{stage}` (now − `created_at` at receipt, all 3 workers),
+  `stt_transcript_bytes`, `llm_summary_bytes`; deployed a prod-only **`dcgm-exporter`**
+  ApplicationSet (GPU `DCGM_FI_DEV_*` via ServiceMonitor); expanded `audio-ai-pipeline.json`
+  to 17 panels (queue wait, transcript/summary size, audio-services cost via OpenCost, GPU
+  utilization). GPU + cost panels are prod-only ("No data" on kind by design).
+- ✅ **Wiring fixes.** Aggregate CI overlay covers the new apps; KEDA scale-from-zero unblocked
+  (activation lag threshold 0, ArgoCD selfHeal no longer reverts the scale); NetworkPolicies
+  for llm-worker↔gateway; seccomp/PSA/topology-spread/label hygiene hardening across workloads.
+- ⬜ **End-to-end proof.** Folded into the §B full local smoke test (and the §B AWS GPU-path
+  item for the real `nemo`/`kokoro` models).
+
+## G. Repository structure
+
+- ✅ **Co-locate app source with its k8s manifests (ADR-012).** Moved each service from
+  `apps/<svc>` + central `kustomize/base+overlays` into a single `services/<svc>/` folder it
+  owns (`k8s/base` + `k8s/overlays/{dev,prod}`); `kustomize/` is now only the CI `validation/`
+  aggregate; the per-service ApplicationSets point at `services/<svc>/k8s/overlays/{{env}}`.
+- ✅ **Split `main.py` into an `app/` package + typed config.** Each service keeps a thin
+  `main.py` entrypoint plus `app/` (`config.py` pydantic-settings, `observability.py`,
+  `metrics.py`, `kafka_io.py`, per-service helpers); `tool.uv.package = false` retained.
+- ✅ **Generate per-service READMEs** for all pipeline + demo services.

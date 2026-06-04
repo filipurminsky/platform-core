@@ -171,6 +171,17 @@ def test_stub_happy_path_observes_e2e_duration(producer, summary_s3, redis_clien
     assert after >= before  # created_at is in the past → positive duration
 
 
+def test_stub_happy_path_observes_queue_wait(producer, summary_s3, redis_client, valid_event):
+    from prometheus_client import REGISTRY
+
+    label = {"stage": "tts"}
+    before = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", label) or 0.0
+    seen: set[str] = set()
+    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    after = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", label)
+    assert after == before + 1  # queue-wait observed once per message
+
+
 # ---------------------------------------------------------------------------
 # Failure / DLQ path
 # ---------------------------------------------------------------------------

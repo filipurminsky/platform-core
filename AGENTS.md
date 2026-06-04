@@ -87,7 +87,7 @@ kubectl label secret in-cluster -n argocd environment=prod --overwrite
 
 - **`kubernetes/apps/<svc>/`** — the service's ArgoCD `ApplicationSet` only (GitOps registration: project, namespace, sync policy). **No Deployments or Services here.**
 - **`services/<svc>/k8s/base/`** — the real Kubernetes manifests (Deployment/Rollout, Service, ServiceMonitor, NetworkPolicy, PDB, ScaledObject). Per-env patches live in `services/<svc>/k8s/overlays/{dev,prod}/`.
-- **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, crossplane, backstage, monitoring, loki, tempo, opentelemetry-collector, opencost, karpenter). Each points to its upstream Helm chart (or, for config-only slices, a repo path). Prod-only slices (crossplane, karpenter) are ApplicationSets with a cluster generator scoped to `environment=prod`.
+- **`kubernetes/platform/`** — one ArgoCD Application per platform service (cert-manager, ingress-nginx, external-secrets, keda, kafka, crossplane, backstage, monitoring, loki, tempo, opentelemetry-collector, opencost, karpenter, dcgm-exporter, minio, redis, namespaces). Each points to its upstream Helm chart (or, for config-only slices, a repo path). Prod-only slices (crossplane, karpenter, **dcgm-exporter**) are ApplicationSets with a cluster generator scoped to `environment=prod`; **minio** is a **dev-only** ApplicationSet (prod uses the Crossplane S3 bucket instead); **redis** and **namespaces** run in all environments.
 
 ### Application source code & manifests (`services/<svc>/`)
 
@@ -98,13 +98,19 @@ Each service is **co-located in one folder it owns**: `services/<svc>/` holds th
 registration stays platform-reviewed; its `path:` points back at the service's
 overlay.
 
-Each `services/<service>/` source is a self-contained Python project:
+Each `services/<service>/` source is a self-contained Python project. The **demo apps**:
 
 - **`echo-service`** — FastAPI HTTP demo (probes, `/metrics`, request echo). Deployed as an Argo Rollout (canary).
 - **`worker-service`** — Kafka consumer (confluent-kafka, no web framework). Manual-commit processing with dedup, retry → DLQ, graceful SIGTERM drain; exposes metrics on `:9090`. Scaled by KEDA on consumer lag.
 - **`llm-gateway`** — FastAPI reverse proxy in front of vLLM: per-IP sliding-window rate limiting, upstream error mapping (429/502/504), metrics. Deployed as a plain Deployment (2 replicas, 1 in dev). Its Kubernetes readiness probe is `/healthz` (self-check), **not** the app's `/readyz` — `/readyz` gates on the upstream vLLM `/health`, but vLLM is KEDA scale-to-zero, so gating readiness on it would remove the gateway from Service endpoints whenever vLLM is idle and deadlock scale-from-zero.
+- **`vllm-inference`** — vLLM OpenAI-compatible inference server (GPU in prod, CPU TinyLlama in dev). KEDA scale-to-zero on queue depth.
 
-Each service is a **uv project**: `main.py` (single-module app), `pyproject.toml` (`[project.dependencies]` runtime + `[dependency-groups].dev` for `pytest`/`httpx`, all pinned; `tool.uv.package = false` since it's a flat module, not a wheel), a committed `uv.lock`, `test_main.py` (unit tests — run `uv run pytest -q` from the service dir), `Dockerfile` (python:3.12-slim, non-root, deps installed via `uv sync --frozen --no-dev`), and `catalog-info.yaml` (Backstage catalog entry). Common tasks are wrapped in the root `Makefile` (`make deps|test|lint|fmt`). Lint/format with `ruff` (config in the **repo-root** `pyproject.toml`, inherited by each app); CI runs `ruff` (via `uvx`) + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. uv.lock files are kept current by Renovate (`pep621` manager + monthly lockfile maintenance). There is also a `services/docker-compose.yml` for running the stack locally without Kubernetes.
+The **AI audio pipeline** (see the dedicated section below) adds four more services that chain over `audio.*` Kafka topics:
+
+- **`audio-api`** — FastAPI ingest: `POST /v1/audio/jobs` stores the upload to S3/MinIO, writes Redis job-state, produces `audio.jobs`. `GET /jobs/{id}` reads Redis.
+- **`stt-worker`** / **`llm-worker`** / **`tts-worker`** — the worker stages (speech→text, summarize-via-`llm-gateway`, text→speech). Each reuses the `worker-service` consumer pattern verbatim and is KEDA scale-to-zero on consumer lag.
+
+Each service is a **uv project**: `main.py` (the app entrypoint) plus an **`app/` package** that splits out the cross-cutting pieces (`config.py` typed pydantic-settings, `observability.py`, `metrics.py`, and for the messaging services `kafka_io.py`, plus per-service helpers like `storage.py`/`backends.py`/`job_state.py` in the audio workers). `pyproject.toml` (`[project.dependencies]` runtime + `[dependency-groups].dev` for `pytest`/`httpx`, all pinned; `tool.uv.package = false` — deps are synced, nothing is built as a wheel), a committed `uv.lock`, `test_main.py` + `conftest.py` (sets `OTEL_SDK_DISABLED=true`; run `uv run pytest -q` from the service dir), `Dockerfile` (python:3.12-slim, non-root, deps installed via `uv sync --frozen --no-dev`), `README.md`, and `catalog-info.yaml` (Backstage catalog entry). Common tasks are wrapped in the root `Makefile` (`make deps|test|lint|fmt`). Lint/format with `ruff` (config in the **repo-root** `pyproject.toml`, inherited by each app); CI runs `ruff` (via `uvx`) + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. uv.lock files are kept current by Renovate (`pep621` manager + monthly lockfile maintenance). There is also a `services/docker-compose.yml` for running the stack locally without Kubernetes.
 
 ### App-of-Apps flow
 
@@ -116,6 +122,8 @@ Each service's dev overlay (`services/<svc>/k8s/overlays/dev/`) does things its 
 1. `patch-vllm-model.yaml` — removes `runtimeClassName`, `nodeSelector`, `tolerations`, and GPU resource requests from the vllm-inference Deployment; switches model arg to `TinyLlama/TinyLlama-1.1B-Chat-v1.0` with `--device cpu`
 2. `patch-vllm-pvc.yaml` — changes storage class from `gp3` to `standard` (kind hostPath)
 3. `patch-resources.yaml` — reduces CPU/memory requests on all Deployments
+
+The audio workers' dev overlays (`patch-dev.yaml`) likewise switch the **pluggable ML backend** to its stub: `STT_BACKEND=stub` / `TTS_BACKEND=stub` on kind (no GPU), where prod sets `nemo` / `kokoro`. The heavy `nemo`/`kokoro`/`torch` deps are **lazy-imported only when the real backend is selected** and are intentionally **not** in `pyproject.toml`/`uv.lock` — prod images bake the model + add the deps in a build layer, keeping dev images light and the test suites fast.
 
 Kafka dev/prod differences (broker count, partition count, SCRAM auth, storage class) are in `kubernetes/platform/kafka/overlays/dev/` — separate from the app overlay.
 
@@ -133,9 +141,29 @@ Composition uses **kustomize Components**, not bases:
 
 Key invariants when editing: **Roles are shared, RoleBindings are per-tenant**; `tenant-admin` gets read-only on ResourceQuota/LimitRange/NetworkPolicy so teams can't widen their own guardrails; `tenant-viewer` deliberately omits `secrets`. Validate a tenant with `kustomize build kubernetes/tenants/team-<name>`. See `kubernetes/tenants/README.md` for the onboarding steps.
 
+### AI audio pipeline (`audio-api` → `stt` → `llm` → `tts`)
+
+A multi-stage, event-driven AI workflow that turns an uploaded audio file into a synthesized spoken summary. **The contract between stages is frozen in `docs/audio-pipeline-contract.md` — read it before touching any pipeline service; a change there requires re-freezing and updating every stage.** Sourced from `AI_Audio_Pipeline_Specification.md`.
+
+```
+audio-api ─audio.jobs─▶ stt-worker ─audio.transcripts─▶ llm-worker ─audio.summaries─▶ tts-worker ─audio.results─▶ (terminal)
+                          └ audio.stt-dlq   └ audio.llm-dlq                              └ audio.tts-dlq
+```
+
+Invariants that bite if you break them:
+- **Message key = `job_id` (UUID) on every topic** — drives partition affinity, ordering, and dedup. **Headers carry W3C `traceparent`/`tracestate`**, re-injected at every hop, so `audio-api → stt → llm → tts` stitches into **one trace** (workers extract context from Kafka headers via the `worker-service` `KafkaHeaderGetter`/`propagate` helpers). `created_at` is **copied forward** through every event so the terminal `tts-worker` can compute `pipeline_end_to_end_duration_seconds`.
+- **Workers exchange object-storage keys, never inline payloads.** One bucket, prefixed: `audio/`, `transcripts/`, `summaries/`, `speech/<job_id>`. Writes are idempotent (deterministic keys). MinIO in dev (S3 API, `S3_ENDPOINT_URL` set, path addressing), Crossplane-provisioned S3 in prod (`S3_ENDPOINT_URL` unset, IRSA).
+- **Job state in Redis** (`redis` platform service): key `job:<job_id>`, JSON, 7-day TTL, `status ∈ {queued, transcribing, summarizing, synthesizing, done, failed}`; `failed` carries `error.{stage,message,dlq_topic}`. `audio-api` writes `queued` and serves `GET /jobs/{id}` from it; each worker writes its in-progress status then updates `keys`/terminal status.
+- **`llm-worker` calls the existing `llm-gateway`** (`POST /v1/chat/completions` via `LLM_GATEWAY_URL`), **never vLLM directly** — it inherits the gateway's rate-limiting and observability.
+- Each worker reuses the `worker-service` pattern verbatim: `confluent-kafka`, `enable.auto.commit=false` (commit only **after** the output event is produced), job-id dedup, retry → per-stage DLQ, SIGTERM drain, metrics HTTP server on `:9090`. All three workers are **KEDA scale-to-zero** on consumer lag (generous `cooldownPeriod` for GPU cold start).
+- Metric-name contract (dashboard `audio-ai-pipeline` reads these): per-stage `stt_*`/`llm_*`/`tts_*` (incl. `stt_transcript_bytes`, `llm_summary_bytes` for output sizes) plus pipeline-wide `pipeline_jobs_completed_total` / `pipeline_jobs_failed_total{stage}` / `pipeline_end_to_end_duration_seconds` / `pipeline_queue_wait_seconds{stage}` (completed/duration incremented by `tts-worker`; failed by whichever worker dead-letters; queue-wait observed once per message in every worker — `now − created_at`). GPU utilization comes from the **`dcgm-exporter`** platform service (`DCGM_FI_DEV_*`, prod-only) and cost from OpenCost; both are prod-only on the dashboard, so the GPU panel reads "No data" on local kind by design.
+
+Supporting platform services are net-new: **MinIO** (dev object store, `platform/minio`), **Redis** (job state, `platform/redis`), and the **7 `audio.*` Kafka topics** + per-service `KafkaUser`s (`kubernetes/platform/kafka/base/{topics,users}.yaml`).
+
 ### Secret ownership split
 
-- **Kafka SASL credentials** — owned by Strimzi UserOperator. The Secret named `worker-service` is created automatically from the `KafkaUser` CR in the `apps` namespace. The prod worker overlay includes the KEDA `TriggerAuthentication` that reads its `password` key. Do **not** manage this Secret via External Secrets Operator.
+- **Kafka SASL credentials** — owned by Strimzi UserOperator. One Secret per `KafkaUser` CR (`worker-service`, `audio-api`, `stt-worker`, `llm-worker`, `tts-worker`, …) is created automatically in the `apps` namespace. The prod worker overlays include the KEDA `TriggerAuthentication` that reads each user's `password` key. Do **not** manage these Secrets via External Secrets Operator.
+- **MinIO / object-storage credentials** — dev only: a Secret of MinIO access/secret keys consumed by the audio services as `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (with `S3_ENDPOINT_URL` pointed at the MinIO service). In prod these are **unset** — the services use **IRSA** against the Crossplane-provisioned bucket.
 - **Everything else** (HuggingFace token, application secrets) — External Secrets Operator pulling from AWS Secrets Manager. Bootstrapped locally by `bootstrap.sh` via `kubectl create secret`.
 
 ### Image promotion path
@@ -193,7 +221,7 @@ Grafana is the single pane for **metrics + logs + traces + cost** (datasources w
 - **Traces** — Tempo (uid `tempo`), fed by the OpenTelemetry Collector. `tracesToLogsV2`/`tracesToMetrics` link a span back to its logs and metrics.
 - **Cost** — OpenCost reads the Prometheus datasource; the `cost-finops` dashboard (in `observability/grafana/dashboards`) shows $/hr by node and by namespace.
 
-**Tracing pipeline:** app workloads (echo-service, llm-gateway, worker-service) export OTLP spans to the in-cluster collector and back to Tempo:
+**Tracing pipeline:** app workloads (echo-service, llm-gateway, worker-service, and the audio-pipeline services audio-api/stt-worker/llm-worker/tts-worker) export OTLP spans to the in-cluster collector and back to Tempo:
 `app → otel-collector.monitoring:4317 (OTLP) → tempo.monitoring:4317 → Grafana (tempo.monitoring:3200)`.
 Each app sets `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_RESOURCE_ATTRIBUTES` in its base manifest (dev/prod are separate clusters, each with its own Tempo, so traces are inherently per-environment). Trace context propagates over HTTP (FastAPI + httpx instrumentation) and across Kafka via message headers (worker-service extracts it and starts a span per job). `add_trace_context` injects `trace_id`/`span_id` into every structlog line. Tracing honours `OTEL_SDK_DISABLED=true` (set in each app's `conftest.py`) so tests don't block on export. New dashboards ship as labelled ConfigMaps via the `grafana-dashboards` Application — add the JSON under `observability/grafana/dashboards` and register it in that kustomization's `configMapGenerator`.
 
