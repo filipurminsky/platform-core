@@ -7,7 +7,7 @@ validated `settings` singleton and are what the rest of the app imports.
 
 import sys
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # SASL/SCRAM — injected by Strimzi KafkaUser secret in prod; empty → plaintext for local dev
     sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
-    sasl_password: str = Field(default="", alias="KAFKA_SASL_PASSWORD")
+    sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
     security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
 
     # LLM gateway — never talk to vLLM directly (§6). In dev the gateway proxies
@@ -69,7 +69,7 @@ CONSUMER_GROUP = settings.consumer_group
 MAX_RETRIES = settings.max_retries
 METRICS_PORT = settings.metrics_port
 SASL_USERNAME = settings.sasl_username
-SASL_PASSWORD = settings.sasl_password
+SASL_PASSWORD = settings.sasl_password.get_secret_value()
 SECURITY_PROTOCOL = settings.security_protocol
 LLM_GATEWAY_URL = settings.llm_gateway_url
 LLM_MODEL = settings.llm_model

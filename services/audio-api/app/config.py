@@ -8,7 +8,7 @@ validated `settings` singleton and are what the rest of the app imports.
 import sys
 from typing import Annotated
 
-from pydantic import Field, ValidationError, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _DEFAULT_CONTENT_TYPES = "audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/ogg,audio/flac"
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
 
-    api_token: str = Field(default="", alias="API_TOKEN")  # empty → no auth check
+    api_token: SecretStr = Field(default=SecretStr(""), alias="API_TOKEN")  # empty → no auth check
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="MAX_UPLOAD_BYTES")  # 25 MB
     # NoDecode: the env value is a CSV string, not JSON — let the validator below
     # split it instead of pydantic-settings trying to JSON-decode the set.
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
     kafka_topic_jobs: str = Field(default="audio.jobs", alias="KAFKA_TOPIC_JOBS")
     kafka_sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
-    kafka_sasl_password: str = Field(default="", alias="KAFKA_SASL_PASSWORD")
+    kafka_sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
     kafka_security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
 
     @field_validator("allowed_content_types", mode="before")
@@ -64,7 +64,7 @@ except ValidationError as exc:  # pragma: no cover - fail fast at startup
 
 
 # Backward-compatible constants (single source: the validated `settings`).
-API_TOKEN = settings.api_token
+API_TOKEN = settings.api_token.get_secret_value()
 MAX_UPLOAD_BYTES = settings.max_upload_bytes
 ALLOWED_CONTENT_TYPES = settings.allowed_content_types
 
@@ -78,5 +78,5 @@ JOB_STATE_TTL_SECONDS = settings.job_state_ttl_seconds
 KAFKA_BOOTSTRAP_SERVERS = settings.kafka_bootstrap_servers
 KAFKA_TOPIC_JOBS = settings.kafka_topic_jobs
 KAFKA_SASL_USERNAME = settings.kafka_sasl_username
-KAFKA_SASL_PASSWORD = settings.kafka_sasl_password
+KAFKA_SASL_PASSWORD = settings.kafka_sasl_password.get_secret_value()
 KAFKA_SECURITY_PROTOCOL = settings.kafka_security_protocol

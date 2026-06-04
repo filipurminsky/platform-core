@@ -11,6 +11,20 @@ env:
   KEDA_VERSION: "2.13.0"
 
 jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks scans every commit on a PR, not just the tip.
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   helm-lint:
     name: Helm lint + validate
     runs-on: ubuntu-latest

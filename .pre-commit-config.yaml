@@ -29,6 +29,14 @@ repos:
         # Go/Jinja templating that is not valid standalone YAML.
         exclude: ^(helm/[^/]+/templates/|backstage/templates/)
 
+  # ── Secret scanning ───────────────────────────────────────────────────────
+  # Blocks commits that introduce credentials, keys or tokens. Scans only the
+  # staged diff on commit (fast); CI re-runs gitleaks over full history.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
   # ── Python: ruff lint + format (config in repo-root pyproject.toml) ─────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.15
