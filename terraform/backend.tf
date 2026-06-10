@@ -17,7 +17,8 @@ terraform {
   }
 
   # Remote state — S3 + DynamoDB locking
-  # Bootstrap: run scripts/bootstrap-state.sh once before terraform init
+  # Bootstrap: create the state bucket and lock table manually once, then run
+  # terraform init from terraform/environments/{dev,prod} (not this root module).
   backend "s3" {
     bucket         = "platform-core-tfstate"
     key            = "terraform.tfstate" # overridden per environment

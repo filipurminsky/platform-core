@@ -49,13 +49,7 @@ from app.config import (
 )
 from app.gateway import _parse_llm_response, call_llm_gateway  # noqa: F401  (_parse re-exported)
 from app.job_state import make_redis_client, mark_done, mark_failed, mark_summarizing
-from app.kafka_io import (
-    kafka_header_getter,
-    kafka_header_setter,
-    make_consumer,
-    make_producer,
-    update_lag,
-)
+from app.kafka_io import kafka_header_getter, kafka_header_setter, make_consumer, make_producer
 from app.metrics import (
     LLM_JOBS,
     LLM_SUMMARY_BYTES,
@@ -256,7 +250,6 @@ def run() -> None:
 
     seen_ids: set[str] = set()
     shutdown = threading.Event()
-    lag_last_polled = 0.0
 
     def _handle_signal(sig, frame):
         log.info("shutdown_signal_received", signal=sig)
@@ -268,12 +261,6 @@ def run() -> None:
     try:
         while not shutdown.is_set():
             msg = consumer.poll(timeout=1.0)
-
-            # Periodically refresh lag gauge (best-effort)
-            now = time.time()
-            if now - lag_last_polled > 15:
-                update_lag(consumer)
-                lag_last_polled = now
 
             if msg is None:
                 continue
