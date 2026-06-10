@@ -28,34 +28,6 @@ spec:
   config:
     retention.ms: "2592000000"  # 30 days — keep dead letters longer for investigation
     cleanup.policy: delete
----
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaTopic
-metadata:
-  name: llm-requests
-  namespace: platform
-  labels:
-    strimzi.io/cluster: platform-kafka
-spec:
-  partitions: 5             # patched to 1 in dev overlay
-  replicas: 3               # patched to 1 in dev overlay
-  config:
-    retention.ms: "86400000"    # 1 day — async inference requests are short-lived
-    cleanup.policy: delete
----
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaTopic
-metadata:
-  name: llm-responses
-  namespace: platform
-  labels:
-    strimzi.io/cluster: platform-kafka
-spec:
-  partitions: 5             # patched to 1 in dev overlay
-  replicas: 3               # patched to 1 in dev overlay
-  config:
-    retention.ms: "86400000"
-    cleanup.policy: delete
 # ---------------------------------------------------------------------------
 # AI Audio Pipeline topics — owned by the audio pipeline Chunk 1.
 # The dev overlay patch-topics-dev.yaml targets all KafkaTopics by kind,

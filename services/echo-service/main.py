@@ -78,6 +78,13 @@ async def echo(request: Request):
         except Exception:
             body = None
 
+    # Strip sensitive headers before echoing — Authorization and Cookie would expose
+    # credentials to whoever reads the response (logs, browser, other services).
+    safe_headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in ("authorization", "cookie", "set-cookie")
+    }
     return {
         "service": "echo-service",
         "version": APP_VERSION,
@@ -87,7 +94,7 @@ async def echo(request: Request):
             "method": request.method,
             "path": str(request.url.path),
             "query": str(request.url.query),
-            "headers": dict(request.headers),
+            "headers": safe_headers,
             "body": body,
         },
     }

@@ -27,6 +27,13 @@
 # Replace the base S3_BUCKET (index 7) and S3_REGION (index 8) in place — appending
 # would create duplicate env keys that server-side apply rejects. (The Kafka SASL
 # vars above are appended because those keys are not present in the base.)
+#
+# FRAGILITY WARNING: indices 7 and 8 are positional — they must match the base
+# deployment's env array order exactly. If env vars are added, removed, or reordered
+# in services/audio-api/k8s/base/deployment.yaml, update these indices here to match.
+# Base env order (0-indexed): API_TOKEN=0, MAX_UPLOAD_BYTES=1, ALLOWED_CONTENT_TYPES=2,
+# REDIS_URL=3, KAFKA_BOOTSTRAP_SERVERS=4, KAFKA_TOPIC_JOBS=5, S3_ENDPOINT_URL=6,
+# S3_BUCKET=7, S3_REGION=8.
 - op: replace
   path: /spec/template/spec/containers/0/env/7
   value:

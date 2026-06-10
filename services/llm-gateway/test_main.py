@@ -59,6 +59,12 @@ class FakeResponse:
         self.content = content
         self.headers = headers or {"content-type": "application/json"}
 
+    async def aiter_bytes(self, chunk_size=None):
+        yield self.content
+
+    async def aclose(self):
+        pass
+
 
 class FakeClient:
     """Stands in for the shared httpx.AsyncClient."""
@@ -66,11 +72,12 @@ class FakeClient:
     def __init__(self, on_request):
         self._on_request = on_request
 
-    async def request(self, method, url, headers=None, content=None):
-        return self._on_request(method, url)
+    def build_request(self, method, url, headers=None, content=None):
+        return (method, url)
 
-    async def get(self, url, timeout=None):
-        return FakeResponse(200)
+    async def send(self, request, stream=False):
+        method, url = request
+        return self._on_request(method, url)
 
     async def aclose(self):
         pass

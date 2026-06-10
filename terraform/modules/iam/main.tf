@@ -35,6 +35,10 @@ resource "aws_iam_policy" "external_secrets" {
 }
 
 # ─── Cluster Autoscaler ───────────────────────────────────────────────────────
+# NOTE: The prod cluster uses Karpenter for node autoscaling, not Cluster Autoscaler.
+# This IRSA role is retained in case CA is ever deployed alongside Karpenter for
+# managed node group scaling, but nothing currently uses it. If CA is never needed,
+# this module and its outputs can be removed.
 module "irsa_cluster_autoscaler" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "~> 5.0"

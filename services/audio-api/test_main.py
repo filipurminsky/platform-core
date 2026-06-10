@@ -51,7 +51,7 @@ class FakeProducer:
     def __init__(self):
         self.produced: list[dict] = []
 
-    def produce(self, topic, value=None, key=None, headers=None):
+    def produce(self, topic, value=None, key=None, headers=None, on_delivery=None):
         self.produced.append({"topic": topic, "value": value, "key": key, "headers": headers})
 
     def poll(self, timeout=0):

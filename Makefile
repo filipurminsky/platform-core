@@ -71,7 +71,7 @@ kube-lint: ## Run kube-linter best-practice checks
 
 .PHONY: kyverno
 kyverno: ## Check Kyverno policies are well-formed (dry-run)
-	kyverno apply kubernetes/platform/kyverno-policies/policies/
+	kyverno apply kubernetes/platform/kyverno-policies/base/
 
 # ── Terraform ─────────────────────────────────────────────────────────────────
 .PHONY: tf-fmt

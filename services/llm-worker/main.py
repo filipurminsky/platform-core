@@ -49,7 +49,13 @@ from app.config import (
 )
 from app.gateway import _parse_llm_response, call_llm_gateway  # noqa: F401  (_parse re-exported)
 from app.job_state import make_redis_client, mark_done, mark_failed, mark_summarizing
-from app.kafka_io import kafka_header_getter, kafka_header_setter, make_consumer, make_producer
+from app.kafka_io import (
+    kafka_header_getter,
+    kafka_header_setter,
+    make_consumer,
+    make_producer,
+    update_lag,
+)
 from app.metrics import (
     LLM_JOBS,
     LLM_SUMMARY_BYTES,
@@ -98,12 +104,12 @@ def process_message(
     transcript_key = event.get("transcript_key", f"transcripts/{job_id}")
     created_at = event.get("created_at", datetime.now(UTC).isoformat())
 
-    # Deduplication — in-memory (within a pod lifetime)
+    # Deduplication — in-memory (within a pod lifetime).
+    # seen_ids is populated after a successful outcome so a rebalance mid-flight
+    # doesn't silently drop the message. S3 writes are idempotent.
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return
-    if job_id:
-        seen_ids.add(job_id)
 
     # Queue wait — how long the job sat between creation and this stage starting (§7).
     _qw_ts = _parse_created_at(created_at)
@@ -180,6 +186,8 @@ def process_message(
                     completion_tokens=completion_tokens,
                     action_items_count=len(action_items),
                 )
+                if job_id:
+                    seen_ids.add(job_id)
                 return
 
             except Exception as exc:
@@ -222,6 +230,8 @@ def process_message(
             job_id=job_id,
             error=str(last_exc),
         )
+        if job_id:
+            seen_ids.add(job_id)
 
 
 def run() -> None:
@@ -259,9 +269,10 @@ def run() -> None:
         while not shutdown.is_set():
             msg = consumer.poll(timeout=1.0)
 
-            # Periodically refresh lag gauge (best-effort; metric not in contract §7 for llm)
+            # Periodically refresh lag gauge (best-effort)
             now = time.time()
             if now - lag_last_polled > 15:
+                update_lag(consumer)
                 lag_last_polled = now
 
             if msg is None:

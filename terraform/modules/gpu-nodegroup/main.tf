@@ -1,6 +1,7 @@
 # GPU node group for vLLM inference (optional, prod only)
 # Tainted so only vLLM pods — which tolerate the taint — schedule here.
-# Cluster Autoscaler scales this group to zero when no vLLM replicas are running.
+# Karpenter manages scale-to-zero via the gpu NodePool; this static group
+# provides baseline capacity before Karpenter is bootstrapped.
 
 resource "aws_eks_node_group" "gpu" {
   cluster_name    = var.cluster_name
@@ -8,7 +9,9 @@ resource "aws_eks_node_group" "gpu" {
   node_role_arn   = var.node_role_arn
   subnet_ids      = var.subnet_ids
 
-  capacity_type  = "SPOT"
+  # ON_DEMAND is required for GPU inference — SPOT interruption would kill in-flight
+  # LLM requests and leave jobs stuck in Redis with no worker to recover them.
+  capacity_type  = "ON_DEMAND"
   instance_types = [var.instance_type] # default: g4dn.xlarge (NVIDIA T4)
   ami_type       = "AL2_x86_64_GPU"    # Amazon Linux 2 with NVIDIA drivers
 

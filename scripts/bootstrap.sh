@@ -81,7 +81,7 @@ elif [[ "$MODE" == "aws" ]]; then
   log "Updating kubeconfig for EKS cluster"
   AWS_REGION="${AWS_REGION:-eu-west-1}"
   aws eks update-kubeconfig \
-    --name "$CLUSTER_NAME" \
+    --name "platform-core-${ENVIRONMENT}" \
     --region "$AWS_REGION"
   ok "kubeconfig updated"
 fi

@@ -36,7 +36,7 @@ module "eks" {
   vpc_id            = module.networking.vpc_id
   public_subnet_ids = module.networking.public_subnet_ids
 
-  kubernetes_version  = "1.29"
+  kubernetes_version  = "1.31"
   node_instance_types = ["m5.large"]
   node_min            = 2
   node_max            = 4

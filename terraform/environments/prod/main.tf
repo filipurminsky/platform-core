@@ -36,7 +36,7 @@ module "eks" {
   vpc_id            = module.networking.vpc_id
   public_subnet_ids = module.networking.public_subnet_ids
 
-  kubernetes_version = "1.29"
+  kubernetes_version = "1.31"
 
   # Small static managed node group for baseline/system capacity (CoreDNS,
   # Karpenter controller, platform operators). Karpenter provisions everything

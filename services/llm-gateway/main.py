@@ -2,13 +2,15 @@
 llm-gateway — thin reverse proxy that forwards OpenAI-compatible requests to vLLM.
 
 Responsibilities:
-  - Forward POST /v1/* to the upstream vLLM service
+  - Forward /v1/* to the upstream vLLM service; supports streaming (SSE) responses
   - Add rate-limit headers (X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset)
   - Structured JSON logging of every request + upstream latency
   - Expose Prometheus metrics on GET /metrics
   - Liveness / readiness probes
 
-Rate limiting: token-bucket per client IP, 60 req/min by default (env: RATE_LIMIT_RPM).
+Rate limiting: sliding-window per client IP, 60 req/min by default (env: RATE_LIMIT_RPM).
+Client IP is extracted from X-Real-IP / X-Forwarded-For (set by nginx ingress) so each
+real client gets its own bucket rather than all traffic sharing the nginx pod IP.
 Upstream: env VLLM_BASE_URL (default http://vllm-inference:8000).
 
 Config, logging/tracing, metrics, and the rate-limiter class live in the `app`
@@ -17,6 +19,7 @@ the routes.
 """
 
 import time
+from contextlib import asynccontextmanager
 
 import httpx
 from app.config import RATE_LIMIT_RPM, REQUEST_TIMEOUT, VLLM_BASE_URL
@@ -24,6 +27,7 @@ from app.metrics import PROXY_LATENCY, PROXY_REQUESTS, RATE_LIMITED, UPSTREAM_ER
 from app.observability import log
 from app.rate_limiter import SlidingWindowRateLimiter
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -35,14 +39,10 @@ http_client: httpx.AsyncClient | None = None
 
 
 # ---------------------------------------------------------------------------
-# App
+# Lifespan
 # ---------------------------------------------------------------------------
-app = FastAPI(title="llm-gateway", version="0.1.0")
-FastAPIInstrumentor.instrument_app(app)
-
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     global http_client
     http_client = httpx.AsyncClient(
         base_url=VLLM_BASE_URL,
@@ -50,12 +50,16 @@ async def startup():
         limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
     )
     log.info("gateway_started", upstream=VLLM_BASE_URL, rate_limit_rpm=RATE_LIMIT_RPM)
-
-
-@app.on_event("shutdown")
-async def shutdown():
+    yield
     if http_client:
         await http_client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+app = FastAPI(title="llm-gateway", version="0.1.0", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 
 
 # ---------------------------------------------------------------------------
@@ -84,11 +88,31 @@ async def metrics():
 
 
 # ---------------------------------------------------------------------------
+# Proxy helpers
+# ---------------------------------------------------------------------------
+def _client_ip(request: Request) -> str:
+    """Real client IP — prefer X-Real-IP (set by nginx ingress) over the direct
+    connection address so per-client rate limiting works behind the ingress instead
+    of putting all traffic in one bucket keyed on the nginx pod IP."""
+    return (
+        request.headers.get("x-real-ip")
+        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "unknown")
+    )
+
+
+def _normalize_path(path: str) -> str:
+    """Collapse to at most two path segments to bound Prometheus label cardinality."""
+    parts = path.strip("/").split("/")[:2]
+    return "/" + "/".join(parts) if parts else "/"
+
+
+# ---------------------------------------------------------------------------
 # Proxy — catch-all for /v1/*
 # ---------------------------------------------------------------------------
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "DELETE", "OPTIONS"])
 async def proxy(path: str, request: Request):
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _client_ip(request)
 
     # Rate limiting
     allowed, remaining = await limiter.is_allowed(client_ip)
@@ -118,15 +142,19 @@ async def proxy(path: str, request: Request):
     upstream_headers = {
         k: v for k, v in request.headers.items() if k.lower() not in ("host", "content-length")
     }
+    norm_path = _normalize_path(f"/v1/{path}")
 
     start = time.perf_counter()
     try:
-        upstream_resp = await http_client.request(
+        # Use streaming so SSE (server-sent events) responses from vLLM flow through
+        # to the client without buffering the full completion in memory.
+        req = http_client.build_request(
             method=request.method,
             url=upstream_path,
             headers=upstream_headers,
             content=body,
         )
+        upstream_resp = await http_client.send(req, stream=True)
     except httpx.TimeoutException as exc:
         UPSTREAM_ERRORS.inc()
         log.error("upstream_timeout", path=upstream_path, timeout=REQUEST_TIMEOUT)
@@ -138,9 +166,9 @@ async def proxy(path: str, request: Request):
 
     elapsed = time.perf_counter() - start
     PROXY_REQUESTS.labels(
-        method=request.method, path=f"/v1/{path}", status=upstream_resp.status_code
+        method=request.method, path=norm_path, status=upstream_resp.status_code
     ).inc()
-    PROXY_LATENCY.labels(path=f"/v1/{path}").observe(elapsed)
+    PROXY_LATENCY.labels(path=norm_path).observe(elapsed)
 
     log.info(
         "proxied",
@@ -151,14 +179,21 @@ async def proxy(path: str, request: Request):
         duration_ms=round(elapsed * 1000, 2),
     )
 
-    # Pass through headers from vLLM (content-type, etc.) plus our rate-limit headers
+    # Pass through upstream headers plus our rate-limit headers.
+    # Strip hop-by-hop and encoding headers that httpx has already handled so
+    # the client does not receive stale/incorrect framing metadata.
     response_headers = dict(upstream_resp.headers)
     response_headers.update(rate_headers)
-    # Remove transfer-encoding — httpx already decoded it
-    response_headers.pop("transfer-encoding", None)
+    for hop in ("transfer-encoding", "content-encoding", "content-length"):
+        response_headers.pop(hop, None)
 
-    return Response(
-        content=upstream_resp.content,
+    async def _stream_body():
+        async for chunk in upstream_resp.aiter_bytes():
+            yield chunk
+        await upstream_resp.aclose()
+
+    return StreamingResponse(
+        _stream_body(),
         status_code=upstream_resp.status_code,
         headers=response_headers,
         media_type=upstream_resp.headers.get("content-type"),

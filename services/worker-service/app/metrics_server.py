@@ -4,7 +4,7 @@ Kept dependency-free (no FastAPI) since this is a plain Kafka consumer.
 """
 
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -33,7 +33,7 @@ class MetricsHandler(BaseHTTPRequestHandler):
 
 
 def start_metrics_server():
-    server = HTTPServer(("0.0.0.0", METRICS_PORT), MetricsHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", METRICS_PORT), MetricsHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     log.info("metrics_server_started", port=METRICS_PORT)

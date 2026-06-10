@@ -28,9 +28,12 @@ Env:
   OTEL_SDK_DISABLED   — set to "true" to suppress span export (tests / no-collector envs).
 """
 
+import asyncio
 import datetime
 import json
+import secrets
 import uuid
+from contextlib import asynccontextmanager
 
 import boto3
 import redis as redis_lib
@@ -64,14 +67,10 @@ kafka_producer = None
 
 
 # ---------------------------------------------------------------------------
-# App
+# Lifespan
 # ---------------------------------------------------------------------------
-app = FastAPI(title="audio-api", version="0.1.0")
-FastAPIInstrumentor.instrument_app(app)
-
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     global s3_client, redis_client, kafka_producer
 
     # S3 client — MinIO in dev (endpoint_url + path addressing), real S3 in prod.
@@ -82,11 +81,9 @@ async def startup():
     if s3_client is None:
         s3_client = boto3.client("s3", **s3_kwargs)
 
-    # Redis client
     if redis_client is None:
         redis_client = redis_lib.from_url(REDIS_URL, decode_responses=True)
 
-    # Kafka producer
     if kafka_producer is None:
         kafka_producer = Producer(_kafka_config())
 
@@ -97,12 +94,18 @@ async def startup():
         max_upload_bytes=MAX_UPLOAD_BYTES,
     )
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown():
     if kafka_producer is not None:
         kafka_producer.flush(timeout=10)
     log.info("audio_api_stopped")
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+app = FastAPI(title="audio-api", version="0.1.0", lifespan=lifespan)
+FastAPIInstrumentor.instrument_app(app)
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +157,8 @@ def _check_auth(authorization: str | None) -> None:
         UPLOADS_TOTAL.labels(status="auth_error").inc()
         raise HTTPException(status_code=401, detail="missing bearer token")
     token = authorization[len("Bearer ") :]
-    if token != API_TOKEN:
+    # Constant-time comparison prevents timing-based token enumeration.
+    if not secrets.compare_digest(token, API_TOKEN):
         UPLOADS_TOTAL.labels(status="auth_error").inc()
         raise HTTPException(status_code=401, detail="invalid token")
 
@@ -180,7 +184,21 @@ async def create_job(
             detail=f"unsupported content type: {content_type!r}. Allowed: {sorted(ALLOWED_CONTENT_TYPES)}",
         )
 
-    # Read the file and enforce size limit
+    # Reject obviously oversized uploads before buffering using Content-Length.
+    # The hard limit below catches everything else (missing or wrong Content-Length).
+    raw_cl = request.headers.get("content-length")
+    if raw_cl:
+        try:
+            if int(raw_cl) > MAX_UPLOAD_BYTES:
+                UPLOADS_TOTAL.labels(status="rejected_size").inc()
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"content-length {raw_cl} exceeds maximum {MAX_UPLOAD_BYTES}",
+                )
+        except ValueError:
+            pass  # malformed Content-Length — enforce hard limit after reading
+
+    # Read the file and enforce hard size limit
     audio_bytes = await file.read()
     byte_count = len(audio_bytes)
     if byte_count > MAX_UPLOAD_BYTES:
@@ -233,13 +251,31 @@ async def create_job(
     headers: list[tuple[str, bytes]] = []
     propagate.inject(headers, setter=kafka_header_setter)
 
+    # Produce with delivery confirmation — fail the request if the broker rejects
+    # the event so the client knows the job was not enqueued.
+    delivery_errors: list[str] = []
+
+    def _on_delivery(err, _msg):
+        if err:
+            delivery_errors.append(str(err))
+
     kafka_producer.produce(
         KAFKA_TOPIC_JOBS,
         value=json.dumps(event).encode(),
         key=job_id.encode(),
         headers=headers,
+        on_delivery=_on_delivery,
     )
-    kafka_producer.poll(0)  # trigger delivery callbacks without blocking
+    # Flush in a thread pool so the async event loop is not blocked.
+    remaining = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: kafka_producer.flush(timeout=5)
+    )
+    if delivery_errors:
+        log.error("kafka_delivery_failed", error=delivery_errors[0], job_id=job_id)
+        raise HTTPException(status_code=503, detail=f"event delivery failed: {delivery_errors[0]}")
+    if remaining:
+        log.error("kafka_flush_timeout", job_id=job_id)
+        raise HTTPException(status_code=503, detail="kafka delivery timeout")
 
     UPLOADS_TOTAL.labels(status="success").inc()
     UPLOAD_BYTES.observe(byte_count)
@@ -259,8 +295,9 @@ async def create_job(
 # Status endpoint
 # ---------------------------------------------------------------------------
 @app.get("/jobs/{job_id}")
-async def get_job(job_id: str):
+async def get_job(job_id: str, authorization: str | None = Header(default=None)):
     """Return the current job state from Redis, or 404 if not found."""
+    _check_auth(authorization)
     raw = redis_client.get(f"job:{job_id}")
     if raw is None:
         raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")

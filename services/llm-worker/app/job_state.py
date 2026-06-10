@@ -45,7 +45,10 @@ def mark_summarizing(r, job_id: str) -> None:
 
 def mark_done(r, job_id: str, summary_key: str) -> None:
     state = _get_state(r, job_id)
-    state["status"] = "summarizing"  # tts-worker will set synthesizing/done
+    # "summarizing" here means "llm stage complete, waiting for tts" — tts-worker
+    # will transition to synthesizing/done. The status contract has no "summarized"
+    # state so we stay on "summarizing" until tts picks it up.
+    state["status"] = "summarizing"
     state["stage"] = "llm"
     state["updated_at"] = datetime.now(UTC).isoformat()
     keys = state.get("keys", {})
