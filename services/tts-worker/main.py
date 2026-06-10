@@ -107,12 +107,12 @@ def process_message(
     summary_key = event.get("summary_key", f"summaries/{job_id}")
     created_at: str = event.get("created_at", "")
 
-    # Deduplication — in-memory (within a pod lifetime)
+    # Deduplication — in-memory (within a pod lifetime).
+    # seen_ids is populated after a successful outcome so a rebalance mid-flight
+    # doesn't silently drop the message. S3 writes are idempotent.
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return
-    if job_id:
-        seen_ids.add(job_id)
 
     # Queue wait — how long the job sat between creation and this stage starting (§7).
     _qw_ts = _parse_created_at(created_at)
@@ -144,7 +144,7 @@ def process_message(
 
                 # Extract text to synthesize (executive_summary or action_items fallback)
                 text = summary_data.get(
-                    "executive_summary",
+                    "summary",
                     " ".join(summary_data.get("action_items", ["No summary available."])),
                 )
 
@@ -200,6 +200,8 @@ def process_message(
                     attempt=attempt,
                 )
                 span.set_attribute("speech.key", speech_key)
+                if job_id:
+                    seen_ids.add(job_id)
                 return
 
             except Exception as exc:
@@ -246,6 +248,8 @@ def process_message(
             error=str(last_exc),
             dlq_topic=TOPIC_DLQ,
         )
+        if job_id:
+            seen_ids.add(job_id)
 
 
 def run() -> None:

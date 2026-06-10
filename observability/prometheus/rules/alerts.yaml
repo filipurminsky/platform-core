@@ -40,9 +40,9 @@ spec:
         - alert: HighErrorRate
           expr: |
             (
-              sum(rate(http_requests_total{status=~"5.."}[1h]))
+              sum(rate(echo_requests_total{status=~"5.."}[1h]))
               /
-              sum(rate(http_requests_total[1h]))
+              sum(rate(echo_requests_total[1h]))
             ) > 14 * 0.005
           for: 1h
           labels:

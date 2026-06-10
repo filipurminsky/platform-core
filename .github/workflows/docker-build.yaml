@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        app: [echo-service, worker-service, llm-gateway]
+        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, llm-worker, tts-worker]
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [echo-service, worker-service, llm-gateway]
+        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, llm-worker, tts-worker]
 
     steps:
       - uses: actions/checkout@v4

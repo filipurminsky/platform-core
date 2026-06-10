@@ -103,12 +103,13 @@ def process_message(
     audio_key = event.get("audio_key", f"audio/{job_id}")
     created_at = event.get("created_at", datetime.now(UTC).isoformat())
 
-    # Deduplication — in-memory (within a pod lifetime)
+    # Deduplication — in-memory (within a pod lifetime).
+    # seen_ids is populated after a successful outcome (success or DLQ) rather
+    # than before processing, so a rebalance mid-flight doesn't silently drop
+    # the message. The cost is at-least-once delivery; S3 writes are idempotent.
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return
-    if job_id:
-        seen_ids.add(job_id)
 
     # Queue wait — how long the job sat between creation and this stage starting (§7).
     _qw_ts = _parse_created_at(created_at)
@@ -197,6 +198,8 @@ def process_message(
                     attempt=attempt,
                     elapsed_ms=round(elapsed * 1000, 2),
                 )
+                if job_id:
+                    seen_ids.add(job_id)
                 return
 
             except Exception as exc:
@@ -259,6 +262,8 @@ def process_message(
             dlq_topic=TOPIC_DLQ,
             error=str(last_exc),
         )
+        if job_id:
+            seen_ids.add(job_id)
 
 
 def run() -> None:

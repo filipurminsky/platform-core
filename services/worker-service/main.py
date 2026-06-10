@@ -59,12 +59,12 @@ def process_message(
     job_id = job.get("id", "")
     job_type = job.get("type", "unknown")
 
-    # Deduplication — in-memory (within a pod lifetime)
+    # Deduplication — in-memory (within a pod lifetime).
+    # seen_ids is populated after a successful outcome so a rebalance mid-flight
+    # doesn't silently drop the message.
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return
-    if job_id:
-        seen_ids.add(job_id)
 
     handler = _HANDLERS.get(job_type)
     if handler is None:
@@ -96,6 +96,8 @@ def process_message(
                     duration_ms=round(elapsed * 1000, 2),
                     result=result,
                 )
+                if job_id:
+                    seen_ids.add(job_id)
                 return
             except Exception as exc:
                 last_exc = exc
@@ -130,6 +132,8 @@ def process_message(
             job_type=job_type,
             error=str(last_exc),
         )
+        if job_id:
+            seen_ids.add(job_id)
 
 
 def run() -> None:

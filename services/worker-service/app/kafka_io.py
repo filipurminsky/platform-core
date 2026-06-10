@@ -58,7 +58,7 @@ def make_consumer() -> Consumer:
     cfg = _kafka_config(
         {
             "group.id": config.CONSUMER_GROUP,
-            "auto.offset.reset": "latest",
+            "auto.offset.reset": "earliest",
             "enable.auto.commit": False,  # manual commit only after processing
             "max.poll.interval.ms": 300_000,
         }

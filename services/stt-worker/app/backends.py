@@ -11,6 +11,8 @@ backend is selected by `transcribe()` in main.py from STT_BACKEND.
 
 import os
 
+_nemo_model = None  # loaded once on first call, reused across messages
+
 
 def _transcribe_stub(audio_bytes: bytes) -> tuple[str, str, float]:
     """
@@ -39,21 +41,23 @@ def _transcribe_nemo(audio_bytes: bytes) -> tuple[str, str, float]:
       - the Parakeet RNNT-0.6B model weights at /model-cache/parakeet-rnnt-0.6b
     and sets STT_BACKEND=nemo.  This code path must NOT run on CPU-only nodes.
     """
+    global _nemo_model
     import tempfile
 
     import torch  # noqa: F401  # lazy import — fails fast if nemo not installed
     from nemo.collections.asr.models import EncDecRNNTBPEModel
 
-    model_path = os.getenv("NEMO_MODEL_PATH", "/model-cache/parakeet-rnnt-0.6b")
-    model = EncDecRNNTBPEModel.restore_from(model_path)
-    model.eval()
+    if _nemo_model is None:
+        model_path = os.getenv("NEMO_MODEL_PATH", "/model-cache/parakeet-rnnt-0.6b")
+        _nemo_model = EncDecRNNTBPEModel.restore_from(model_path)
+        _nemo_model.eval()
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 
     try:
-        transcripts = model.transcribe([tmp_path])
+        transcripts = _nemo_model.transcribe([tmp_path])
         transcript_text = transcripts[0] if transcripts else ""
     finally:
         os.unlink(tmp_path)

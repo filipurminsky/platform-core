@@ -17,10 +17,18 @@ def make_redis_client():
 
 
 def set_job_state(r, job_id: str, update: dict) -> None:
-    """Merge `update` into the current job state JSON and re-SET with TTL."""
+    """Merge `update` into the current job state JSON and re-SET with TTL.
+
+    The `keys` sub-dict is merged shallowly so downstream stages accumulate
+    (audio → transcript → summary → speech) rather than overwriting.
+    """
     key = f"job:{job_id}"
     raw = r.get(key)
     state = json.loads(raw) if raw else {}
+    if "keys" in update:
+        existing_keys = state.get("keys", {})
+        state["keys"] = {**existing_keys, **update["keys"]}
+        update = {k: v for k, v in update.items() if k != "keys"}
     state.update(update)
     state["updated_at"] = datetime.now(UTC).isoformat()
     r.set(key, json.dumps(state), ex=config.JOB_STATE_TTL_SECONDS)
