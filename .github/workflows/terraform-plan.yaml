@@ -21,6 +21,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify OIDC is configured
+        shell: bash
+        run: |
+          if [[ -z "${{ vars.AWS_OIDC_ROLE_ARN }}" ]]; then
+            echo "::error title=Missing OIDC Configuration::AWS_OIDC_ROLE_ARN repo variable is not set."
+            echo ""
+            echo "Terraform plan requires AWS credentials via GitHub OIDC."
+            echo "Steps to fix:"
+            echo "  1. Apply terraform/modules/github-oidc to create the IAM role."
+            echo "  2. Copy the role ARN from terraform output."
+            echo "  3. Add it under: Settings → Secrets and variables → Actions → Variables"
+            echo "     Variable name: AWS_OIDC_ROLE_ARN"
+            exit 1
+          fi
+          echo "AWS_OIDC_ROLE_ARN is configured — proceeding with Terraform plan."
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

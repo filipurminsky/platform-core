@@ -1,0 +1,65 @@
+# helm/platform-services/values.yaml
+#
+# Umbrella chart: installs all platform dependencies in a single Helm release.
+# All subcharts are disabled by default. Enable only what you need:
+#
+#   helm install platform . \
+#     --set argocd.enabled=true \
+#     --set prometheus.enabled=true
+#
+# For environment-specific overrides, create a values-dev.yaml or values-prod.yaml
+# and pass it alongside this file:
+#
+#   helm install platform . -f values.yaml -f values-prod.yaml
+#
+# Each subchart's nested config key matches the dependency name in Chart.yaml
+# (e.g. argocd.argo-cd.* maps to the argo-cd chart's own values).
+
+# ── ArgoCD ───────────────────────────────────────────────────────────────────
+argocd:
+  enabled: false
+  argo-cd:
+    server:
+      service:
+        type: ClusterIP
+
+# ── kube-prometheus-stack (Prometheus + Grafana + Alertmanager) ──────────────
+prometheus:
+  enabled: false
+  kube-prometheus-stack:
+    grafana:
+      adminPassword: changeme   # override in prod via --set or a sealed secret
+    prometheus:
+      prometheusSpec:
+        retention: 15d
+    alertmanager:
+      enabled: true
+
+# ── Loki ─────────────────────────────────────────────────────────────────────
+loki:
+  enabled: false
+  loki-stack:
+    grafana:
+      enabled: false   # use kube-prometheus-stack's Grafana instead
+
+# ── ingress-nginx ─────────────────────────────────────────────────────────────
+ingressNginx:
+  enabled: false
+  ingress-nginx:
+    controller:
+      service:
+        type: LoadBalancer
+
+# ── cert-manager ─────────────────────────────────────────────────────────────
+certManager:
+  enabled: false
+  cert-manager:
+    installCRDs: true
+
+# ── external-secrets ─────────────────────────────────────────────────────────
+externalSecrets:
+  enabled: false
+
+# ── KEDA ─────────────────────────────────────────────────────────────────────
+keda:
+  enabled: false

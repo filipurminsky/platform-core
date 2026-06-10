@@ -66,6 +66,11 @@ spec:
             description: "Application {{ $labels.name }} in project {{ $labels.project }} has health status Degraded."
 
     # ── Kafka ────────────────────────────────────────────────────────────────
+    # NOTE: KafkaConsumerLagHigh, KafkaDLQNonEmpty, and the audio-pipeline DLQ
+    # alerts below all depend on metrics from the Strimzi Kafka Exporter
+    # (kafka_consumergroup_lag_sum, kafka_consumergroup_lag). The exporter is
+    # DISABLED in the dev overlay (patch-kafka-dev.yaml) to save resources.
+    # These alerts are effectively prod-only and will not fire on local kind clusters.
     - name: kafka
       rules:
         - alert: KafkaConsumerLagHigh
@@ -91,14 +96,18 @@ spec:
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
 
         - alert: KafkaBrokerDown
+          # Uses < 1 (not < 3) so the alert fires when ALL brokers stop reporting —
+          # dev has a single-node cluster; < 3 would false-alert there if the exporter
+          # were ever enabled. Prod's 3-broker health is covered by replication factor
+          # and ISR alerts in production monitoring.
           expr: |
-            count(kafka_server_replicamanager_leadercount) < 3
+            count(kafka_server_replicamanager_leadercount) < 1
           for: 2m
           labels:
             severity: critical
           annotations:
-            summary: "Kafka broker count below expected"
-            description: "Only {{ $value }} Kafka brokers are reporting metrics. Expected 3."
+            summary: "All Kafka brokers have stopped reporting metrics"
+            description: "No Kafka brokers are reporting metrics. Expected at least 1."
 
     # ── vLLM ─────────────────────────────────────────────────────────────────
     - name: vllm

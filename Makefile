@@ -84,6 +84,10 @@ tf-validate: ## Validate the dev + prod Terraform root modules
 	cd terraform/environments/prod && terraform init -backend=false && terraform validate
 
 # ── Aggregate ─────────────────────────────────────────────────────────────────
+.PHONY: integration-test
+integration-test: ## Run cross-service audio pipeline integration tests (uses audio-api venv)
+	cd services/audio-api && uv run --frozen pytest ../../tests/integration/ -q
+
 .PHONY: validate
 validate: lint test kustomize helm-lint policy tf-fmt ## Run the full local check suite (mirrors CI)
 
