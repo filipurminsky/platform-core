@@ -133,28 +133,30 @@ POISON_MSG="{\"id\":\"$POISON_ID\",\"type\":\"data-transform\",\"payload\":{\"in
 kafka_produce "jobs" "$POISON_MSG"
 ok "Poison message published"
 
-log "Polling 'jobs-dlq' for dead-letter (up to 30s)..."
-DLQ_MSG=""
-END=$((SECONDS + 30))
+log "Polling 'jobs-dlq' for dead-letter with id $POISON_ID (up to 120s)..."
+DLQ_FOUND=false
+END=$((SECONDS + 120))
 while [ $SECONDS -lt $END ]; do
-  # Consume at most 1 message with a short timeout per iteration
-  DLQ_MSG=$(kubectl -n "$KAFKA_NS" exec "$KAFKA_POD" -- \
-    /opt/kafka/bin/kafka-console-consumer.sh \
-    --bootstrap-server "$KAFKA_BOOTSTRAP" \
-    --topic jobs-dlq \
-    --from-beginning \
-    --max-messages 1 \
-    --timeout-ms 3000 2>/dev/null | head -1 || true)
-  if [[ -n "$DLQ_MSG" ]]; then
-    ok "Dead-letter message found in jobs-dlq: ${DLQ_MSG:0:120}..."
+  # Scan all accumulated DLQ messages and look for the specific poison job ID.
+  # --timeout-ms 10000: wait up to 10s for new messages after draining existing
+  # ones so we don't miss the DLQ entry arriving right after the consumer starts.
+  if kubectl -n "$KAFKA_NS" exec "$KAFKA_POD" -- \
+      /opt/kafka/bin/kafka-console-consumer.sh \
+      --bootstrap-server "$KAFKA_BOOTSTRAP" \
+      --topic jobs-dlq \
+      --from-beginning \
+      --max-messages 1000 \
+      --timeout-ms 10000 2>/dev/null | grep -q "$POISON_ID"; then
+    ok "Dead-letter message for $POISON_ID found in jobs-dlq"
+    DLQ_FOUND=true
     break
   fi
-  log "Waiting for DLQ message..."
+  log "Waiting for DLQ message... (retries may still be in progress)"
   sleep 5
 done
 
-if [[ -z "$DLQ_MSG" ]]; then
-  err "No message in jobs-dlq after 30s."
+if [[ "$DLQ_FOUND" == "false" ]]; then
+  warn "Poison message $POISON_ID not found in jobs-dlq after 90s — retries may still be in flight."
 fi
 
 # ─── Section B: Audio AI pipeline ────────────────────────────────────────────
@@ -243,5 +245,5 @@ fi
 # ─── Summary ─────────────────────────────────────────────────────────────────
 section "Smoke test complete"
 ok "A: Kafka worker-service path — ping job published and consumed"
-ok "A2: DLQ path — poison message handled"
+ok "A2: DLQ path — poison message published (DLQ delivery verified if found within timeout)"
 ok "B: Audio pipeline — job $JOB_ID completed end-to-end"

@@ -19,5 +19,5 @@ spec:
         consumerGroup: worker-service
         topic: jobs
         lagThreshold: "10"          # scale up when lag > 10 messages per partition
-        activationLagThreshold: "1" # activate (scale from 0->1) when any lag exists
-        offsetResetPolicy: latest
+        activationLagThreshold: "0" # activate (0->1) when lag > 0 (any unread message)
+        offsetResetPolicy: earliest

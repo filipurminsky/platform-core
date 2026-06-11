@@ -56,14 +56,14 @@ repos:
     hooks:
       - id: uv-lock-check
         name: uv.lock in sync with pyproject.toml
-        entry: bash -c 'for a in services/echo-service services/worker-service services/llm-gateway; do (cd "$a" && uv lock --check) || exit 1; done'
+        entry: bash -c 'for a in services/echo-service services/worker-service services/llm-gateway services/audio-api services/stt-worker services/llm-worker services/tts-worker; do (cd "$a" && uv lock --check) || exit 1; done'
         language: system
         files: ^services/.*/(pyproject\.toml|uv\.lock)$
         pass_filenames: false
 
       - id: pytest
         name: app unit tests (uv run pytest)
-        entry: bash -c 'for a in services/echo-service services/worker-service services/llm-gateway; do echo "== $a =="; (cd "$a" && uv run --frozen pytest -q) || exit 1; done'
+        entry: bash -c 'for a in services/echo-service services/worker-service services/llm-gateway services/audio-api services/stt-worker services/llm-worker services/tts-worker; do echo "== $a =="; (cd "$a" && uv run --frozen pytest -q) || exit 1; done'
         language: system
         files: ^services/
         pass_filenames: false
