@@ -201,3 +201,96 @@ built in parallel "chunks" against a frozen seam contract. Contract: `docs/audio
   `main.py` entrypoint plus `app/` (`config.py` pydantic-settings, `observability.py`,
   `metrics.py`, `kafka_io.py`, per-service helpers); `tool.uv.package = false` retained.
 - ✅ **Generate per-service READMEs** for all pipeline + demo services.
+
+## H. Road to 10/10 — proof, security rigor, drift-prevention
+
+The repo is strong on design and self-honesty but caps out around 7.5–8 because it
+optimizes for *surface* (breadth of features, all gates green) over *proof* (run on
+real infra, under load, with failures injected). Closing that gap is what separates a
+polished showcase from production-grade staff work. None of this is about adding more
+features — it's about earning the claims already made. Each item has an explicit
+**Done when** so it can't be marked ✅ on vibes.
+
+### H1. Prove it, don't just render it (the single biggest gap)
+
+- ⬜ **Stand up the AWS path for real and capture evidence.** Supersedes the §B
+  "Validate the AWS path" item with a hard bar. A throwaway account, `terraform apply`
+  for `environments/{dev,prod}`, `--mode=aws` bootstrap, then drive one real audio job
+  end-to-end on GPU nodes.
+  **Done when:** a `docs/proof/aws-runbook.md` exists with timestamped `kubectl`/AWS
+  CLI output (or asciinema) showing: Karpenter provisioning a GPU node from zero, the
+  `nemo`/`kokoro` images loading their lazy deps, IRSA writing to the Crossplane bucket
+  (no static keys), cosign **rejecting** an unsigned image at admission, and the
+  Crossplane S3 claim going `Ready`. Tear-down cost noted.
+- ⬜ **Make the local smoke test a CI gate, not a script.** Promote §B's `e2e-smoke`
+  from "a start" to a required check that fails the build on regression.
+  **Done when:** a kind-based GitHub Actions job runs bootstrap → audio pipeline
+  end-to-end → asserts a `speech/<job_id>` object in MinIO + Redis `done`, **and** drives
+  `canary-demo.sh bad` asserting the Rollout reaches `Degraded` (proves the SLO gate
+  actually aborts, not just that it renders). Green required to merge to `main`.
+- ⬜ **Load + chaos, with SLOs as the pass/fail.** The k6 test exists but nothing
+  asserts the SLOs hold under it or that the system degrades gracefully.
+  **Done when:** a documented run shows (a) k6 at target RPS with p95 ≤ 500ms and
+  error-rate < 1% sustained, (b) KEDA scaling worker/vLLM up and back to zero under
+  the load profile, and (c) a fault-injection pass (kill a broker, kill a worker
+  mid-batch, 500 from vLLM) proving no message loss and correct DLQ routing.
+
+### H2. Close the IaC security gap (the weakest layer)
+
+- ⬜ **Stop defaulting the prod EKS API to `0.0.0.0/0`.** (Finding #1 from the
+  2026-06-11 review — the one item left unaddressed in the harden-eks branch.) Default
+  `allowed_cidrs` to a required, non-wildcard value; make `0.0.0.0/0` an explicit,
+  loud opt-in. Consider `cluster_endpoint_public_access = false` + a bastion/SSM path.
+  **Done when:** `terraform plan` for prod with no `allowed_cidrs` override errors out
+  rather than silently exposing the control plane.
+- ⬜ **Move worker nodes off public subnets (or justify it in an ADR).** Today nodes
+  run in public subnets with public IPs to dodge NAT cost. Either add a
+  `private_nodes` toggle (private subnets + NAT/VPC-endpoint egress) defaulting on for
+  prod, or write an ADR that owns the tradeoff explicitly instead of burying it in a
+  comment. **Done when:** prod nodes have no public IPs, or `docs/adr/adr-019-*.md`
+  documents the decision and its blast radius.
+- ⬜ **SHA-pin every GitHub Action.** A repo this invested in supply-chain integrity
+  (cosign, SBOM, provenance, Trivy gate) pins its own CI to mutable tags (`@v4`). Pin
+  to full commit SHAs with a version comment; let Renovate bump them.
+  **Done when:** `grep -rE 'uses: .*@v[0-9]' .github/` returns nothing, and Renovate is
+  configured to update the pinned digests.
+- ⬜ **Finish §D "Pin CI bootstrap binaries" with checksum verification.** Pinning the
+  version isn't enough — verify the downloaded tarball's SHA256 so a compromised
+  upstream release is caught. **Done when:** every `curl | ...` install in CI checks a
+  pinned checksum.
+
+### H3. Make drift impossible, not just fixed
+
+The review keeps finding the same *class* of bug: a doc/comment/policy that asserts
+something the manifests contradict (the "stub" that wasn't, the vLLM netpol namespace,
+ESO version skew, the spec's Implementation Status table). Fixing instances is
+whack-a-mole; the 10/10 move is to make the assertions machine-checked.
+
+- ⬜ **CI-enforce the cross-references that keep drifting.** Add a lightweight check
+  (script or conftest/policy) that fails when, e.g., a NetworkPolicy names a namespace
+  no workload lives in, a doc references a chart/path that doesn't exist, or a chart
+  version pin disagrees with the ArgoCD app that deploys it.
+  **Done when:** deleting a service or moving a namespace breaks CI until the docs/
+  policies are updated to match.
+- ⬜ **Generate the spec's Implementation Status table** (already §D, restated as a gate).
+  **Done when:** the table is generated from the repo (or stamped with the describing
+  commit SHA) and a CI check fails if it's hand-edited stale.
+- ⬜ **Promote `findings.md` to a tracked, dated changelog.** The self-review is a
+  genuine strength — but a 444-line file in the repo root that mixes fixed and open
+  items is itself drift bait. Split: open items → this TODO; resolved items → a dated
+  `docs/review-log.md`. **Done when:** `findings.md` no longer contains stale
+  "Status: verified" claims about code that has since moved.
+
+### H4. Depth over breadth (pick the spine and make it bulletproof)
+
+- ⬜ **Designate one "golden path" and make it provably production-grade**, rather than
+  ten surfaces each one-cluster-deep. The audio pipeline is the natural spine. Give it:
+  a real DR story (what happens when Redis/MinIO/a broker is lost mid-flight), a
+  documented backpressure/poison-pill story, and a runbook proven by actually causing
+  the incident. **Done when:** `docs/runbooks/audio-pipeline-*.md` each end with a
+  "verified by injecting X on <date>, observed Y" line.
+- ⬜ **Add the one test layer that's missing: contract tests on the frozen Kafka seam.**
+  `docs/audio-pipeline-contract.md` is asserted in prose; nothing fails when a producer
+  drifts from it. **Done when:** a schema/contract test (e.g. per-topic JSON schema
+  validated in each service's suite) fails CI if any stage emits an event that violates
+  the envelope (`job_id` key, trace headers, `created_at` carried forward).
