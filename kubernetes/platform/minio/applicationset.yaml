@@ -40,10 +40,10 @@ spec:
             mode: standalone
             replicas: 1
 
-            # Static dev credentials — acceptable for local kind only.
-            # Prod uses IRSA (no static keys) via the Crossplane S3 provider.
-            rootUser: minio
-            rootPassword: minio123
+            # Credentials from the bootstrap-created minio-credentials Secret
+            # (keys: rootUser, rootPassword). bootstrap.sh creates this Secret in
+            # the platform namespace before ArgoCD syncs. Prod uses IRSA instead.
+            existingSecret: minio-credentials
 
             # Auto-create the shared audio pipeline bucket on startup.
             buckets:

@@ -16,15 +16,20 @@
 # values are correct as-is), so they are NOT re-added here — appending them would
 # create duplicate env keys that server-side apply rejects.
 
-# MinIO credentials (dev-only static creds; matches the MinIO root user and audio-api).
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:
     name: AWS_ACCESS_KEY_ID
-    value: minio
+    valueFrom:
+      secretKeyRef:
+        name: minio-credentials
+        key: rootUser
 
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:
     name: AWS_SECRET_ACCESS_KEY
-    value: minio123
+    valueFrom:
+      secretKeyRef:
+        name: minio-credentials
+        key: rootPassword

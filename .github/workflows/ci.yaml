@@ -248,27 +248,8 @@ jobs:
         run: uvx ruff format --check services/${{ matrix.app }}
 
   app-test:
-    name: Python tests (apps)
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "services/${{ matrix.app }}/uv.lock"
-
-      - name: Install deps (runtime + test) from lockfile
-        working-directory: services/${{ matrix.app }}
-        run: uv sync --frozen
-
-      - name: Run pytest
-        working-directory: services/${{ matrix.app }}
-        run: uv run --frozen pytest -q
+    name: Python tests
+    uses: ./.github/workflows/test-apps.yaml
 
   app-build:
     name: Docker build (apps)

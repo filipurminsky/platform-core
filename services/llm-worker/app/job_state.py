@@ -45,11 +45,10 @@ def mark_summarizing(r, job_id: str) -> None:
     _set_state(r, job_id, state)
 
 
-def mark_done(r, job_id: str, summary_key: str) -> None:
+def mark_summarized(r, job_id: str, summary_key: str) -> None:
     state = _get_state(r, job_id)
-    # "summarizing" here means "llm stage complete, waiting for tts" — tts-worker
-    # will transition to synthesizing/done. The status contract has no "summarized"
-    # state so we stay on "summarizing" until tts picks it up.
+    # Status stays "summarizing" — tts-worker transitions to synthesizing/done.
+    # The pipeline contract has no "summarized" intermediate state.
     state["status"] = "summarizing"
     state["stage"] = "llm"
     state["updated_at"] = datetime.now(UTC).isoformat()

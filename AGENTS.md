@@ -103,7 +103,7 @@ Each `services/<service>/` source is a self-contained Python project. The **demo
 - **`echo-service`** — FastAPI HTTP demo (probes, `/metrics`, request echo). Deployed as an Argo Rollout (canary).
 - **`worker-service`** — Kafka consumer (confluent-kafka, no web framework). Manual-commit processing with dedup, retry → DLQ, graceful SIGTERM drain; exposes metrics on `:9090`. Scaled by KEDA on consumer lag.
 - **`llm-gateway`** — FastAPI reverse proxy in front of vLLM: per-IP sliding-window rate limiting, upstream error mapping (429/502/504), metrics. Deployed as a plain Deployment (2 replicas, 1 in dev). Its Kubernetes readiness probe is `/healthz` (self-check), **not** the app's `/readyz` — `/readyz` gates on the upstream vLLM `/health`, but vLLM is KEDA scale-to-zero, so gating readiness on it would remove the gateway from Service endpoints whenever vLLM is idle and deadlock scale-from-zero.
-- **`vllm-inference`** — vLLM OpenAI-compatible inference server (GPU in prod, CPU TinyLlama in dev). KEDA scale-to-zero with two Prometheus triggers: vLLM queue depth for 1→N, plus llm-gateway request/upstream-error rates for 0→1 activation (the queue-depth metric is exposed by the vLLM pods themselves, so it doesn't exist at zero replicas and can't wake the service on its own).
+- **`vllm-inference`** — vLLM OpenAI-compatible inference server (GPU in prod; **not running in dev** — the upstream `vllm/vllm-openai` image is CUDA-only and crashes on CPU, so the dev gateway points at `vllm-mock` instead via `patch-upstream.yaml`). KEDA scale-to-zero with two Prometheus triggers: vLLM queue depth for 1→N, plus llm-gateway request/upstream-error rates for 0→1 activation (the queue-depth metric is exposed by the vLLM pods themselves, so it doesn't exist at zero replicas and can't wake the service on its own).
 
 The **AI audio pipeline** (see the dedicated section below) adds four more services that chain over `audio.*` Kafka topics:
 
@@ -164,7 +164,7 @@ Supporting platform services are net-new: **MinIO** (dev object store, `platform
 
 - **Kafka SASL credentials** — owned by Strimzi UserOperator. One Secret per `KafkaUser` CR (`worker-service`, `audio-api`, `stt-worker`, `llm-worker`, `tts-worker`, …) is created automatically in the `apps` namespace. The prod worker overlays include the KEDA `TriggerAuthentication` that reads each user's `password` key. Do **not** manage these Secrets via External Secrets Operator.
 - **MinIO / object-storage credentials** — dev only: a Secret of MinIO access/secret keys consumed by the audio services as `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` (with `S3_ENDPOINT_URL` pointed at the MinIO service). In prod these are **unset** — the services use **IRSA** against the Crossplane-provisioned bucket.
-- **Everything else** (HuggingFace token, application secrets) — External Secrets Operator pulling from AWS Secrets Manager. Bootstrapped locally by `bootstrap.sh` via `kubectl create secret`.
+- **Everything else** (HuggingFace token, application secrets) — External Secrets Operator pulling from AWS Secrets Manager in prod. Local dev: these secrets must be created manually with `kubectl create secret` before ArgoCD syncs the ESO resources; `bootstrap.sh` only auto-creates `redis-auth` — other secrets are documented in `docs/local-secrets.md`.
 
 ### Image promotion path
 

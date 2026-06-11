@@ -12,20 +12,23 @@
     name: S3_ENDPOINT_URL
     value: http://minio.platform.svc.cluster.local:9000
 
-# Append dev AWS_ACCESS_KEY_ID (MinIO) — dev-only static creds, matches the
-# MinIO root user set in kubernetes/platform/minio and audio-api's dev overlay.
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:
     name: AWS_ACCESS_KEY_ID
-    value: minio
+    valueFrom:
+      secretKeyRef:
+        name: minio-credentials
+        key: rootUser
 
-# Append dev AWS_SECRET_ACCESS_KEY (MinIO)
 - op: add
   path: /spec/template/spec/containers/0/env/-
   value:
     name: AWS_SECRET_ACCESS_KEY
-    value: minio123
+    valueFrom:
+      secretKeyRef:
+        name: minio-credentials
+        key: rootPassword
 
 # Reduce resources — kind cluster is CPU/memory constrained
 - op: replace

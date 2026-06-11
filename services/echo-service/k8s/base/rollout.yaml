@@ -1,7 +1,7 @@
 # echo-service is delivered via Argo Rollouts canary, NOT a plain Deployment.
 # Each promotion shifts 10% → 50% → 100% of real traffic (nginx traffic routing),
 # pausing at each step to run an AnalysisTemplate that queries Prometheus for the
-# canary pods' success-rate and p90 latency. A single bad measurement aborts the
+# canary pods' success-rate and p95 latency. A single bad measurement aborts the
 # rollout and Argo Rollouts automatically reverts to the stable ReplicaSet.
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout

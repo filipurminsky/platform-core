@@ -113,6 +113,34 @@ kubectl exec -n platform platform-kafka-kafka-0 -- \
       --topic jobs
 ```
 
+### Cause 5: Audio pipeline DLQ messages
+
+**Alerts:** `AudioSTTDLQNonEmpty`, `AudioLLMDLQNonEmpty`, `AudioTTSDLQNonEmpty`
+
+Each audio DLQ maps back to one upstream topic. Replay pattern (replace `<dlq-topic>` and `<upstream-topic>` as appropriate):
+
+| DLQ topic          | Upstream topic      | Worker to check |
+|--------------------|---------------------|-----------------|
+| `audio.stt-dlq`    | `audio.jobs`        | `stt-worker`    |
+| `audio.llm-dlq`    | `audio.transcripts` | `llm-worker`    |
+| `audio.tts-dlq`    | `audio.summaries`   | `tts-worker`    |
+
+```bash
+# Replay audio DLQ (example: stt-dlq → audio.jobs)
+DLQ_TOPIC=audio.stt-dlq
+UPSTREAM_TOPIC=audio.jobs
+kubectl exec -n platform platform-kafka-kafka-0 -- \
+  bin/kafka-console-consumer.sh \
+    --bootstrap-server localhost:9092 \
+    --topic "$DLQ_TOPIC" --from-beginning \
+  | kubectl exec -i -n platform platform-kafka-kafka-0 -- \
+    bin/kafka-console-producer.sh \
+      --bootstrap-server localhost:9092 \
+      --topic "$UPSTREAM_TOPIC"
+```
+
+Note: audio workers are idempotent by job_id (S3 writes use deterministic keys; Redis state is overwritten). Replay is safe to run after the root cause is fixed; messages that already completed will be deduplicated by the `seen_ids` set or overwrite S3/Redis with identical data.
+
 ---
 
 ## Escalation

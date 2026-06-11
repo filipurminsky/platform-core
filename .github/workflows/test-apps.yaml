@@ -1,0 +1,31 @@
+name: Test apps (reusable)
+
+# Called by ci.yaml (on every PR/push) and docker-build.yaml (before building
+# a new image). Extracting into a reusable workflow avoids running the 7-app
+# pytest matrix twice on every push to main that touches services/.
+on:
+  workflow_call: {}
+
+jobs:
+  app-test:
+    name: Python tests (${{ matrix.app }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "services/${{ matrix.app }}/uv.lock"
+
+      - name: Install deps (runtime + test) from lockfile
+        working-directory: services/${{ matrix.app }}
+        run: uv sync --frozen
+
+      - name: Run pytest
+        working-directory: services/${{ matrix.app }}
+        run: uv run --frozen pytest -q

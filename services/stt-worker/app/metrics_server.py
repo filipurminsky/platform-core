@@ -3,12 +3,23 @@
 """
 
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.config import METRICS_PORT
 from app.observability import log
+
+# GPU model inference can take several minutes; 1200 s (20 min) still catches a
+# fully wedged loop while accommodating the longest legitimate processing burst.
+_STALE_SECONDS = 1200
+_POLL_TS: list[float] = [0.0]
+
+
+def touch() -> None:
+    """Update the poll heartbeat. Call once per consumer.poll() iteration."""
+    _POLL_TS[0] = time.monotonic()
 
 
 class MetricsHandler(BaseHTTPRequestHandler):
@@ -20,9 +31,14 @@ class MetricsHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(data)
         elif self.path in ("/healthz", "/readyz"):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{"status":"ok"}')
+            if time.monotonic() - _POLL_TS[0] > _STALE_SECONDS:
+                self.send_response(503)
+                self.end_headers()
+                self.wfile.write(b'{"status":"unhealthy","reason":"consumer_poll_stale"}')
+            else:
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}')
         else:
             self.send_response(404)
             self.end_headers()
@@ -32,6 +48,7 @@ class MetricsHandler(BaseHTTPRequestHandler):
 
 
 def start_metrics_server():
+    touch()  # initialise heartbeat so the probe passes during startup
     server = ThreadingHTTPServer(("0.0.0.0", METRICS_PORT), MetricsHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

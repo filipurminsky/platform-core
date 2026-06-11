@@ -57,6 +57,7 @@ from app.metrics import (
     STT_TRANSCRIPT_BYTES,
 )
 from app.metrics_server import start_metrics_server
+from app.metrics_server import touch as _heartbeat
 from app.observability import log, tracer
 from app.storage import make_s3_client
 from confluent_kafka import KafkaError, KafkaException, Producer
@@ -313,6 +314,7 @@ def run() -> None:
     try:
         while not shutdown.is_set():
             msg = consumer.poll(timeout=1.0)
+            _heartbeat()
 
             if msg is None:
                 continue

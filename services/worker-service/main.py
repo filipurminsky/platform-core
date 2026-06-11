@@ -38,6 +38,7 @@ from app.kafka_io import (
 )
 from app.metrics import CONSUMER_LAG, JOB_DURATION, JOBS_PROCESSED  # noqa: F401
 from app.metrics_server import start_metrics_server
+from app.metrics_server import touch as _heartbeat
 from app.observability import log, tracer
 from confluent_kafka import KafkaError, KafkaException
 from opentelemetry import propagate
@@ -164,6 +165,7 @@ def run() -> None:
     try:
         while not shutdown.is_set():
             msg = consumer.poll(timeout=1.0)
+            _heartbeat()
 
             # Periodically refresh lag gauge
             now = time.time()

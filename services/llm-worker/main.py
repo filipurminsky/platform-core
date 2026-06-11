@@ -48,7 +48,7 @@ from app.config import (
     TOPIC_OUT,
 )
 from app.gateway import _parse_llm_response, call_llm_gateway  # noqa: F401  (_parse re-exported)
-from app.job_state import make_redis_client, mark_done, mark_failed, mark_summarizing
+from app.job_state import make_redis_client, mark_failed, mark_summarized, mark_summarizing
 from app.kafka_io import (
     kafka_header_getter,
     kafka_header_setter,
@@ -64,6 +64,7 @@ from app.metrics import (
     PIPELINE_QUEUE_WAIT,
 )
 from app.metrics_server import start_metrics_server
+from app.metrics_server import touch as _heartbeat
 from app.observability import log, tracer
 from app.storage import make_s3_client
 from confluent_kafka import KafkaError, KafkaException
@@ -160,7 +161,7 @@ def process_message(
                 LLM_SUMMARY_BYTES.observe(len(summary_body))
 
                 # Update Redis with summary key
-                mark_done(r, job_id, summary_key)
+                mark_summarized(r, job_id, summary_key)
 
                 # Produce audio.summaries (carry created_at forward for end-to-end metric)
                 out_event = {
@@ -278,6 +279,7 @@ def run() -> None:
     try:
         while not shutdown.is_set():
             msg = consumer.poll(timeout=1.0)
+            _heartbeat()
 
             if msg is None:
                 continue

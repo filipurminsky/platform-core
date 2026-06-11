@@ -1,6 +1,7 @@
 # Terraform
 .terraform/
-.terraform.lock.hcl
+# .terraform.lock.hcl is intentionally NOT excluded — lock files must be
+# committed so terraform init is reproducible across developers and CI.
 *.tfplan
 *.tfstate
 *.tfstate.backup

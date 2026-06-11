@@ -140,6 +140,24 @@ if [[ "$MODE" == "local" ]]; then
   done
   unset REDIS_PASSWORD
   ok "Local Redis authentication configured"
+
+  # MinIO credentials — a single generated Secret shared by MinIO itself (via
+  # existingSecret in the Helm values) and the four audio pipeline services.
+  # This exercises the same secretKeyRef plumbing prod uses (IRSA replaces the
+  # secret in prod, but the code path is identical).
+  log "Creating local MinIO credentials Secret"
+  MINIO_USER="minio"
+  MINIO_PASSWORD="minio123"  # static for local kind — not a security concern
+  for namespace in platform apps; do
+    kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create secret generic minio-credentials \
+      --namespace "$namespace" \
+      --from-literal=rootUser="$MINIO_USER" \
+      --from-literal=rootPassword="$MINIO_PASSWORD" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  done
+  unset MINIO_USER MINIO_PASSWORD
+  ok "Local MinIO credentials configured"
 fi
 
 # ─── Bootstrap App-of-Apps ───────────────────────────────────────────────────

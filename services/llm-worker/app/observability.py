@@ -4,6 +4,7 @@ Configured at import time. Tracing honours OTEL_SDK_DISABLED=true so tests/CI
 and any env without a collector don't block on span export.
 """
 
+import logging
 import os
 
 import structlog
@@ -26,12 +27,15 @@ def add_trace_context(_logger, _method_name, event_dict):
 
 
 structlog.configure(
+    wrapper_class=structlog.make_filtering_bound_logger(
+        getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    ),
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
         add_trace_context,
         structlog.processors.JSONRenderer(),
-    ]
+    ],
 )
 log = structlog.get_logger()
 

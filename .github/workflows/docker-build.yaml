@@ -20,28 +20,12 @@ permissions:
 
 jobs:
   # Gate: never build, sign, or promote an image whose app tests are failing.
+  # Reuses the shared test workflow to avoid running the 7-app matrix twice when
+  # ci.yaml is also triggered on the same push (ci.yaml runs on every push to main;
+  # docker-build.yaml is additionally triggered when services/** changes).
   test:
-    name: Test ${{ matrix.app }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, llm-worker, tts-worker]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "services/${{ matrix.app }}/uv.lock"
-
-      - name: Install deps (runtime + test) from lockfile
-        working-directory: services/${{ matrix.app }}
-        run: uv sync --frozen
-
-      - name: Run pytest
-        working-directory: services/${{ matrix.app }}
-        run: uv run --frozen pytest -q
+    name: Python tests
+    uses: ./.github/workflows/test-apps.yaml
 
   build:
     name: Build & sign ${{ matrix.app }}
