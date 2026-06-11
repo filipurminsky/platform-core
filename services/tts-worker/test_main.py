@@ -71,6 +71,10 @@ class FakeRedis:
     def get(self, key):
         return self._store.get(key)
 
+    def setex(self, key, ttl, value):
+        self._store[key] = value
+        self.calls.append({"key": key, "value": value, "ex": ttl})
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -117,8 +121,7 @@ def valid_event():
 
 
 def test_stub_happy_path_writes_speech_to_s3(producer, summary_s3, redis_client, valid_event):
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
 
     # S3 write
     assert "speech/job-1" in summary_s3._store
@@ -128,8 +131,7 @@ def test_stub_happy_path_writes_speech_to_s3(producer, summary_s3, redis_client,
 
 
 def test_stub_happy_path_produces_audio_results(producer, summary_s3, redis_client, valid_event):
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
 
     assert len(producer.produced) == 1
     msg = producer.produced[0]
@@ -142,8 +144,7 @@ def test_stub_happy_path_produces_audio_results(producer, summary_s3, redis_clie
 
 
 def test_stub_happy_path_sets_redis_done(producer, summary_s3, redis_client, valid_event):
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
 
     # Last Redis write should be status=done
     done_calls = [c for c in redis_client.calls if c["key"] == "job:job-1"]
@@ -158,8 +159,7 @@ def test_stub_happy_path_increments_pipeline_completed(
     producer, summary_s3, redis_client, valid_event
 ):
     before = main.PIPELINE_COMPLETED._value.get()
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
     after = main.PIPELINE_COMPLETED._value.get()
     assert after == before + 1
 
@@ -167,8 +167,7 @@ def test_stub_happy_path_increments_pipeline_completed(
 def test_stub_happy_path_observes_e2e_duration(producer, summary_s3, redis_client, valid_event):
     # Just ensure no exception; histogram sum grows
     before = main.PIPELINE_E2E_DURATION._sum.get()
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
     after = main.PIPELINE_E2E_DURATION._sum.get()
     assert after >= before  # created_at is in the past → positive duration
 
@@ -178,8 +177,7 @@ def test_stub_happy_path_observes_queue_wait(producer, summary_s3, redis_client,
 
     label = {"stage": "tts"}
     before = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", label) or 0.0
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
     after = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", label)
     assert after == before + 1  # queue-wait observed once per message
 
@@ -195,8 +193,7 @@ def test_failure_sends_to_dlq(producer, redis_client, valid_event, monkeypatch):
 
     monkeypatch.setattr(main.time, "sleep", lambda *_: None)
 
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, bad_s3, redis_client, seen)
+    main.process_message(valid_event, producer, bad_s3, redis_client)
 
     dlq_msgs = [m for m in producer.produced if m["topic"] == main.TOPIC_DLQ]
     assert len(dlq_msgs) == 1
@@ -210,8 +207,7 @@ def test_failure_sets_redis_failed(producer, redis_client, valid_event, monkeypa
     bad_s3 = FakeS3()
     monkeypatch.setattr(main.time, "sleep", lambda *_: None)
 
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, bad_s3, redis_client, seen)
+    main.process_message(valid_event, producer, bad_s3, redis_client)
 
     done_calls = [c for c in redis_client.calls if c["key"] == "job:job-1"]
     last_state = json.loads(done_calls[-1]["value"])
@@ -224,8 +220,7 @@ def test_failure_increments_pipeline_failed(producer, redis_client, valid_event,
     monkeypatch.setattr(main.time, "sleep", lambda *_: None)
 
     before = main.PIPELINE_FAILED.labels(stage="tts")._value.get()
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, bad_s3, redis_client, seen)
+    main.process_message(valid_event, producer, bad_s3, redis_client)
     after = main.PIPELINE_FAILED.labels(stage="tts")._value.get()
     assert after == before + 1
 
@@ -236,18 +231,16 @@ def test_failure_increments_pipeline_failed(producer, redis_client, valid_event,
 
 
 def test_deduplication_skips_second_call(producer, summary_s3, redis_client, valid_event):
-    seen: set[str] = set()
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
     first_count = len(producer.produced)
 
     # Second call with same job_id — should be skipped entirely
-    main.process_message(valid_event, producer, summary_s3, redis_client, seen)
+    main.process_message(valid_event, producer, summary_s3, redis_client)
     assert len(producer.produced) == first_count  # no new messages
 
 
 def test_malformed_json_is_dropped(producer, summary_s3, redis_client):
-    seen: set[str] = set()
-    main.process_message(b"{not valid json", producer, summary_s3, redis_client, seen)
+    main.process_message(b"{not valid json", producer, summary_s3, redis_client)
     assert producer.produced == []
 
 
@@ -270,7 +263,6 @@ def test_e2e_duration_missing_created_at(producer, summary_s3, redis_client):
         {"executive_summary": "No timestamp test."}
     ).encode()
 
-    seen: set[str] = set()
-    main.process_message(event, producer, summary_s3, redis_client, seen)
+    main.process_message(event, producer, summary_s3, redis_client)
     # Should succeed without raising
     assert any(m["topic"] == main.TOPIC_OUT for m in producer.produced)

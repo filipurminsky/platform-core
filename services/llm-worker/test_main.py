@@ -111,13 +111,10 @@ def test_happy_path(monkeypatch):
     http_client = MagicMock()
     http_client.post.return_value = fake_http_response
 
-    seen_ids: set = set()
-
     # Act
     main.process_message(
         json.dumps(INBOUND_EVENT).encode(),
         producer,
-        seen_ids,
         s3,
         r,
         http_client,
@@ -164,10 +161,10 @@ def test_happy_path(monkeypatch):
     assert "summary" in state.get("keys", {})
 
     # Assert: job_id deduped on second call
+    r.get.return_value = "1"
     main.process_message(
         json.dumps(INBOUND_EVENT).encode(),
         producer,
-        seen_ids,
         s3,
         r,
         http_client,
@@ -200,7 +197,7 @@ def test_metrics_summary_size_and_queue_wait(monkeypatch):
         REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "llm"}) or 0.0
     )
 
-    main.process_message(json.dumps(INBOUND_EVENT).encode(), producer, set(), s3, r, http_client)
+    main.process_message(json.dumps(INBOUND_EVENT).encode(), producer, s3, r, http_client)
 
     after_size = REGISTRY.get_sample_value("llm_summary_bytes_count") or 0.0
     after_wait = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "llm"})
@@ -220,13 +217,11 @@ def test_gateway_error_goes_to_dlq(monkeypatch):
     http_client = MagicMock()
     http_client.post.side_effect = Exception("gateway timeout")
 
-    seen_ids: set = set()
     monkeypatch.setattr(main, "MAX_RETRIES", 2)
 
     main.process_message(
         json.dumps(INBOUND_EVENT).encode(),
         producer,
-        seen_ids,
         s3,
         r,
         http_client,
@@ -309,12 +304,9 @@ def test_end_to_end_with_fallback_parse(monkeypatch):
     http_client = MagicMock()
     http_client.post.return_value = fake_http_response
 
-    seen_ids: set = set()
-
     main.process_message(
         json.dumps(INBOUND_EVENT).encode(),
         producer,
-        seen_ids,
         s3,
         r,
         http_client,
@@ -341,9 +333,8 @@ def test_malformed_json(monkeypatch):
     r = _make_redis_mock()
     producer = _make_producer_mock()
     http_client = MagicMock()
-    seen_ids: set = set()
 
-    main.process_message(b"not-json{{{", producer, seen_ids, s3, r, http_client)
+    main.process_message(b"not-json{{{", producer, s3, r, http_client)
 
     producer.produce.assert_not_called()
     http_client.post.assert_not_called()

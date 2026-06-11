@@ -141,7 +141,7 @@ def test_full_pipeline_happy_path(monkeypatch):
     assert audio_api.KAFKA_TOPIC_JOBS in bus, "audio-api must produce to audio.jobs"
     stt_input = bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"]
 
-    stt.process_message(stt_input, producer, s3, redis, set())
+    stt.process_message(stt_input, producer, s3, redis)
 
     assert f"transcripts/{job_id}" in s3._store, "stt must write transcript key to S3"
     assert stt.TOPIC_OUT in bus, "stt must produce to audio.transcripts"
@@ -149,7 +149,7 @@ def test_full_pipeline_happy_path(monkeypatch):
     # ── Stage 3: llm-worker ───────────────────────────────────────────────────
     llm_input = bus[stt.TOPIC_OUT][0]["value"]
 
-    llm.process_message(llm_input, producer, set(), s3, redis, _stub_llm_http())
+    llm.process_message(llm_input, producer, s3, redis, _stub_llm_http())
 
     assert f"summaries/{job_id}" in s3._store, "llm must write summary key to S3"
     assert llm.TOPIC_OUT in bus, "llm must produce to audio.summaries"
@@ -157,7 +157,7 @@ def test_full_pipeline_happy_path(monkeypatch):
     # ── Stage 4: tts-worker ───────────────────────────────────────────────────
     tts_input = bus[llm.TOPIC_OUT][0]["value"]
 
-    tts.process_message(tts_input, producer, s3, redis, set())
+    tts.process_message(tts_input, producer, s3, redis)
 
     assert f"speech/{job_id}" in s3._store, "tts must write speech WAV to S3"
     assert tts.TOPIC_OUT in bus, "tts must produce to audio.results"
@@ -197,11 +197,9 @@ def test_created_at_propagated_through_all_hops(monkeypatch):
     ingest_event = json.loads(bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"])
     original_created_at = ingest_event["created_at"]
 
-    stt.process_message(bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"], producer, s3, redis, set())
-    llm.process_message(
-        bus[stt.TOPIC_OUT][0]["value"], producer, set(), s3, redis, _stub_llm_http()
-    )
-    tts.process_message(bus[llm.TOPIC_OUT][0]["value"], producer, s3, redis, set())
+    stt.process_message(bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"], producer, s3, redis)
+    llm.process_message(bus[stt.TOPIC_OUT][0]["value"], producer, s3, redis, _stub_llm_http())
+    tts.process_message(bus[llm.TOPIC_OUT][0]["value"], producer, s3, redis)
 
     result = json.loads(bus[tts.TOPIC_OUT][0]["value"])
     assert result["created_at"] == original_created_at, (
@@ -239,9 +237,7 @@ def test_stt_failure_dlqs_and_gates_downstream(monkeypatch):
     broken_s3 = MagicMock()
     broken_s3.get_object.side_effect = Exception("S3 unavailable")
 
-    stt.process_message(
-        bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"], producer, broken_s3, redis, set()
-    )
+    stt.process_message(bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"], producer, broken_s3, redis)
 
     # stt must DLQ the message and NOT produce to audio.transcripts
     assert stt.TOPIC_DLQ in bus, "stt failure must produce to DLQ"
@@ -280,11 +276,9 @@ def test_s3_keys_follow_convention(monkeypatch):
         )
     job_id = resp.json()["job_id"]
 
-    stt.process_message(bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"], producer, s3, redis, set())
-    llm.process_message(
-        bus[stt.TOPIC_OUT][0]["value"], producer, set(), s3, redis, _stub_llm_http()
-    )
-    tts.process_message(bus[llm.TOPIC_OUT][0]["value"], producer, s3, redis, set())
+    stt.process_message(bus[audio_api.KAFKA_TOPIC_JOBS][0]["value"], producer, s3, redis)
+    llm.process_message(bus[stt.TOPIC_OUT][0]["value"], producer, s3, redis, _stub_llm_http())
+    tts.process_message(bus[llm.TOPIC_OUT][0]["value"], producer, s3, redis)
 
     # Verify exact key prefixes per contract §3
     assert f"audio/{job_id}" in s3._store, "audio key must be audio/<job_id>"

@@ -7,6 +7,7 @@ a tiny fake captures what would have been published to the DLQ.
 """
 
 import json
+from collections import OrderedDict
 
 import main
 import pytest
@@ -61,7 +62,7 @@ def test_ping_handler():
 
 
 def test_successful_job_records_id_and_no_dlq(producer):
-    seen = set()
+    seen = OrderedDict()
     raw = json.dumps({"id": "job-1", "type": "ping"}).encode()
     main.process_message(raw, producer, seen)
     assert "job-1" in seen
@@ -69,7 +70,7 @@ def test_successful_job_records_id_and_no_dlq(producer):
 
 
 def test_duplicate_id_is_skipped(producer):
-    seen = {"job-1"}
+    seen = OrderedDict([("job-1", True)])
     raw = json.dumps(
         {"id": "job-1", "type": "data-transform", "payload": {"operation": "bad"}}
     ).encode()
@@ -79,13 +80,13 @@ def test_duplicate_id_is_skipped(producer):
 
 
 def test_malformed_json_is_dropped_not_dlqd(producer):
-    main.process_message(b"{not valid json", producer, set())
+    main.process_message(b"{not valid json", producer, OrderedDict())
     assert producer.produced == []
 
 
 def test_unknown_job_type_is_dropped_not_dlqd(producer):
     raw = json.dumps({"id": "job-2", "type": "does-not-exist"}).encode()
-    main.process_message(raw, producer, set())
+    main.process_message(raw, producer, OrderedDict())
     assert producer.produced == []
 
 
@@ -99,7 +100,7 @@ def test_handler_failure_goes_to_dlq_after_retries(producer, monkeypatch):
     monkeypatch.setitem(main._HANDLERS, "always-fail", always_fails)
 
     raw = json.dumps({"id": "job-3", "type": "always-fail"}).encode()
-    main.process_message(raw, producer, set())
+    main.process_message(raw, producer, OrderedDict())
 
     assert len(producer.produced) == 1
     dlq = json.loads(producer.produced[0]["value"])

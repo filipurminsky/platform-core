@@ -71,9 +71,8 @@ def test_happy_path_stub(monkeypatch):
     s3 = _make_mock_s3(audio_bytes=b"A" * 32_000)  # ~1 second of audio
     redis = _make_mock_redis()
     producer = _make_mock_producer()
-    seen_ids: set = set()
 
-    main.process_message(raw_value, producer, s3, redis, seen_ids)
+    main.process_message(raw_value, producer, s3, redis)
 
     # S3 get called with the audio key
     s3.get_object.assert_called_once_with(Bucket=main.S3_BUCKET, Key="audio/happy-job-1")
@@ -118,7 +117,6 @@ def test_metrics_transcript_size_and_queue_wait(monkeypatch):
         _make_mock_producer(),
         _make_mock_s3(audio_bytes=b"A" * 32_000),
         _make_mock_redis(),
-        set(),
     )
 
     after_size = REGISTRY.get_sample_value("stt_transcript_bytes_count") or 0.0
@@ -137,11 +135,10 @@ def test_happy_path_dedup(monkeypatch):
     s3 = _make_mock_s3()
     redis = _make_mock_redis()
     producer = _make_mock_producer()
-    seen_ids: set = set()
 
-    main.process_message(raw_value, producer, s3, redis, seen_ids)
-    # Second call — same job_id, already in seen_ids
-    main.process_message(raw_value, producer, s3, redis, seen_ids)
+    main.process_message(raw_value, producer, s3, redis)
+    redis.get.return_value = "1"
+    main.process_message(raw_value, producer, s3, redis)
 
     # S3 and producer should only have been called once
     assert s3.get_object.call_count == 1
@@ -161,7 +158,7 @@ def test_happy_path_created_at_propagated(monkeypatch):
     redis = _make_mock_redis()
     producer = _make_mock_producer()
 
-    main.process_message(raw_value, producer, s3, redis, set())
+    main.process_message(raw_value, producer, s3, redis)
 
     produced_value = json.loads(producer.produce.call_args[1]["value"])
     assert produced_value["created_at"] == original_ts
@@ -187,9 +184,8 @@ def test_s3_error_goes_to_dlq(monkeypatch):
 
     redis = _make_mock_redis()
     producer = _make_mock_producer()
-    seen_ids: set = set()
 
-    main.process_message(raw_value, producer, s3, redis, seen_ids)
+    main.process_message(raw_value, producer, s3, redis)
 
     # S3 get called MAX_RETRIES times
     assert s3.get_object.call_count == main.MAX_RETRIES
@@ -231,7 +227,7 @@ def test_s3_put_error_goes_to_dlq(monkeypatch):
     redis = _make_mock_redis()
     producer = _make_mock_producer()
 
-    main.process_message(raw_value, producer, s3, redis, set())
+    main.process_message(raw_value, producer, s3, redis)
 
     assert producer.produce.call_count == 1
     dlq_call = producer.produce.call_args
@@ -244,7 +240,7 @@ def test_bad_json_is_skipped():
     redis = MagicMock()
     producer = _make_mock_producer()
 
-    main.process_message(b"not-json{{{", producer, s3, redis, set())
+    main.process_message(b"not-json{{{", producer, s3, redis)
 
     producer.produce.assert_not_called()
     redis.set.assert_not_called()
