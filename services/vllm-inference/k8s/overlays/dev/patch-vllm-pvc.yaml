@@ -1,7 +1,9 @@
-# Dev: smaller PVC using kind's default storage class.
+# Dev: smaller per-pod ephemeral model-cache volume on kind's default storage
+# class (the cache is a generic ephemeral volume on the Deployment, not a
+# standalone PVC — see the volumes comment in base/deployment.yaml).
 - op: replace
-  path: /spec/storageClassName
+  path: /spec/template/spec/volumes/0/ephemeral/volumeClaimTemplate/spec/storageClassName
   value: standard
 - op: replace
-  path: /spec/resources/requests/storage
+  path: /spec/template/spec/volumes/0/ephemeral/volumeClaimTemplate/spec/resources/requests/storage
   value: 10Gi

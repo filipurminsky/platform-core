@@ -4,6 +4,10 @@ Each helper reads the current document, merges its changes, and re-writes
 with the TTL — preserving keys accumulated by earlier stages (audio,
 transcript, summary). The terminal stage sets status synthesizing → done
 (or failed on DLQ).
+
+Redis errors are logged and swallowed (never raise) — job-state writes are
+best-effort; a transient Redis blip should not dead-letter a job whose actual
+processing succeeded.  Aligns with the stt/llm-worker policy.
 """
 
 import json
@@ -12,6 +16,7 @@ from datetime import UTC, datetime
 import redis
 
 from app import config
+from app.observability import log
 
 
 def make_redis_client():
@@ -23,12 +28,18 @@ def now_iso() -> str:
 
 
 def _get_state(redis_client, job_id: str) -> dict:
-    raw = redis_client.get(f"job:{job_id}")
-    return json.loads(raw) if raw else {}
+    try:
+        raw = redis_client.get(f"job:{job_id}")
+        return json.loads(raw) if raw else {}
+    except Exception:
+        return {}
 
 
 def _save_state(redis_client, job_id: str, state: dict) -> None:
-    redis_client.set(f"job:{job_id}", json.dumps(state), ex=config.JOB_STATE_TTL_SECONDS)
+    try:
+        redis_client.set(f"job:{job_id}", json.dumps(state), ex=config.JOB_STATE_TTL_SECONDS)
+    except Exception as exc:
+        log.warning("redis_set_failed", job_id=job_id, error=str(exc))
 
 
 def set_synthesizing(redis_client, job_id: str, summary_key: str) -> None:

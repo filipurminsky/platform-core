@@ -1,16 +1,19 @@
-# Prod S3: bucket from Crossplane connection secret, region eu-west-1, no endpoint (AWS default).
-# No static credentials — IRSA (pod identity) is used in prod.
-- op: replace
-  path: /spec/template/spec/containers/0/env/9
-  value:
-    name: S3_BUCKET
-    valueFrom:
-      secretKeyRef:
-        name: audio-pipeline-conn
-        key: bucket
-
-- op: replace
-  path: /spec/template/spec/containers/0/env/10
-  value:
-    name: S3_REGION
-    value: eu-west-1
+# Prod S3: bucket name from Crossplane connection secret, region eu-west-1.
+# Strategic-merge patch: name-keyed, immune to env var reordering in the base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: llm-worker
+          env:
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: audio-pipeline-conn
+                  key: bucket
+            - name: S3_REGION
+              value: eu-west-1

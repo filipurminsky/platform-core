@@ -38,11 +38,13 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: env-config
+                  optional: true
                   key: ENVIRONMENT
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef:
                   name: env-config
+                  optional: true
                   key: LOG_LEVEL
 
             # Kafka
@@ -57,9 +59,13 @@ spec:
             - name: KAFKA_CONSUMER_GROUP
               value: tts-worker
 
-            # TTS backend — kokoro in base (prod default); dev overlay overrides to stub
+            # TTS backend — stub everywhere until the Kokoro image pipeline exists.
+            # Do NOT set this to `kokoro` unless the running image actually bakes
+            # the kokoro/torch deps (they are intentionally absent from
+            # pyproject.toml/uv.lock): the lazy import fails at the first message
+            # and every job dead-letters.
             - name: TTS_BACKEND
-              value: kokoro
+              value: stub
 
             # OpenTelemetry
             - name: OTEL_SERVICE_NAME

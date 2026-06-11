@@ -1,19 +1,19 @@
-# Prod S3 — Crossplane-provisioned bucket. Credentials via IRSA (no static keys).
-# Bucket name comes from the Crossplane bucket connection secret (key: bucket).
-# S3_ENDPOINT_URL is intentionally absent in prod (use AWS SDK default endpoint).
-# Replace the base S3_BUCKET (index 11) and S3_REGION (index 12) in place —
-# appending would create duplicate env keys that server-side apply rejects.
-- op: replace
-  path: /spec/template/spec/containers/0/env/11
-  value:
-    name: S3_BUCKET
-    valueFrom:
-      secretKeyRef:
-        name: audio-pipeline-conn
-        key: bucket
-
-- op: replace
-  path: /spec/template/spec/containers/0/env/12
-  value:
-    name: S3_REGION
-    value: eu-west-1
+# Prod S3: bucket name from Crossplane connection secret, region eu-west-1.
+# Strategic-merge patch: name-keyed, immune to env var reordering in the base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tts-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: tts-worker
+          env:
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: audio-pipeline-conn
+                  key: bucket
+            - name: S3_REGION
+              value: eu-west-1

@@ -5,7 +5,7 @@
 #   docker compose up -d
 #   docker compose logs -f worker-service
 #   # Produce a test job:
-#   docker compose exec kafka kafka-console-producer.sh \
+#   docker compose exec kafka kafka-console-producer \
 #     --bootstrap-server localhost:9092 --topic jobs <<< \
 #     '{"id":"test-001","type":"data-transform","payload":{"input":"hello","operation":"uppercase"}}'
 
@@ -40,9 +40,9 @@ services:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
     command: |
-      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
         --topic jobs --partitions 3 --replication-factor 1
-      kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
         --topic jobs-dlq --partitions 1 --replication-factor 1
       echo "Topics created."
 

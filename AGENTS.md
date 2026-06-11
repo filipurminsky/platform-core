@@ -103,7 +103,7 @@ Each `services/<service>/` source is a self-contained Python project. The **demo
 - **`echo-service`** — FastAPI HTTP demo (probes, `/metrics`, request echo). Deployed as an Argo Rollout (canary).
 - **`worker-service`** — Kafka consumer (confluent-kafka, no web framework). Manual-commit processing with dedup, retry → DLQ, graceful SIGTERM drain; exposes metrics on `:9090`. Scaled by KEDA on consumer lag.
 - **`llm-gateway`** — FastAPI reverse proxy in front of vLLM: per-IP sliding-window rate limiting, upstream error mapping (429/502/504), metrics. Deployed as a plain Deployment (2 replicas, 1 in dev). Its Kubernetes readiness probe is `/healthz` (self-check), **not** the app's `/readyz` — `/readyz` gates on the upstream vLLM `/health`, but vLLM is KEDA scale-to-zero, so gating readiness on it would remove the gateway from Service endpoints whenever vLLM is idle and deadlock scale-from-zero.
-- **`vllm-inference`** — vLLM OpenAI-compatible inference server (GPU in prod, CPU TinyLlama in dev). KEDA scale-to-zero on queue depth.
+- **`vllm-inference`** — vLLM OpenAI-compatible inference server (GPU in prod, CPU TinyLlama in dev). KEDA scale-to-zero with two Prometheus triggers: vLLM queue depth for 1→N, plus llm-gateway request/upstream-error rates for 0→1 activation (the queue-depth metric is exposed by the vLLM pods themselves, so it doesn't exist at zero replicas and can't wake the service on its own).
 
 The **AI audio pipeline** (see the dedicated section below) adds four more services that chain over `audio.*` Kafka topics:
 
@@ -120,10 +120,10 @@ Each service is a **uv project**: `main.py` (the app entrypoint) plus an **`app/
 
 Each service's dev overlay (`services/<svc>/k8s/overlays/dev/`) does things its prod overlay does not — notably for `vllm-inference`:
 1. `patch-vllm-model.yaml` — removes `runtimeClassName`, `nodeSelector`, `tolerations`, and GPU resource requests from the vllm-inference Deployment; switches model arg to `TinyLlama/TinyLlama-1.1B-Chat-v1.0` with `--device cpu`
-2. `patch-vllm-pvc.yaml` — changes storage class from `gp3` to `standard` (kind hostPath)
+2. `patch-vllm-pvc.yaml` — changes the model-cache ephemeral volume's storage class from `gp3` to `standard` (kind hostPath) and shrinks it (the cache is a per-pod generic ephemeral volume on the Deployment, not a shared PVC — RWO EBS cannot be multi-attached across replicas)
 3. `patch-resources.yaml` — reduces CPU/memory requests on all Deployments
 
-The audio workers' dev overlays (`patch-dev.yaml`) likewise switch the **pluggable ML backend** to its stub: `STT_BACKEND=stub` / `TTS_BACKEND=stub` on kind (no GPU), where prod sets `nemo` / `kokoro`. The heavy `nemo`/`kokoro`/`torch` deps are **lazy-imported only when the real backend is selected** and are intentionally **not** in `pyproject.toml`/`uv.lock` — prod images bake the model + add the deps in a build layer, keeping dev images light and the test suites fast.
+The audio workers run the **stub ML backend in every environment** (`STT_BACKEND=stub` / `TTS_BACKEND=stub` in the base manifests). The real backends (`nemo` / `kokoro`) have lazy-imported deps that are intentionally **not** in `pyproject.toml`/`uv.lock`, and the Docker build stages that would bake them are authored but **not built by CI** — so selecting a real backend against the standard image makes every job fail its lazy import and dead-letter. Switching prod to `nemo`/`kokoro` requires (1) a build pipeline for the GPU image target, (2) a prod patch setting the backend env plus GPU scheduling (`runtimeClassName: nvidia`, `nodeSelector role=gpu`, GPU resources) — see the comments in `services/stt-worker/k8s/base/deployment.yaml` and the Dockerfile `nemo` stage.
 
 Kafka dev/prod differences (broker count, partition count, SCRAM auth, storage class) are in `kubernetes/platform/kafka/overlays/dev/` — separate from the app overlay.
 

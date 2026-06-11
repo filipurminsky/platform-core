@@ -9,11 +9,37 @@ class SlidingWindowRateLimiter:
     """Thread-safe sliding window rate limiter (1-minute window)."""
 
     WINDOW = 60  # seconds
+    CLEANUP_INTERVAL = 300  # seconds (5 minutes)
 
     def __init__(self, limit: int):
         self._limit = limit
         self._windows: dict[str, collections.deque] = {}
         self._lock = asyncio.Lock()
+        self._cleanup_task: asyncio.Task | None = None
+
+    def start_cleanup(self):
+        """Start the background cleanup task."""
+        if self._cleanup_task is None:
+            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+    async def _cleanup_loop(self):
+        """Periodically remove expired windows to bound memory usage."""
+        while True:
+            await asyncio.sleep(self.CLEANUP_INTERVAL)
+            await self.cleanup()
+
+    async def cleanup(self):
+        """Remove windows where all timestamps are outside the window."""
+        now = time.time()
+        async with self._lock:
+            expired_ips = []
+            for ip, dq in self._windows.items():
+                while dq and dq[0] < now - self.WINDOW:
+                    dq.popleft()
+                if not dq:
+                    expired_ips.append(ip)
+            for ip in expired_ips:
+                del self._windows[ip]
 
     async def is_allowed(self, client_ip: str) -> tuple[bool, int]:
         """Returns (allowed, remaining)."""

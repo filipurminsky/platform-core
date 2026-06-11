@@ -19,17 +19,12 @@ spec:
     spec:
       serviceAccountName: stt-worker
       terminationGracePeriodSeconds: 60    # allow in-flight jobs to drain
-      # GPU scheduling — NeMo Parakeet requires an NVIDIA GPU node (prod).
-      # Dev overlay strips runtimeClassName, nodeSelector, and tolerations
-      # (kind clusters have no GPU) and sets STT_BACKEND=stub instead.
-      runtimeClassName: nvidia
-      nodeSelector:
-        role: gpu
-      tolerations:
-        - key: nvidia.com/gpu
-          operator: Equal
-          value: "true"
-          effect: NoSchedule
+      # NOTE: no GPU scheduling here. The NeMo (STT_BACKEND=nemo) path requires
+      # an image that bakes nemo/torch (the commented `nemo` stage in the
+      # Dockerfile) — that image is not built by CI yet, so every environment
+      # runs the stub backend on CPU. When the GPU image pipeline lands, add a
+      # prod-only patch that sets STT_BACKEND=nemo plus runtimeClassName: nvidia,
+      # nodeSelector role=gpu, the nvidia.com/gpu toleration, and GPU resources.
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -47,11 +42,13 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: env-config
+                  optional: true
                   key: ENVIRONMENT
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef:
                   name: env-config
+                  optional: true
                   key: LOG_LEVEL
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092
@@ -63,9 +60,12 @@ spec:
               value: audio.stt-dlq
             - name: KAFKA_CONSUMER_GROUP
               value: stt-worker
-            # STT backend — prod uses NeMo Parakeet on GPU; dev overlay sets stub
+            # STT backend — stub everywhere until the GPU image pipeline exists.
+            # Do NOT set this to `nemo` unless the running image actually bakes
+            # nemo/torch (Dockerfile `nemo` stage): the lazy import fails at the
+            # first message and every job dead-letters.
             - name: STT_BACKEND
-              value: nemo
+              value: stub
             # OpenTelemetry — extract trace context from Kafka headers, emit span per job
             - name: OTEL_SERVICE_NAME
               value: stt-worker
@@ -95,19 +95,19 @@ spec:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+          # CPU sizing for the stub backend; the future nemo prod patch replaces
+          # this with GPU requests (nvidia.com/gpu: 1, 4-8Gi memory).
           resources:
             requests:
-              cpu: "1"
-              memory: 4Gi
-              nvidia.com/gpu: "1"
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: "2"
-              memory: 8Gi
-              nvidia.com/gpu: "1"
+              cpu: "1"
+              memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
-            # readOnlyRootFilesystem is false because NeMo writes temp files
-            # (model loading scratch, TMP audio buffers) at runtime.
+            # readOnlyRootFilesystem stays false so the (future) NeMo backend can
+            # write temp files (model loading scratch, TMP audio buffers).
             # allowPrivilegeEscalation and capability drops are still enforced.
             readOnlyRootFilesystem: false
             capabilities:

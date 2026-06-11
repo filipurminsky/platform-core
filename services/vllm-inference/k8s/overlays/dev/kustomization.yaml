@@ -19,8 +19,8 @@ patches:
       name: vllm-inference
   - path: patch-vllm-pvc.yaml
     target:
-      kind: PersistentVolumeClaim
-      name: vllm-model-cache
+      kind: Deployment
+      name: vllm-inference
 
 replicas:
   - name: vllm-inference

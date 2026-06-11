@@ -1,14 +1,21 @@
 # Prod S3: bucket name from Crossplane connection secret, region eu-west-1.
-# No S3_ENDPOINT_URL in prod (AWS default endpoint resolution via IRSA).
-#
-# Replace the base S3_BUCKET in place (env index 11) rather than appending —
-# a second S3_BUCKET is a duplicate env key that server-side apply rejects.
-# AWS creds are NOT set — prod uses IRSA.
-- op: replace
-  path: /spec/template/spec/containers/0/env/11
-  value:
-    name: S3_BUCKET
-    valueFrom:
-      secretKeyRef:
-        name: audio-pipeline-conn
-        key: bucket
+# No S3_ENDPOINT_URL in prod (AWS SDK default endpoint via IRSA).
+# Strategic-merge patch: the `name` field is the merge key, so inserting env
+# vars in the base deployment never silently rewires these to the wrong index.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stt-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: stt-worker
+          env:
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: audio-pipeline-conn
+                  key: bucket
+            - name: S3_REGION
+              value: eu-west-1

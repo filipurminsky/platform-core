@@ -1,50 +1,49 @@
-# Prod environment: Kafka SASL credentials (Strimzi KafkaUser Secret),
-# S3 bucket from Crossplane connection secret, no S3_ENDPOINT_URL (real AWS S3).
-
-# Kafka SASL — credentials from the Strimzi-managed KafkaUser Secret.
-- op: add
-  path: /spec/template/spec/containers/0/env/-
-  value:
-    name: KAFKA_SASL_USERNAME
-    value: audio-api
-
-- op: add
-  path: /spec/template/spec/containers/0/env/-
-  value:
-    name: KAFKA_SECURITY_PROTOCOL
-    value: SASL_PLAINTEXT
-
-- op: add
-  path: /spec/template/spec/containers/0/env/-
-  value:
-    name: KAFKA_SASL_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: audio-api
-        key: password
-
-# S3 — bucket name from the Crossplane connection secret; no endpoint override (real AWS).
-# Replace the base S3_BUCKET (index 7) and S3_REGION (index 8) in place — appending
-# would create duplicate env keys that server-side apply rejects. (The Kafka SASL
-# vars above are appended because those keys are not present in the base.)
+# Prod environment: API auth token, Kafka SASL credentials (Strimzi KafkaUser
+# Secret), S3 bucket from Crossplane connection secret, no S3_ENDPOINT_URL
+# (real AWS S3).
 #
-# FRAGILITY WARNING: indices 7 and 8 are positional — they must match the base
-# deployment's env array order exactly. If env vars are added, removed, or reordered
-# in services/audio-api/k8s/base/deployment.yaml, update these indices here to match.
-# Base env order (0-indexed): API_TOKEN=0, MAX_UPLOAD_BYTES=1, ALLOWED_CONTENT_TYPES=2,
-# REDIS_URL=3, KAFKA_BOOTSTRAP_SERVERS=4, KAFKA_TOPIC_JOBS=5, S3_ENDPOINT_URL=6,
-# S3_BUCKET=7, S3_REGION=8.
-- op: replace
-  path: /spec/template/spec/containers/0/env/7
-  value:
-    name: S3_BUCKET
-    valueFrom:
-      secretKeyRef:
-        name: audio-pipeline-conn
-        key: bucket
-
-- op: replace
-  path: /spec/template/spec/containers/0/env/8
-  value:
-    name: S3_REGION
-    value: eu-west-1
+# Strategic-merge patch: env vars are merged by `name` (Kubernetes list-map key),
+# so adding/removing/reordering env vars in the base deployment is safe — no
+# positional index to update here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audio-api
+spec:
+  template:
+    spec:
+      containers:
+        - name: audio-api
+          env:
+            # API auth — bearer token from the audio-api-auth Secret (materialized by
+            # the ExternalSecret in this overlay from AWS Secrets Manager). Without
+            # API_TOKEN the app skips auth; app/config.py also refuses to start when
+            # ENVIRONMENT=prod and API_TOKEN is empty, so prod fails closed either way.
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: audio-api-auth
+                  key: token
+            # Kafka SASL — credentials from the Strimzi-managed KafkaUser Secret.
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9093
+            - name: KAFKA_SASL_USERNAME
+              value: audio-api
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: SASL_SSL
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: audio-api
+                  key: password
+            - name: KAFKA_SSL_CA_LOCATION
+              value: /mnt/kafka-certs/ca.crt
+            # S3 — bucket name from the Crossplane connection secret; no endpoint
+            # override (real AWS).  Replaces the base placeholder values by name.
+            - name: S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: audio-pipeline-conn
+                  key: bucket
+            - name: S3_REGION
+              value: eu-west-1

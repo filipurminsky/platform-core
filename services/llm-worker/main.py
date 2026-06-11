@@ -49,7 +49,13 @@ from app.config import (
 )
 from app.gateway import _parse_llm_response, call_llm_gateway  # noqa: F401  (_parse re-exported)
 from app.job_state import make_redis_client, mark_done, mark_failed, mark_summarizing
-from app.kafka_io import kafka_header_getter, kafka_header_setter, make_consumer, make_producer
+from app.kafka_io import (
+    kafka_header_getter,
+    kafka_header_setter,
+    make_consumer,
+    make_producer,
+    produce_confirmed,
+)
 from app.metrics import (
     LLM_JOBS,
     LLM_SUMMARY_BYTES,
@@ -78,7 +84,6 @@ def _parse_created_at(created_at: str) -> float | None:
 def process_message(
     raw_value: bytes,
     producer,
-    seen_ids: set,
     s3,
     r,
     http_client: httpx.Client,
@@ -98,12 +103,14 @@ def process_message(
     transcript_key = event.get("transcript_key", f"transcripts/{job_id}")
     created_at = event.get("created_at", datetime.now(UTC).isoformat())
 
-    # Deduplication — in-memory (within a pod lifetime).
-    # seen_ids is populated after a successful outcome so a rebalance mid-flight
-    # doesn't silently drop the message. S3 writes are idempotent.
-    if job_id and job_id in seen_ids:
-        log.info("duplicate_skipped", job_id=job_id)
-        return
+    # Deduplication — Redis-based (survives restarts/rebalances).
+    if job_id:
+        try:
+            if r.get(f"dedup:llm:{job_id}"):
+                log.info("duplicate_skipped", job_id=job_id)
+                return
+        except Exception as exc:
+            log.warning("dedup_check_failed", job_id=job_id, error=str(exc))
 
     # Queue wait — how long the job sat between creation and this stage starting (§7).
     _qw_ts = _parse_created_at(created_at)
@@ -164,13 +171,15 @@ def process_message(
                 }
                 out_headers: list[tuple[str, bytes]] = []
                 propagate.inject(out_headers, setter=kafka_header_setter)
-                producer.produce(
+                # Delivery-confirmed: raises (→ retry/DLQ) if the broker did not
+                # ack, so the offset commit below never outruns the output event.
+                produce_confirmed(
+                    producer,
                     TOPIC_OUT,
                     value=json.dumps(out_event).encode(),
                     key=job_id.encode() if job_id else None,
                     headers=out_headers,
                 )
-                producer.flush(timeout=5)
 
                 LLM_JOBS.labels(status="success").inc()
                 log.info(
@@ -181,7 +190,10 @@ def process_message(
                     action_items_count=len(action_items),
                 )
                 if job_id:
-                    seen_ids.add(job_id)
+                    try:
+                        r.setex(f"dedup:llm:{job_id}", 86400, "1")
+                    except Exception as exc:
+                        log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
                 return
 
             except Exception as exc:
@@ -208,13 +220,16 @@ def process_message(
         ).encode()
         dlq_headers: list[tuple[str, bytes]] = []
         propagate.inject(dlq_headers, setter=kafka_header_setter)
-        producer.produce(
+        # Delivery-confirmed: if the DLQ publish itself fails, this raises out of
+        # process_message — the run loop exits without committing, the pod
+        # restarts, and the message is redelivered rather than silently dropped.
+        produce_confirmed(
+            producer,
             TOPIC_DLQ,
             value=dlq_payload,
             key=job_id.encode() if job_id else None,
             headers=dlq_headers,
         )
-        producer.flush(timeout=5)
 
         mark_failed(r, job_id, str(last_exc))
         LLM_JOBS.labels(status="dlq").inc()
@@ -225,7 +240,10 @@ def process_message(
             error=str(last_exc),
         )
         if job_id:
-            seen_ids.add(job_id)
+            try:
+                r.setex(f"dedup:llm:{job_id}", 86400, "1")
+            except Exception as exc:
+                log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
 
 
 def run() -> None:
@@ -248,7 +266,6 @@ def run() -> None:
         timeout=httpx.Timeout(LLM_TIMEOUT),
     )
 
-    seen_ids: set[str] = set()
     shutdown = threading.Event()
 
     def _handle_signal(sig, frame):
@@ -272,7 +289,6 @@ def run() -> None:
             process_message(
                 msg.value(),
                 producer,
-                seen_ids,
                 s3,
                 r,
                 http_client,

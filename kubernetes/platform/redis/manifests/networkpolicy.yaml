@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ingress
+  namespace: platform
+spec:
+  podSelector:
+    matchLabels:
+      app: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apps
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - audio-api
+                  - stt-worker
+                  - tts-worker
+                  - llm-worker
+      ports:
+        - protocol: TCP
+          port: 6379

@@ -1,13 +1,9 @@
 # Dev environment overrides:
-#   - TTS_BACKEND=stub (no Kokoro/torch — wiring demo, fast)
 #   - S3 pointed at in-cluster MinIO (path-style, bucket audio-pipeline)
 #   - Redis pointed at dev Redis in platform namespace
 #
-# TTS_BACKEND is env index 7 (0-based: ENVIRONMENT, LOG_LEVEL, KAFKA_BOOTSTRAP_SERVERS,
-# KAFKA_TOPIC_IN, KAFKA_TOPIC_OUT, KAFKA_DLQ_TOPIC, KAFKA_CONSUMER_GROUP, TTS_BACKEND).
-- op: replace
-  path: /spec/template/spec/containers/0/env/7/value
-  value: stub
+# TTS_BACKEND is already `stub` in the base (the kokoro image pipeline doesn't
+# exist yet), so dev no longer overrides it.
 
 # MinIO endpoint (dev; unset in prod)
 - op: add

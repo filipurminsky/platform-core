@@ -47,3 +47,8 @@ spec:
           selfHeal: true
         syncOptions:
           - CreateNamespace=true
+          # ignoreDifferences only affects the DIFF; without this option a
+          # sync still applies the git value over the ignored field (e.g.
+          # KEDA-managed replicas reset to 0, or Argo Rollouts' injected
+          # canary Service selector wiped).
+          - RespectIgnoreDifferences=true

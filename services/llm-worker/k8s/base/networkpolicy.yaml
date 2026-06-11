@@ -36,6 +36,16 @@ spec:
       ports:
         - port: 80      # llm-gateway Service port
         - port: 8080    # llm-gateway container port (post-Service-translation)
+    # OTLP span export to the in-cluster collector (monitoring namespace).
+    # Without this rule Cilium (dev) silently drops every exported span and the
+    # cross-service trace breaks at this hop.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 4317
+          protocol: TCP
     # DNS
     - ports:
         - port: 53

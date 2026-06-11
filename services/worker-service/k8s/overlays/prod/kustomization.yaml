@@ -26,6 +26,10 @@ patches:
     target:
       kind: ScaledObject
       name: worker-service
+  - path: patch-kafka-tls-mount.yaml
+    target:
+      kind: Deployment
+      name: worker-service
 
 replicas:
   - name: worker-service

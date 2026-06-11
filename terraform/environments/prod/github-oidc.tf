@@ -5,8 +5,8 @@ module "github_oidc" {
   project     = "platform-core"
   github_repo = "filipurminsky/platform-core"
   aws_region  = var.aws_region
-  # Hardening option once stable:
-  # subject_filter = "ref:refs/heads/main"
+  # Hardened: only the main branch can assume this role (prevents PR/branch pushes)
+  subject_filter = "ref:refs/heads/main"
 }
 
 output "github_actions_role_arn" {

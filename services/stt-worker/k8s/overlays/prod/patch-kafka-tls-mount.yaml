@@ -1,0 +1,23 @@
+# Mount the Strimzi cluster CA cert so the Kafka client can verify the broker TLS
+# certificate (SASL_SSL listener on port 9093). The cert path is consumed via the
+# KAFKA_SSL_CA_LOCATION env var set in patch-kafka-auth.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stt-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: stt-worker
+          volumeMounts:
+            - name: kafka-ca-cert
+              mountPath: /mnt/kafka-certs
+              readOnly: true
+      volumes:
+        - name: kafka-ca-cert
+          secret:
+            secretName: platform-kafka-cluster-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt

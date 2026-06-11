@@ -1,0 +1,14 @@
+# Prod: override the default LLM model (TinyLlama dev default → Mistral-7B prod).
+# Strategic-merge patch: name-keyed, immune to env var reordering in the base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: llm-worker
+          env:
+            - name: LLM_MODEL
+              value: mistralai/Mistral-7B-Instruct-v0.2

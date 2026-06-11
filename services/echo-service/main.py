@@ -36,7 +36,11 @@ async def metrics_middleware(request: Request, call_next):
     response = await call_next(request)
     elapsed = time.perf_counter() - start
 
-    path = request.url.path
+    # Collapse to at most two path segments so path-scanning traffic can't mint
+    # unlimited Prometheus series (the same fix as llm-gateway's _normalize_path).
+    raw_path = request.url.path
+    parts = raw_path.strip("/").split("/")[:2]
+    path = "/" + "/".join(parts) if parts and any(parts) else "/"
     REQUEST_COUNT.labels(method=request.method, path=path, status=response.status_code).inc()
     REQUEST_LATENCY.labels(method=request.method, path=path).observe(elapsed)
 

@@ -1,4 +1,12 @@
-# Prod KEDA polling uses the same TLS/SCRAM Kafka listener as the worker.
+# Prod KEDA polling uses the TLS/SCRAM listener (port 9093).
+- op: replace
+  path: /spec/triggers/0/metadata/bootstrapServers
+  value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9093
+
+- op: add
+  path: /spec/triggers/0/metadata/tls
+  value: enable
+
 - op: add
   path: /spec/triggers/0/metadata/sasl
   value: scram_sha512

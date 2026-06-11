@@ -1,26 +1,9 @@
 # Dev patches for stt-worker Deployment:
-#   1. Strip GPU scheduling (runtimeClassName, nodeSelector, tolerations) — kind has no GPU
-#   2. Switch STT_BACKEND from nemo to stub
-#   3. Set dev S3 env (MinIO endpoint + credentials)
-#   4. Set dev Redis URL
-#   5. Reduce resources for local kind cluster
-
-# Strip runtimeClassName (no NVIDIA runtime on kind)
-- op: remove
-  path: /spec/template/spec/runtimeClassName
-
-# Strip GPU nodeSelector
-- op: remove
-  path: /spec/template/spec/nodeSelector
-
-# Strip GPU toleration
-- op: remove
-  path: /spec/template/spec/tolerations
-
-# Switch STT backend to stub (env index 7 — STT_BACKEND)
-- op: replace
-  path: /spec/template/spec/containers/0/env/7/value
-  value: stub
+#   1. Set dev S3 env (MinIO endpoint + credentials)
+#   2. Reduce resources for local kind cluster
+#
+# The base is already CPU/stub (no GPU scheduling, STT_BACKEND=stub), so dev no
+# longer strips GPU fields or switches the backend.
 
 # Append dev S3 MinIO endpoint URL
 - op: add

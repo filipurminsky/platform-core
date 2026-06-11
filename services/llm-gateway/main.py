@@ -30,6 +30,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from starlette.background import BackgroundTask
 
 # ---------------------------------------------------------------------------
 # Shared, mutable state (overridable in tests via monkeypatch)
@@ -49,6 +50,7 @@ async def lifespan(_app: FastAPI):
         timeout=httpx.Timeout(REQUEST_TIMEOUT),
         limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
     )
+    limiter.start_cleanup()
     log.info("gateway_started", upstream=VLLM_BASE_URL, rate_limit_rpm=RATE_LIMIT_RPM)
     yield
     if http_client:
@@ -91,14 +93,19 @@ async def metrics():
 # Proxy helpers
 # ---------------------------------------------------------------------------
 def _client_ip(request: Request) -> str:
-    """Real client IP — prefer X-Real-IP (set by nginx ingress) over the direct
-    connection address so per-client rate limiting works behind the ingress instead
-    of putting all traffic in one bucket keyed on the nginx pod IP."""
-    return (
-        request.headers.get("x-real-ip")
-        or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
-    )
+    """Real client IP. In prod/dev with an ingress, the ingress (nginx) sets
+    X-Real-IP. We trust it only because the ingress is our only entry point.
+    """
+    # Prefer X-Real-IP if set (by our trusted ingress)
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip
+
+    # Fallback to direct connection IP
+    if request.client and request.client.host:
+        return request.client.host
+
+    return "unknown"
 
 
 def _normalize_path(path: str) -> str:
@@ -156,11 +163,17 @@ async def proxy(path: str, request: Request):
         )
         upstream_resp = await http_client.send(req, stream=True)
     except httpx.TimeoutException as exc:
+        elapsed = time.perf_counter() - start
         UPSTREAM_ERRORS.inc()
+        PROXY_REQUESTS.labels(method=request.method, path=norm_path, status=504).inc()
+        PROXY_LATENCY.labels(path=norm_path).observe(elapsed)
         log.error("upstream_timeout", path=upstream_path, timeout=REQUEST_TIMEOUT)
         raise HTTPException(status_code=504, detail="upstream timeout") from exc
     except httpx.RequestError as exc:
+        elapsed = time.perf_counter() - start
         UPSTREAM_ERRORS.inc()
+        PROXY_REQUESTS.labels(method=request.method, path=norm_path, status=502).inc()
+        PROXY_LATENCY.labels(path=norm_path).observe(elapsed)
         log.error("upstream_error", path=upstream_path, error=str(exc))
         raise HTTPException(status_code=502, detail="upstream error") from exc
 
@@ -187,14 +200,10 @@ async def proxy(path: str, request: Request):
     for hop in ("transfer-encoding", "content-encoding", "content-length"):
         response_headers.pop(hop, None)
 
-    async def _stream_body():
-        async for chunk in upstream_resp.aiter_bytes():
-            yield chunk
-        await upstream_resp.aclose()
-
     return StreamingResponse(
-        _stream_body(),
+        upstream_resp.aiter_bytes(),
         status_code=upstream_resp.status_code,
         headers=response_headers,
         media_type=upstream_resp.headers.get("content-type"),
+        background=BackgroundTask(upstream_resp.aclose),
     )

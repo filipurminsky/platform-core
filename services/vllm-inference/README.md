@@ -15,11 +15,18 @@ Kubernetes deployment of [vLLM](https://github.com/vllm-project/vllm), a high-th
 - **Development**: Patched to run on CPU using `float32` and `device: cpu` for local testing on Kind/Docker.
 
 ### Storage
-- Uses a 50Gi PersistentVolumeClaim (`vllm-model-cache`) to store model weights, reducing cold-start times.
+- Each replica gets its own 50Gi **generic ephemeral volume** for model weights. A shared
+  PVC is deliberately avoided: gp3/EBS is ReadWriteOnce, so one shared claim would
+  Multi-Attach-deadlock every replica beyond the first node (KEDA allows up to 4).
+  Trade-off: a brand-new pod cold-downloads the model before becoming Ready.
 
 ### Autoscaling (KEDA)
-Autoscales based on the number of waiting requests in the vLLM internal queue:
-- **Trigger**: Prometheus metric `vllm:num_requests_waiting`.
+Two Prometheus triggers, because `vllm:num_requests_waiting` is exposed by the vLLM
+pods themselves and therefore does not exist while the Deployment is at zero replicas:
+- **Scale 1→N**: vLLM queue depth (`vllm:num_requests_waiting`).
+- **Scale 0→1 (activation)**: request demand observed at `llm-gateway`
+  (`gateway_requests_total` + `gateway_upstream_errors_total` rates) — the gateway is
+  always running, so incoming traffic wakes vLLM from zero.
 - **Min Replicas**: 0 (Scales to zero when idle).
 - **Max Replicas**: 4.
 

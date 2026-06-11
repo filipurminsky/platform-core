@@ -33,6 +33,8 @@ def _kafka_config(extra: dict | None = None) -> dict:
                 "sasl.password": config.KAFKA_SASL_PASSWORD,
             }
         )
+        if config.KAFKA_SSL_CA_LOCATION:
+            cfg["ssl.ca.location"] = config.KAFKA_SSL_CA_LOCATION
     if extra:
         cfg.update(extra)
     return cfg

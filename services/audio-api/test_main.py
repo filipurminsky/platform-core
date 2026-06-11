@@ -249,3 +249,31 @@ def test_metrics_endpoint(client):
     resp = client.get("/metrics")
     assert resp.status_code == 200
     assert b"audio_uploads_total" in resp.content
+
+
+# ---------------------------------------------------------------------------
+# Config — prod fails closed without an API token
+# ---------------------------------------------------------------------------
+
+
+def test_settings_prod_requires_api_token():
+    """ENVIRONMENT=prod without API_TOKEN must refuse to start (auth would be off)."""
+    from app.config import Settings
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="API_TOKEN"):
+        Settings(ENVIRONMENT="prod", API_TOKEN="")
+
+
+def test_settings_prod_with_api_token_ok():
+    from app.config import Settings
+
+    s = Settings(ENVIRONMENT="prod", API_TOKEN="sekret")
+    assert s.api_token.get_secret_value() == "sekret"
+
+
+def test_settings_dev_allows_empty_token():
+    from app.config import Settings
+
+    s = Settings(ENVIRONMENT="dev", API_TOKEN="")
+    assert s.api_token.get_secret_value() == ""

@@ -44,11 +44,13 @@ spec:
               valueFrom:
                 configMapKeyRef:
                   name: env-config
+                  optional: true
                   key: ENVIRONMENT
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef:
                   name: env-config
+                  optional: true
                   key: LOG_LEVEL
             # Kafka — plain bootstrap in base; prod overlay appends SASL env vars.
             - name: KAFKA_BOOTSTRAP_SERVERS

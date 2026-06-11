@@ -22,6 +22,16 @@ spec:
       ports:
         - port: 9092    # Kafka plain
         - port: 9093    # Kafka TLS
+    # OTLP span export to the in-cluster collector (monitoring namespace).
+    # Without this rule Cilium (dev) silently drops every exported span and the
+    # cross-service trace breaks at this hop.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 4317
+          protocol: TCP
     - ports:
         - port: 53      # DNS
           protocol: UDP

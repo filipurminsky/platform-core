@@ -30,6 +30,14 @@ patches:
     target:
       kind: ScaledObject
       name: stt-worker
+  - path: patch-serviceaccount-irsa.yaml
+    target:
+      kind: ServiceAccount
+      name: stt-worker
+  - path: patch-kafka-tls-mount.yaml
+    target:
+      kind: Deployment
+      name: stt-worker
 
 replicas:
   - name: stt-worker

@@ -52,6 +52,12 @@ module "eks" {
   enable_karpenter     = true
 }
 
+module "ecr" {
+  source  = "../../modules/ecr"
+  project = "platform-core"
+  apps    = ["echo-service", "worker-service", "llm-gateway", "audio-api", "stt-worker", "tts-worker", "llm-worker"]
+}
+
 module "iam" {
   source            = "../../modules/iam"
   project           = "platform-core"
@@ -76,6 +82,11 @@ output "cluster_endpoint" { value = module.eks.cluster_endpoint }
 # kubernetes/platform/crossplane/config/provider.yaml
 output "crossplane_s3_role_arn" { value = module.iam.crossplane_s3_role_arn }
 
+# Audio pipeline S3 access (IRSA) — substitute the account id into each
+# services/<svc>/k8s/overlays/prod/patch-serviceaccount-irsa.yaml annotation
+# (audio-api, stt-worker, llm-worker, tts-worker).
+output "audio_pipeline_role_arn" { value = module.iam.audio_pipeline_role_arn }
+
 # Karpenter wiring — substitute into kubernetes/platform/karpenter:
 #   karpenter_controller_role_arn → applicationset.yaml serviceAccount IRSA annotation
 #   karpenter_interruption_queue  → applicationset.yaml settings.interruptionQueue
@@ -83,3 +94,8 @@ output "crossplane_s3_role_arn" { value = module.iam.crossplane_s3_role_arn }
 output "karpenter_controller_role_arn" { value = module.eks.karpenter_controller_role_arn }
 output "karpenter_node_iam_role_name" { value = module.eks.karpenter_node_iam_role_name }
 output "karpenter_interruption_queue" { value = module.eks.karpenter_interruption_queue }
+
+output "ecr_repository_urls" {
+  description = "Application ECR repository URLs."
+  value       = module.ecr.repository_urls
+}

@@ -5,6 +5,7 @@ namespace: apps
 
 resources:
   - ../../base
+  - externalsecret.yaml
 
 labels:
   - pairs:
@@ -18,6 +19,14 @@ patches:
       kind: Deployment
       name: audio-api
   - path: patch-prod-env.yaml
+    target:
+      kind: Deployment
+      name: audio-api
+  - path: patch-serviceaccount-irsa.yaml
+    target:
+      kind: ServiceAccount
+      name: audio-api
+  - path: patch-kafka-tls-mount.yaml
     target:
       kind: Deployment
       name: audio-api

@@ -16,7 +16,7 @@ set -euo pipefail
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 NS="apps"
-KAFKA_NS="kafka"
+KAFKA_NS="platform"
 KAFKA_BOOTSTRAP="localhost:9092"
 API_SERVICE="audio-api"
 LOCAL_PORT=8080
@@ -127,8 +127,10 @@ fi
 # ─── Section A2: DLQ — poison message ────────────────────────────────────────
 section "A2 — DLQ poison path"
 
-log "Publishing malformed JSON to 'jobs' topic..."
-kafka_produce "jobs" "not-valid-json{{{"
+log "Publishing valid job with unknown operation to trigger handler failure..."
+POISON_ID="poison-$(date +%s)"
+POISON_MSG="{\"id\":\"$POISON_ID\",\"type\":\"data-transform\",\"payload\":{\"input\":\"fail\",\"operation\":\"kaboom\"}}"
+kafka_produce "jobs" "$POISON_MSG"
 ok "Poison message published"
 
 log "Polling 'jobs-dlq' for dead-letter (up to 30s)..."
@@ -152,7 +154,7 @@ while [ $SECONDS -lt $END ]; do
 done
 
 if [[ -z "$DLQ_MSG" ]]; then
-  warn "No message in jobs-dlq after 30s. Worker may process malformed JSON differently (log + skip)."
+  err "No message in jobs-dlq after 30s."
 fi
 
 # ─── Section B: Audio AI pipeline ────────────────────────────────────────────

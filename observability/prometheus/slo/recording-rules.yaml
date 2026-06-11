@@ -66,11 +66,11 @@ spec:
       rules:
         - record: kafka:worker_service_lag:sum
           expr: |
-            kafka_consumergroup_lag_sum{group="worker-service"}
+            kafka_consumergroup_lag_sum{consumergroup="worker-service"}
 
         - record: kafka:worker_service_lag:max_partition
           expr: |
-            max(kafka_consumergroup_lag{group="worker-service"})
+            max(kafka_consumergroup_lag{consumergroup="worker-service"})
 
     # ── Audio AI Pipeline SLOs ────────────────────────────────────────────────
     - name: audio.pipeline

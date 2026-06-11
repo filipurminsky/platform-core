@@ -212,31 +212,42 @@ async def create_job(
     audio_key = f"audio/{job_id}"
     created_at = datetime.datetime.now(datetime.UTC).isoformat()
 
-    # Write audio to S3
-    s3_client.put_object(
-        Bucket=S3_BUCKET,
-        Key=audio_key,
-        Body=audio_bytes,
-        ContentType=content_type,
-    )
+    # Write audio to S3 (offloaded to thread pool)
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: s3_client.put_object(
+                Bucket=S3_BUCKET,
+                Key=audio_key,
+                Body=audio_bytes,
+                ContentType=content_type,
+            ),
+        )
 
-    # Write job state to Redis
-    job_state = {
-        "status": "queued",
-        "stage": "audio-api",
-        "updated_at": created_at,
-        "keys": {
-            "audio": audio_key,
-            "transcript": None,
-            "summary": None,
-            "speech": None,
-        },
-    }
-    redis_client.setex(
-        f"job:{job_id}",
-        JOB_STATE_TTL_SECONDS,
-        json.dumps(job_state),
-    )
+        # Write job state to Redis (offloaded to thread pool)
+        job_state = {
+            "status": "queued",
+            "stage": "audio-api",
+            "updated_at": created_at,
+            "keys": {
+                "audio": audio_key,
+                "transcript": None,
+                "summary": None,
+                "speech": None,
+            },
+        }
+        await loop.run_in_executor(
+            None,
+            lambda: redis_client.setex(
+                f"job:{job_id}",
+                JOB_STATE_TTL_SECONDS,
+                json.dumps(job_state),
+            ),
+        )
+    except Exception as exc:
+        log.error("dependency_error", error=str(exc), job_id=job_id)
+        raise HTTPException(status_code=503, detail="storage or state store error") from exc
 
     # Build Kafka event (contract §3)
     event = {
@@ -267,15 +278,22 @@ async def create_job(
         on_delivery=_on_delivery,
     )
     # Flush in a thread pool so the async event loop is not blocked.
-    remaining = await asyncio.get_running_loop().run_in_executor(
-        None, lambda: kafka_producer.flush(timeout=5)
-    )
-    if delivery_errors:
-        log.error("kafka_delivery_failed", error=delivery_errors[0], job_id=job_id)
-        raise HTTPException(status_code=503, detail=f"event delivery failed: {delivery_errors[0]}")
-    if remaining:
-        log.error("kafka_flush_timeout", job_id=job_id)
-        raise HTTPException(status_code=503, detail="kafka delivery timeout")
+    remaining = await loop.run_in_executor(None, lambda: kafka_producer.flush(timeout=5))
+    if delivery_errors or remaining:
+        error_msg = delivery_errors[0] if delivery_errors else "kafka delivery timeout"
+        log.error("kafka_delivery_failed", error=error_msg, job_id=job_id)
+        # Mark as failed in Redis so it doesn't stay 'queued' forever
+        job_state["status"] = "failed"
+        job_state["error"] = {"stage": "audio-api", "message": f"enqueue failed: {error_msg}"}
+        await loop.run_in_executor(
+            None,
+            lambda: redis_client.setex(
+                f"job:{job_id}",
+                JOB_STATE_TTL_SECONDS,
+                json.dumps(job_state),
+            ),
+        )
+        raise HTTPException(status_code=503, detail=f"event delivery failed: {error_msg}")
 
     UPLOADS_TOTAL.labels(status="success").inc()
     UPLOAD_BYTES.observe(byte_count)
@@ -298,7 +316,9 @@ async def create_job(
 async def get_job(job_id: str, authorization: str | None = Header(default=None)):
     """Return the current job state from Redis, or 404 if not found."""
     _check_auth(authorization)
-    raw = redis_client.get(f"job:{job_id}")
+    raw = await asyncio.get_running_loop().run_in_executor(
+        None, lambda: redis_client.get(f"job:{job_id}")
+    )
     if raw is None:
         raise HTTPException(status_code=404, detail=f"job {job_id!r} not found")
     return json.loads(raw)

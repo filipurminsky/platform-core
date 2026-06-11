@@ -30,6 +30,14 @@ patches:
     target:
       kind: ScaledObject
       name: tts-worker
+  - path: patch-serviceaccount-irsa.yaml
+    target:
+      kind: ServiceAccount
+      name: tts-worker
+  - path: patch-kafka-tls-mount.yaml
+    target:
+      kind: Deployment
+      name: tts-worker
 
 replicas:
   - name: tts-worker

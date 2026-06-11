@@ -9,6 +9,13 @@ spec:
   selector:
     matchLabels:
       app: echo-service
+  # Copy the Argo Rollouts canary hash from the pod onto every scraped series.
+  # The echo-service-slo AnalysisTemplate scopes its queries with
+  # rollouts_pod_template_hash="{{args.canary-hash}}" — without this label the
+  # queries return empty and the SLO gate passes vacuously (len(result)==0).
+  # Do not remove.
+  podTargetLabels:
+    - rollouts-pod-template-hash
   endpoints:
     - port: http
       path: /metrics

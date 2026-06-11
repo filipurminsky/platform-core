@@ -97,6 +97,22 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
       volumes:
+        # Per-pod generic ephemeral volume, NOT a shared PVC: gp3/EBS is
+        # ReadWriteOnce, so a single shared claim deadlocks every replica beyond
+        # the first node in Multi-Attach errors (ScaledObject allows up to 4).
+        # Cost: each new pod cold-downloads the model from HuggingFace before
+        # becoming Ready (readiness failureThreshold already budgets for model
+        # load). If cold-start time becomes the bottleneck, bake the weights
+        # into the image or move to RWX storage — do not share one RWO claim.
         - name: model-cache
-          persistentVolumeClaim:
-            claimName: vllm-model-cache
+          ephemeral:
+            volumeClaimTemplate:
+              metadata:
+                labels:
+                  app: vllm-inference
+              spec:
+                accessModes: [ReadWriteOnce]
+                storageClassName: gp3   # patched to "standard" in dev overlay
+                resources:
+                  requests:
+                    storage: 50Gi

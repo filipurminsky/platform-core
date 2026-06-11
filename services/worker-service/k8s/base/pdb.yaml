@@ -3,8 +3,8 @@ kind: PodDisruptionBudget
 metadata:
   name: worker-service
 spec:
-  # minAvailable: 1 only applies when replicas > 0; harmless when KEDA scales to zero
-  minAvailable: 1
+  # maxUnavailable: 1 allows eviction even at single-replica scale.
+  maxUnavailable: 1
   selector:
     matchLabels:
       app: worker-service

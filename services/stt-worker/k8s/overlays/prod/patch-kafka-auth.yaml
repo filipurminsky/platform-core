@@ -1,22 +1,27 @@
-# Prod uses Strimzi's TLS/SCRAM listener. The KafkaUser Secret is generated in
-# the apps namespace by the Strimzi UserOperator.
-- op: add
-  path: /spec/template/spec/containers/0/env/-
-  value:
-    name: KAFKA_SASL_USERNAME
-    value: stt-worker
-
-- op: add
-  path: /spec/template/spec/containers/0/env/-
-  value:
-    name: KAFKA_SECURITY_PROTOCOL
-    value: SASL_PLAINTEXT
-
-- op: add
-  path: /spec/template/spec/containers/0/env/-
-  value:
-    name: KAFKA_SASL_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: stt-worker
-        key: password
+# Prod: Kafka TLS/SCRAM bootstrap and credentials (Strimzi KafkaUser Secret).
+# SASL_SSL = SCRAM over TLS (Strimzi's port 9093 listener).
+# CA cert mounted from the Strimzi cluster CA Secret by patch-kafka-tls-mount.yaml.
+# Strategic-merge patch: env vars merged by `name`, no positional indices.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stt-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: stt-worker
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9093
+            - name: KAFKA_SASL_USERNAME
+              value: stt-worker
+            - name: KAFKA_SECURITY_PROTOCOL
+              value: SASL_SSL
+            - name: KAFKA_SASL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stt-worker
+                  key: password
+            - name: KAFKA_SSL_CA_LOCATION
+              value: /mnt/kafka-certs/ca.crt

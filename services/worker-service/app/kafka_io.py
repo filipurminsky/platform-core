@@ -4,7 +4,7 @@ and consumer-lag polling.
 
 import socket
 
-from confluent_kafka import Consumer, Producer
+from confluent_kafka import Consumer, KafkaException, Producer
 from opentelemetry.propagators.textmap import Getter, Setter
 
 from app import config
@@ -49,6 +49,8 @@ def _kafka_config(extra: dict | None = None) -> dict:
                 "sasl.password": config.SASL_PASSWORD,
             }
         )
+        if config.SSL_CA_LOCATION:
+            cfg["ssl.ca.location"] = config.SSL_CA_LOCATION
     if extra:
         cfg.update(extra)
     return cfg
@@ -85,3 +87,37 @@ def update_lag(consumer: Consumer) -> None:
             CONSUMER_LAG.labels(partition=str(tp.partition)).set(lag)
     except Exception as exc:
         log.warning("lag_poll_failed", error=str(exc))
+
+
+def produce_confirmed(
+    producer: Producer,
+    topic: str,
+    *,
+    value: bytes,
+    key: bytes | None = None,
+    headers: list[tuple[str, bytes]] | None = None,
+    timeout: float = 5.0,
+) -> None:
+    """Produce one message and block until the broker confirms delivery.
+
+    `flush()` alone is not enough: it only returns the number of messages still
+    unconfirmed, and per-message failures surface exclusively via the delivery
+    callback. Raising here is what keeps the consume loop from committing the
+    input offset for an output event that was never actually written — the
+    caller's retry/DLQ path (or, for a DLQ publish, a crash-and-redeliver)
+    engages instead. At-least-once on the output hop; the consumers dedup.
+    """
+    errors: list[Exception] = []
+
+    def _on_delivery(err, _msg):
+        if err is not None:
+            errors.append(KafkaException(err))
+
+    producer.produce(topic, value=value, key=key, headers=headers, on_delivery=_on_delivery)
+    remaining = producer.flush(timeout=timeout)
+    if errors:
+        raise errors[0]
+    if remaining:
+        raise KafkaException(
+            f"{remaining} message(s) still unconfirmed after {timeout}s flush to {topic!r}"
+        )

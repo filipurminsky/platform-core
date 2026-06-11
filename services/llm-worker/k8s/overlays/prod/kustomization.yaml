@@ -26,9 +26,21 @@ patches:
     target:
       kind: Deployment
       name: llm-worker
+  - path: patch-prod-llm-model.yaml
+    target:
+      kind: Deployment
+      name: llm-worker
   - path: patch-scaledobject-kafka-auth.yaml
     target:
       kind: ScaledObject
+      name: llm-worker
+  - path: patch-serviceaccount-irsa.yaml
+    target:
+      kind: ServiceAccount
+      name: llm-worker
+  - path: patch-kafka-tls-mount.yaml
+    target:
+      kind: Deployment
       name: llm-worker
 
 replicas:

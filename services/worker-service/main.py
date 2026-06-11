@@ -24,6 +24,7 @@ import json
 import signal
 import threading
 import time
+from collections import OrderedDict
 
 from app.config import BOOTSTRAP_SERVERS, CONSUMER_GROUP, MAX_RETRIES, TOPIC_DLQ, TOPIC_JOBS
 from app.handlers import _HANDLERS, handle_data_transform, handle_ping, register  # noqa: F401
@@ -32,6 +33,7 @@ from app.kafka_io import (
     kafka_header_setter,
     make_consumer,
     make_producer,
+    produce_confirmed,
     update_lag,
 )
 from app.metrics import CONSUMER_LAG, JOB_DURATION, JOBS_PROCESSED  # noqa: F401
@@ -44,7 +46,7 @@ from opentelemetry import propagate
 def process_message(
     raw_value: bytes,
     producer,
-    seen_ids: set,
+    seen_ids: OrderedDict,
     headers: list[tuple[str, bytes]] | None = None,
 ) -> None:
     """Deserialise → deduplicate → dispatch → DLQ on repeated failure."""
@@ -60,8 +62,7 @@ def process_message(
     job_type = job.get("type", "unknown")
 
     # Deduplication — in-memory (within a pod lifetime).
-    # seen_ids is populated after a successful outcome so a rebalance mid-flight
-    # doesn't silently drop the message.
+    # seen_ids is an OrderedDict to keep the last 10,000 IDs (contract M14).
     if job_id and job_id in seen_ids:
         log.info("duplicate_skipped", job_id=job_id)
         return
@@ -97,7 +98,9 @@ def process_message(
                     result=result,
                 )
                 if job_id:
-                    seen_ids.add(job_id)
+                    seen_ids[job_id] = True
+                    if len(seen_ids) > 10000:
+                        seen_ids.popitem(last=False)
                 return
             except Exception as exc:
                 last_exc = exc
@@ -118,13 +121,16 @@ def process_message(
         ).encode()
         dlq_headers: list[tuple[str, bytes]] = []
         propagate.inject(dlq_headers, setter=kafka_header_setter)
-        producer.produce(
+        # Delivery-confirmed: if the DLQ publish itself fails, this raises out of
+        # process_message — the run loop exits without committing, the pod
+        # restarts, and the message is redelivered rather than silently dropped.
+        produce_confirmed(
+            producer,
             TOPIC_DLQ,
             value=dlq_payload,
             key=job_id.encode() if job_id else None,
             headers=dlq_headers,
         )
-        producer.flush(timeout=5)
         JOBS_PROCESSED.labels(status="dlq").inc()
         log.error(
             "job_sent_to_dlq",
@@ -133,7 +139,9 @@ def process_message(
             error=str(last_exc),
         )
         if job_id:
-            seen_ids.add(job_id)
+            seen_ids[job_id] = True
+            if len(seen_ids) > 10000:
+                seen_ids.popitem(last=False)
 
 
 def run() -> None:
@@ -142,7 +150,7 @@ def run() -> None:
     start_metrics_server()
     consumer = make_consumer()
     producer = make_producer()
-    seen_ids: set[str] = set()
+    seen_ids = OrderedDict()
     shutdown = threading.Event()
     lag_last_polled = 0.0
 

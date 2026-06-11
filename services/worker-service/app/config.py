@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
     sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
     security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
+    ssl_ca_location: str = Field(default="", alias="KAFKA_SSL_CA_LOCATION")
 
     @model_validator(mode="after")
     def _default_security_protocol(self) -> "Settings":
@@ -53,3 +54,4 @@ METRICS_PORT = settings.metrics_port
 SASL_USERNAME = settings.sasl_username
 SASL_PASSWORD = settings.sasl_password.get_secret_value()
 SECURITY_PROTOCOL = settings.security_protocol
+SSL_CA_LOCATION = settings.ssl_ca_location

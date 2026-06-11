@@ -1,0 +1,47 @@
+# Cluster-wide secret store config for External Secrets Operator.
+#
+# The external-secrets Application installs the operator (Helm chart) but no
+# store — without one, every ExternalSecret CR is inert. This config slice adds
+# the AWS Secrets Manager ClusterSecretStore, authenticated via the operator's
+# IRSA service account (terraform/modules/iam → irsa_external_secrets).
+#
+# Prod-only (cluster generator, environment=prod): local kind clusters have no
+# AWS credentials, and dev consumes no ExternalSecrets. Sync-wave 1 so the
+# operator's CRDs (wave of the external-secrets app) exist before this applies.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: external-secrets-config
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["prod"]
+  template:
+    metadata:
+      name: external-secrets-config
+      annotations:
+        argocd.argoproj.io/sync-wave: "1"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kubernetes/platform/external-secrets-config/manifests
+      destination:
+        server: "{{.server}}"
+        namespace: external-secrets
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - ServerSideApply=true

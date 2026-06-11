@@ -1,0 +1,21 @@
+# Mount the Strimzi cluster CA cert for the SASL_SSL (port 9093) Kafka listener.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tts-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: tts-worker
+          volumeMounts:
+            - name: kafka-ca-cert
+              mountPath: /mnt/kafka-certs
+              readOnly: true
+      volumes:
+        - name: kafka-ca-cert
+          secret:
+            secretName: platform-kafka-cluster-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt

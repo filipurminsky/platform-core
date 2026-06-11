@@ -105,6 +105,64 @@ resource "aws_iam_policy" "crossplane_s3" {
   })
 }
 
+# ─── Audio pipeline services (S3 object access via IRSA) ─────────────────────
+# audio-api and the stt/llm/tts workers read and write objects (audio/,
+# transcripts/, summaries/, speech/ prefixes) in the Crossplane-provisioned
+# pipeline bucket. In prod they carry no static keys and S3_ENDPOINT_URL is
+# unset, so without this role every S3 call fails — the Crossplane role above
+# only manages bucket *lifecycle*, not object data. One shared role: all four
+# services have identical object-level needs against the same bucket.
+#
+# Each service's prod overlay annotates its ServiceAccount with this role ARN
+# (services/<svc>/k8s/overlays/prod/patch-serviceaccount-irsa.yaml).
+module "irsa_audio_pipeline" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "~> 5.0"
+
+  role_name = "${var.project}-${var.environment}-audio-pipeline"
+
+  oidc_providers = {
+    main = {
+      provider_arn = var.oidc_provider_arn
+      namespace_service_accounts = [
+        "apps:audio-api",
+        "apps:stt-worker",
+        "apps:llm-worker",
+        "apps:tts-worker",
+      ]
+    }
+  }
+
+  role_policy_arns = {
+    S3Objects = aws_iam_policy.audio_pipeline_s3.arn
+  }
+}
+
+resource "aws_iam_policy" "audio_pipeline_s3" {
+  name        = "${var.project}-${var.environment}-audio-pipeline-s3"
+  description = "Object read/write in the ${var.project}-${var.environment}- prefixed pipeline buckets"
+
+  # Object-level only — bucket lifecycle stays with the Crossplane role. Scoped
+  # to the same project/env bucket-name prefix the Crossplane composition uses.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "ListPipelineBuckets"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket", "s3:GetBucketLocation"]
+        Resource = "arn:aws:s3:::${var.project}-${var.environment}-*"
+      },
+      {
+        Sid      = "ReadWritePipelineObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "arn:aws:s3:::${var.project}-${var.environment}-*/*"
+      },
+    ]
+  })
+}
+
 # ─── ECR pull (worker nodes already have this via node role,  ─────────────────
 #     but explicit IRSA is cleaner for restricted nodes) ────────────────────────
 module "irsa_ecr_pull" {

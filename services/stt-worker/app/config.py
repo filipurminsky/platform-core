@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
     sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
     security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
+    # TLS CA cert path — set to the mounted Strimzi cluster CA in prod (SASL_SSL listener)
+    ssl_ca_location: str = Field(default="", alias="KAFKA_SSL_CA_LOCATION")
 
     # S3 — boto3 client config (§4)
     s3_endpoint_url: str = Field(default="", alias="S3_ENDPOINT_URL")
@@ -67,6 +69,7 @@ STT_BACKEND = settings.stt_backend
 SASL_USERNAME = settings.sasl_username
 SASL_PASSWORD = settings.sasl_password.get_secret_value()
 SECURITY_PROTOCOL = settings.security_protocol
+SSL_CA_LOCATION = settings.ssl_ca_location
 S3_ENDPOINT_URL = settings.s3_endpoint_url
 S3_BUCKET = settings.s3_bucket
 S3_REGION = settings.s3_region

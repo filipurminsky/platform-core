@@ -19,7 +19,10 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
 
-    api_token: SecretStr = Field(default=SecretStr(""), alias="API_TOKEN")  # empty → no auth check
+    environment: str = Field(default="dev", alias="ENVIRONMENT")
+    api_token: SecretStr = Field(
+        default=SecretStr(""), alias="API_TOKEN"
+    )  # empty → no auth check (dev only)
     max_upload_bytes: int = Field(default=25 * 1024 * 1024, alias="MAX_UPLOAD_BYTES")  # 25 MB
     # NoDecode: the env value is a CSV string, not JSON — let the validator below
     # split it instead of pydantic-settings trying to JSON-decode the set.
@@ -40,6 +43,7 @@ class Settings(BaseSettings):
     kafka_sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
     kafka_sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
     kafka_security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
+    kafka_ssl_ca_location: str = Field(default="", alias="KAFKA_SSL_CA_LOCATION")
 
     @field_validator("allowed_content_types", mode="before")
     @classmethod
@@ -53,6 +57,19 @@ class Settings(BaseSettings):
     def _default_security_protocol(self) -> "Settings":
         if self.kafka_security_protocol is None:
             self.kafka_security_protocol = "SASL_SSL" if self.kafka_sasl_username else "PLAINTEXT"
+        return self
+
+    @model_validator(mode="after")
+    def _require_token_in_prod(self) -> "Settings":
+        # Fail closed: an unset API_TOKEN silently disables auth, which is a dev
+        # convenience only. In prod the service is behind a public Ingress, so
+        # refuse to start rather than run open (the prod overlay wires API_TOKEN
+        # from the audio-api-auth Secret).
+        if (
+            self.environment.lower() in ("prod", "production")
+            and not self.api_token.get_secret_value()
+        ):
+            raise ValueError("API_TOKEN must be set when ENVIRONMENT=prod (auth would be disabled)")
         return self
 
 
@@ -80,3 +97,4 @@ KAFKA_TOPIC_JOBS = settings.kafka_topic_jobs
 KAFKA_SASL_USERNAME = settings.kafka_sasl_username
 KAFKA_SASL_PASSWORD = settings.kafka_sasl_password.get_secret_value()
 KAFKA_SECURITY_PROTOCOL = settings.kafka_security_protocol
+KAFKA_SSL_CA_LOCATION = settings.kafka_ssl_ca_location

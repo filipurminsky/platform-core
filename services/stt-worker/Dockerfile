@@ -44,9 +44,11 @@ CMD ["python", "main.py"]
 #   docker build --target nemo -t stt-worker:nemo \
 #     --build-arg MODEL_ID=nvidia/parakeet-rnnt-0.6b .
 #
-# The prod CI pipeline (docker-build.yaml) selects this target when
-# STT_BACKEND=nemo.  The resulting image is multi-gigabyte; do NOT push it as
-# the default :latest tag.
+# NOT built by CI: docker-build.yaml builds the default (stub) target only, and
+# every k8s overlay sets STT_BACKEND=stub to match. Switching any environment to
+# STT_BACKEND=nemo first requires a build pipeline for this target (likely a
+# GPU/self-hosted runner — the image is multi-gigabyte) and a separate tag;
+# never push it as the default tag.
 # ---------------------------------------------------------------------------
 # FROM base AS nemo
 #

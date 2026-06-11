@@ -25,7 +25,16 @@ module "eks" {
   cluster_addons = {
     coredns    = { most_recent = true }
     kube-proxy = { most_recent = true }
-    vpc-cni    = { most_recent = true }
+    vpc-cni = {
+      most_recent = true
+      # Enable the aws-network-policy-agent: without it the VPC CNI ignores
+      # NetworkPolicy objects entirely, so every policy in this repo (tenant
+      # zero-trust, per-service segmentation) would be a silent no-op on EKS.
+      # Local kind clusters get enforcement from Cilium instead (bootstrap.sh).
+      configuration_values = jsonencode({
+        enableNetworkPolicy = "true"
+      })
+    }
   }
 
   # Default managed node group — general workloads

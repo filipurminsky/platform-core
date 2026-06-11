@@ -2,7 +2,7 @@
 
 import socket
 
-from confluent_kafka import Consumer, Producer
+from confluent_kafka import Consumer, KafkaException, Producer
 from opentelemetry.propagators.textmap import Getter, Setter
 
 from app import config
@@ -45,6 +45,8 @@ def _kafka_config(extra: dict | None = None) -> dict:
                 "sasl.password": config.SASL_PASSWORD,
             }
         )
+        if config.SSL_CA_LOCATION:
+            cfg["ssl.ca.location"] = config.SSL_CA_LOCATION
     if extra:
         cfg.update(extra)
     return cfg
@@ -56,7 +58,10 @@ def make_consumer() -> Consumer:
             "group.id": config.CONSUMER_GROUP,
             "auto.offset.reset": "earliest",
             "enable.auto.commit": False,  # manual commit only after output produced
-            "max.poll.interval.ms": 300_000,
+            # Budget: 3 retries × LLM_TIMEOUT (120 s) + S3 I/O + backoff ≈ 400 s.
+            # Default 300 s would evict the consumer mid-processing, causing a
+            # rebalance loop and duplicate work.
+            "max.poll.interval.ms": 480_000,
         }
     )
     consumer = Consumer(cfg)
@@ -66,3 +71,37 @@ def make_consumer() -> Consumer:
 
 def make_producer() -> Producer:
     return Producer(_kafka_config())
+
+
+def produce_confirmed(
+    producer: Producer,
+    topic: str,
+    *,
+    value: bytes,
+    key: bytes | None = None,
+    headers: list[tuple[str, bytes]] | None = None,
+    timeout: float = 5.0,
+) -> None:
+    """Produce one message and block until the broker confirms delivery.
+
+    `flush()` alone is not enough: it only returns the number of messages still
+    unconfirmed, and per-message failures surface exclusively via the delivery
+    callback. Raising here is what keeps the consume loop from committing the
+    input offset for an output event that was never actually written — the
+    caller's retry/DLQ path (or, for a DLQ publish, a crash-and-redeliver)
+    engages instead. At-least-once on the output hop; the consumers dedup.
+    """
+    errors: list[Exception] = []
+
+    def _on_delivery(err, _msg):
+        if err is not None:
+            errors.append(KafkaException(err))
+
+    producer.produce(topic, value=value, key=key, headers=headers, on_delivery=_on_delivery)
+    remaining = producer.flush(timeout=timeout)
+    if errors:
+        raise errors[0]
+    if remaining:
+        raise KafkaException(
+            f"{remaining} message(s) still unconfirmed after {timeout}s flush to {topic!r}"
+        )

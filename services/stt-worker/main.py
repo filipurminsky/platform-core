@@ -41,7 +41,13 @@ from app.config import (
     TOPIC_OUT,
 )
 from app.job_state import make_redis_client, set_job_state
-from app.kafka_io import kafka_header_getter, kafka_header_setter, make_consumer, make_producer
+from app.kafka_io import (
+    kafka_header_getter,
+    kafka_header_setter,
+    make_consumer,
+    make_producer,
+    produce_confirmed,
+)
 from app.metrics import (
     PIPELINE_JOBS_FAILED,
     PIPELINE_QUEUE_WAIT,
@@ -53,7 +59,7 @@ from app.metrics import (
 from app.metrics_server import start_metrics_server
 from app.observability import log, tracer
 from app.storage import make_s3_client
-from confluent_kafka import KafkaError, KafkaException
+from confluent_kafka import KafkaError, KafkaException, Producer
 from opentelemetry import propagate
 
 
@@ -78,10 +84,9 @@ def _parse_created_at(created_at: str) -> float | None:
 
 def process_message(
     raw_value: bytes,
-    producer,
-    s3,
-    redis,
-    seen_ids: set,
+    producer: Producer,
+    s3_client,
+    redis_client,
     headers: list[tuple[str, bytes]] | None = None,
 ) -> None:
     """
@@ -89,6 +94,7 @@ def process_message(
     produce audio.transcripts → commit.
     On repeated failure: produce to audio.stt-dlq, update Redis to failed.
     """
+
     # Extract trace context from Kafka headers — stitch into the distributed trace
     context = propagate.extract(headers or [], getter=kafka_header_getter)
 
@@ -103,13 +109,15 @@ def process_message(
     audio_key = event.get("audio_key", f"audio/{job_id}")
     created_at = event.get("created_at", datetime.now(UTC).isoformat())
 
-    # Deduplication — in-memory (within a pod lifetime).
-    # seen_ids is populated after a successful outcome (success or DLQ) rather
-    # than before processing, so a rebalance mid-flight doesn't silently drop
-    # the message. The cost is at-least-once delivery; S3 writes are idempotent.
-    if job_id and job_id in seen_ids:
-        log.info("duplicate_skipped", job_id=job_id)
-        return
+    # Deduplication — Redis-based (survives restarts/rebalances).
+    # We check if this job was already processed by ANY pod in this stage.
+    if job_id:
+        try:
+            if redis_client.get(f"dedup:stt:{job_id}"):
+                log.info("duplicate_skipped", job_id=job_id)
+                return
+        except Exception as exc:
+            log.warning("dedup_check_failed", job_id=job_id, error=str(exc))
 
     # Queue wait — how long the job sat between creation and this stage starting (§7).
     _qw_ts = _parse_created_at(created_at)
@@ -127,7 +135,7 @@ def process_message(
     ) as span:
         # Mark job as in-progress
         try:
-            set_job_state(redis, job_id, {"status": "transcribing", "stage": "stt"})
+            set_job_state(redis_client, job_id, {"status": "transcribing", "stage": "stt"})
         except Exception as exc:
             log.warning("redis_state_update_failed", job_id=job_id, error=str(exc))
 
@@ -136,7 +144,7 @@ def process_message(
             start = time.perf_counter()
             try:
                 # 1. Read audio from S3
-                audio_bytes = s3.get_object(Bucket=S3_BUCKET, Key=audio_key)["Body"].read()
+                audio_bytes = s3_client.get_object(Bucket=S3_BUCKET, Key=audio_key)["Body"].read()
 
                 # 2. Transcribe
                 transcript_text, language, duration_s = transcribe(audio_bytes)
@@ -144,7 +152,7 @@ def process_message(
                 # 3. Write transcript to S3 (idempotent — deterministic key)
                 transcript_key = f"transcripts/{job_id}"
                 transcript_bytes = transcript_text.encode("utf-8")
-                s3.put_object(
+                s3_client.put_object(
                     Bucket=S3_BUCKET,
                     Key=transcript_key,
                     Body=transcript_bytes,
@@ -158,7 +166,7 @@ def process_message(
                 # 4. Update Redis: set transcript key in state
                 try:
                     set_job_state(
-                        redis,
+                        redis_client,
                         job_id,
                         {
                             "status": "transcribing",
@@ -180,13 +188,15 @@ def process_message(
                 out_headers: list[tuple[str, bytes]] = []
                 propagate.inject(out_headers, setter=kafka_header_setter)
 
-                producer.produce(
+                # Delivery-confirmed: raises (→ retry/DLQ) if the broker did not
+                # ack, so the offset commit below never outruns the output event.
+                produce_confirmed(
+                    producer,
                     TOPIC_OUT,
                     value=json.dumps(out_event).encode(),
                     key=job_id.encode() if job_id else None,
                     headers=out_headers,
                 )
-                producer.flush(timeout=5)
 
                 STT_JOBS_TOTAL.labels(status="success").inc()
                 log.info(
@@ -199,7 +209,10 @@ def process_message(
                     elapsed_ms=round(elapsed * 1000, 2),
                 )
                 if job_id:
-                    seen_ids.add(job_id)
+                    try:
+                        redis_client.setex(f"dedup:stt:{job_id}", 86400, "1")
+                    except Exception as exc:
+                        log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
                 return
 
             except Exception as exc:
@@ -228,22 +241,25 @@ def process_message(
         ).encode()
         dlq_headers: list[tuple[str, bytes]] = []
         propagate.inject(dlq_headers, setter=kafka_header_setter)
-        producer.produce(
+        # Delivery-confirmed: if the DLQ publish itself fails, this raises out of
+        # process_message — the run loop exits without committing, the pod
+        # restarts, and the message is redelivered rather than silently dropped.
+        produce_confirmed(
+            producer,
             TOPIC_DLQ,
             value=dlq_payload,
             key=job_id.encode() if job_id else None,
             headers=dlq_headers,
         )
-        producer.flush(timeout=5)
 
-        # Update Redis to failed
+        # Update Redis state to failed
         try:
             set_job_state(
-                redis,
+                redis_client,
                 job_id,
                 {
                     "status": "failed",
-                    "stage": "stt",
+                    "updated_at": failed_at,
                     "error": {
                         "stage": "stt",
                         "message": str(last_exc),
@@ -263,7 +279,10 @@ def process_message(
             error=str(last_exc),
         )
         if job_id:
-            seen_ids.add(job_id)
+            try:
+                redis_client.setex(f"dedup:stt:{job_id}", 86400, "1")
+            except Exception as exc:
+                log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
 
 
 def run() -> None:
@@ -282,7 +301,6 @@ def run() -> None:
     producer = make_producer()
     s3 = make_s3_client()
     redis = make_redis_client()
-    seen_ids: set[str] = set()
     shutdown = threading.Event()
 
     def _handle_signal(sig, frame):
@@ -308,7 +326,6 @@ def run() -> None:
                 producer,
                 s3,
                 redis,
-                seen_ids,
                 headers=msg.headers(),
             )
 

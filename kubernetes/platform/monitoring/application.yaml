@@ -103,6 +103,12 @@ spec:
             requests:
               cpu: 20m
               memory: 64Mi
+          # kube-state-metrics v2 does not expose arbitrary node labels by
+          # default — without this allowlist, kube_node_labels{label_role=...}
+          # has no series and the GpuNodeUnavailable alert's `unless` clause is
+          # vacuously empty (the alert would fire whenever vLLM has replicas).
+          metricLabelsAllowlist:
+            - nodes=[role]
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring

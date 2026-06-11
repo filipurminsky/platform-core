@@ -77,7 +77,9 @@ def _make_producer_mock():
     """Return a mock Kafka Producer."""
     p = MagicMock()
     p.produce = MagicMock()
-    p.flush = MagicMock()
+    # produce_confirmed treats a non-zero flush() return as "delivery unconfirmed"
+    # and raises — a bare MagicMock return value is truthy, so pin it to 0.
+    p.flush = MagicMock(return_value=0)
     return p
 
 

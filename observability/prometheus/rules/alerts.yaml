@@ -31,31 +31,40 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "Node {{ $labels.node }} memory > 90%"
-            description: "Node {{ $labels.node }} has {{ $value | humanizePercentage }} memory utilisation."
+            summary: "Node {{ $labels.instance }} memory > 90%"
+            description: "Node {{ $labels.instance }} has {{ $value | humanizePercentage }} memory utilisation."
 
     # ── SLO burn rate ────────────────────────────────────────────────────────
     - name: slo.burn_rate
       rules:
         - alert: HighErrorRate
+          # Standard 5m + 1h multiwindow burn-rate alert (14.4x burn).
+          # A fast burn (e.g. 100% error rate) will page in minutes via the 5m
+          # window, while a sustained slow burn pages via the 1h window.
           expr: |
+            (
+              sum(rate(echo_requests_total{status=~"5.."}[5m]))
+              /
+              sum(rate(echo_requests_total[5m])) > 14.4 * 0.005
+            )
+            and
             (
               sum(rate(echo_requests_total{status=~"5.."}[1h]))
               /
-              sum(rate(echo_requests_total[1h]))
-            ) > 14 * 0.005
-          for: 1h
+              sum(rate(echo_requests_total[1h])) > 14.4 * 0.005
+            )
+          for: 2m
           labels:
             severity: critical
           annotations:
             summary: "High SLO burn rate — error budget at risk"
-            description: "Error rate burn rate is {{ $value | humanizePercentage }}, which exceeds 14× the 0.5% SLO threshold."
+            description: "Error rate burn rate is high across both 5m and 1h windows, exceeding the 14.4× 0.5% SLO threshold."
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/high-error-rate.md"
 
     # ── ArgoCD ───────────────────────────────────────────────────────────────
     - name: argocd
       rules:
-        - alert: ArgoCDSyncFailed
+        - alert: ArgoCDAppDegraded
           expr: |
             argocd_app_info{health_status="Degraded"} == 1
           for: 5m
@@ -74,8 +83,9 @@ spec:
     - name: kafka
       rules:
         - alert: KafkaConsumerLagHigh
+          # NB: the exporter labels consumer groups `consumergroup=`, not `group=`.
           expr: |
-            kafka_consumergroup_lag_sum{group="worker-service"} > 100
+            kafka_consumergroup_lag_sum{consumergroup="worker-service"} > 100
           for: 5m
           labels:
             severity: warning
@@ -85,14 +95,17 @@ spec:
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
 
         - alert: KafkaDLQNonEmpty
+          # Watch the topic's produced offset, NOT consumer-group lag: nothing
+          # consumes the DLQ topics, so no consumer group (and no lag series)
+          # ever exists for them — a lag-based alert can never fire.
           expr: |
-            kafka_consumergroup_lag{topic="jobs-dlq"} > 0
+            sum(delta(kafka_topic_partition_current_offset{topic="jobs-dlq"}[5m])) > 0
           for: 1m
           labels:
             severity: warning
           annotations:
-            summary: "Messages in Kafka DLQ — processing failures detected"
-            description: "{{ $value }} messages in jobs-dlq. Investigate worker-service for processing errors."
+            summary: "Messages arriving in Kafka DLQ — processing failures detected"
+            description: "{{ $value }} message(s) dead-lettered to jobs-dlq in the last 5m. Investigate worker-service for processing errors."
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
 
         - alert: KafkaBrokerDown
@@ -126,6 +139,10 @@ spec:
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/vllm-inference-latency.md"
 
         - alert: GpuNodeUnavailable
+          # Depends on kube-state-metrics exposing the node `role` label:
+          # metricLabelsAllowlist "nodes=[role]" in the monitoring Application
+          # values. If that allowlist is removed, kube_node_labels has no series
+          # and this alert false-fires whenever vLLM has replicas.
           expr: |
             kube_deployment_status_replicas{deployment="vllm-inference"} > 0
             unless
@@ -143,36 +160,42 @@ spec:
     - name: audio.pipeline
       rules:
         - alert: AudioSTTDLQNonEmpty
+          # Produced-offset based — no consumer group exists for DLQ topics, so
+          # consumer-lag metrics never would (see KafkaDLQNonEmpty above).
           expr: |
-            kafka_consumergroup_lag{topic="audio.stt-dlq"} > 0
+            sum(delta(kafka_topic_partition_current_offset{topic="audio.stt-dlq"}[5m])) > 0
           for: 1m
           labels:
             severity: warning
           annotations:
-            summary: "Messages in STT DLQ — stt-worker processing failures detected"
-            description: "{{ $value }} messages in audio.stt-dlq. Investigate stt-worker for processing errors."
+            summary: "Messages arriving in STT DLQ — stt-worker processing failures detected"
+            description: "{{ $value }} message(s) dead-lettered to audio.stt-dlq in the last 5m. Investigate stt-worker for processing errors."
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
 
         - alert: AudioLLMDLQNonEmpty
+          # Produced-offset based — no consumer group exists for DLQ topics, so
+          # consumer-lag metrics never would (see KafkaDLQNonEmpty above).
           expr: |
-            kafka_consumergroup_lag{topic="audio.llm-dlq"} > 0
+            sum(delta(kafka_topic_partition_current_offset{topic="audio.llm-dlq"}[5m])) > 0
           for: 1m
           labels:
             severity: warning
           annotations:
-            summary: "Messages in LLM DLQ — llm-worker processing failures detected"
-            description: "{{ $value }} messages in audio.llm-dlq. Investigate llm-worker for processing errors."
+            summary: "Messages arriving in LLM DLQ — llm-worker processing failures detected"
+            description: "{{ $value }} message(s) dead-lettered to audio.llm-dlq in the last 5m. Investigate llm-worker for processing errors."
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
 
         - alert: AudioTTSDLQNonEmpty
+          # Produced-offset based — no consumer group exists for DLQ topics, so
+          # consumer-lag metrics never would (see KafkaDLQNonEmpty above).
           expr: |
-            kafka_consumergroup_lag{topic="audio.tts-dlq"} > 0
+            sum(delta(kafka_topic_partition_current_offset{topic="audio.tts-dlq"}[5m])) > 0
           for: 1m
           labels:
             severity: warning
           annotations:
-            summary: "Messages in TTS DLQ — tts-worker processing failures detected"
-            description: "{{ $value }} messages in audio.tts-dlq. Investigate tts-worker for processing errors."
+            summary: "Messages arriving in TTS DLQ — tts-worker processing failures detected"
+            description: "{{ $value }} message(s) dead-lettered to audio.tts-dlq in the last 5m. Investigate tts-worker for processing errors."
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/kafka-consumer-lag.md"
 
         - alert: AudioPipelineHighFailureRate

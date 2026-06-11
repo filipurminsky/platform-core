@@ -9,10 +9,13 @@ spec:
   policyTypes: [Ingress, Egress]
   ingress:
     - from:
+        # Both selectors in the same `from` element = AND: only llm-gateway pods
+        # in the apps namespace.  Two separate elements would be OR and would let
+        # any pod in the apps namespace reach vLLM directly (contract §6 forbids it).
         - podSelector:
             matchLabels:
               app: llm-gateway
-        - namespaceSelector:
+          namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: apps
       ports:

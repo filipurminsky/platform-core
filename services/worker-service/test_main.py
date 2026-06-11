@@ -18,11 +18,13 @@ class FakeProducer:
     def __init__(self):
         self.produced = []
 
-    def produce(self, topic, value=None, key=None, headers=None):
+    def produce(self, topic, value=None, key=None, headers=None, on_delivery=None):
         self.produced.append({"topic": topic, "value": value, "key": key, "headers": headers})
+        if on_delivery is not None:
+            on_delivery(None, None)  # simulate broker ack (no error)
 
     def flush(self, timeout=None):
-        pass
+        return 0  # 0 messages still unconfirmed
 
 
 @pytest.fixture

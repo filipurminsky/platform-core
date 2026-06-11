@@ -1,13 +1,14 @@
-# Production resource limits for stt-worker (GPU node).
-# nvidia.com/gpu:1 is set in base; only CPU/memory are adjusted here for prod.
+# Production resources for stt-worker — CPU sizing for the stub backend.
+# The promoted image does not bake nemo/torch, so prod must NOT request a GPU:
+# it would pin an expensive GPU node for a worker that can't use it. When the
+# GPU image pipeline lands (Dockerfile `nemo` stage), restore nvidia.com/gpu: 1
+# here together with STT_BACKEND=nemo and the GPU scheduling fields.
 - op: replace
   path: /spec/template/spec/containers/0/resources
   value:
     requests:
-      cpu: "1"
-      memory: 4Gi
-      nvidia.com/gpu: "1"
+      cpu: 500m
+      memory: 512Mi
     limits:
       cpu: "2"
-      memory: 8Gi
-      nvidia.com/gpu: "1"
+      memory: 2Gi

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
     sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
     security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
+    ssl_ca_location: str = Field(default="", alias="KAFKA_SSL_CA_LOCATION")
 
     # LLM gateway — never talk to vLLM directly (§6). In dev the gateway proxies
     # to TinyLlama (low quality by design — pipeline wiring demo).
@@ -71,6 +72,7 @@ METRICS_PORT = settings.metrics_port
 SASL_USERNAME = settings.sasl_username
 SASL_PASSWORD = settings.sasl_password.get_secret_value()
 SECURITY_PROTOCOL = settings.security_protocol
+SSL_CA_LOCATION = settings.ssl_ca_location
 LLM_GATEWAY_URL = settings.llm_gateway_url
 LLM_MODEL = settings.llm_model
 LLM_TIMEOUT = settings.llm_timeout
