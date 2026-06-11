@@ -82,8 +82,10 @@ pipeline** in section F (commit `c8334e0`). Legend: ⬜ not started · 🟡 part
   scoped to `environment=dev`, like MinIO). Plaintext connection to the Strimzi
   bootstrap; prod is intentionally excluded (would need SCRAM/SASL wiring).
   Exposed at `http://akhq.platform-core.local`.
-- ⬜ **`helm/platform-services` umbrella.** Currently a `Chart.yaml` stub — either flesh
-  it out or delete it and remove the references.
+- ✅ **`helm/platform-services` umbrella.** Deleted. It was unused (no ArgoCD app or
+  script referenced it), duplicated the platform chart version pins as a second source
+  of truth, and had already drifted (it pinned external-secrets `0.9.0` while the live
+  app is on `0.9.18`). Removed the chart and its references in `README.md`/`helm/README.md`.
 - ✅ **Turn the OPA NetworkPolicy check into a real relationship check.** CI now runs
   `conftest --combine`; `policy/network-policy.rego` **denies** (hard fail) when a
   workload in `apps`/`tenant-*` has no NetworkPolicy whose `podSelector` actually
