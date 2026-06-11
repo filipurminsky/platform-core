@@ -11,6 +11,8 @@ spec:
     spec:
       containers:
         - name: stt-worker
+          securityContext:
+            readOnlyRootFilesystem: true
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9093

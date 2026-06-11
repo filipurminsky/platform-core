@@ -111,9 +111,12 @@ spec:
               memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
-            # readOnlyRootFilesystem stays false so the (future) NeMo backend can
-            # write temp files (model loading scratch, TMP audio buffers).
-            # allowPrivilegeEscalation and capability drops are still enforced.
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

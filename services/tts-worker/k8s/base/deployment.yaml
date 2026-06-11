@@ -117,8 +117,12 @@ spec:
 
           securityContext:
             allowPrivilegeEscalation: false
-            # readOnlyRootFilesystem is intentionally false: Kokoro may write model
-            # temp files and scratch data to /tmp during CPU inference.
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -12,6 +12,8 @@ spec:
     spec:
       containers:
         - name: llm-gateway
+          securityContext:
+            readOnlyRootFilesystem: true
           env:
             - name: VLLM_BASE_URL
               value: http://vllm-mock:8000

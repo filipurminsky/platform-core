@@ -9,6 +9,8 @@ spec:
     spec:
       containers:
         - name: llm-worker
+          securityContext:
+            readOnlyRootFilesystem: true
           env:
             - name: S3_BUCKET
               valueFrom:

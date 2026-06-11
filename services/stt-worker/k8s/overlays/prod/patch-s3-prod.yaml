@@ -11,6 +11,8 @@ spec:
     spec:
       containers:
         - name: stt-worker
+          securityContext:
+            readOnlyRootFilesystem: true
           env:
             - name: S3_BUCKET
               valueFrom:

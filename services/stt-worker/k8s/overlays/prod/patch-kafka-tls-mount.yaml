@@ -10,6 +10,8 @@ spec:
     spec:
       containers:
         - name: stt-worker
+          securityContext:
+            readOnlyRootFilesystem: true
           volumeMounts:
             - name: kafka-ca-cert
               mountPath: /mnt/kafka-certs

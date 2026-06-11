@@ -8,6 +8,8 @@ spec:
     spec:
       containers:
         - name: llm-worker
+          securityContext:
+            readOnlyRootFilesystem: true
           volumeMounts:
             - name: kafka-ca-cert
               mountPath: /mnt/kafka-certs

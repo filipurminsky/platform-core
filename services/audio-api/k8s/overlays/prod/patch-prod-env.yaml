@@ -14,6 +14,8 @@ spec:
     spec:
       containers:
         - name: audio-api
+          securityContext:
+            readOnlyRootFilesystem: true
           env:
             # API auth — bearer token from the audio-api-auth Secret (materialized by
             # the ExternalSecret in this overlay from AWS Secrets Manager). Without
