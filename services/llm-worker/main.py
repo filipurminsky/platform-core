@@ -296,7 +296,10 @@ def run() -> None:
             )
 
             # Manual commit — only after output event or DLQ publish (§1)
-            consumer.commit(message=msg, asynchronous=False)
+            try:
+                consumer.commit(message=msg, asynchronous=False)
+            except KafkaException as exc:
+                log.warning("offset_commit_failed", error=str(exc))
 
     finally:
         log.info("llm_worker_shutting_down")

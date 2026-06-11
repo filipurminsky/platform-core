@@ -33,25 +33,26 @@ HOSTNAME = socket.gethostname()
 @app.middleware("http")
 async def metrics_middleware(request: Request, call_next):
     start = time.perf_counter()
-    response = await call_next(request)
-    elapsed = time.perf_counter() - start
-
-    # Collapse to at most two path segments so path-scanning traffic can't mint
-    # unlimited Prometheus series (the same fix as llm-gateway's _normalize_path).
-    raw_path = request.url.path
-    parts = raw_path.strip("/").split("/")[:2]
-    path = "/" + "/".join(parts) if parts and any(parts) else "/"
-    REQUEST_COUNT.labels(method=request.method, path=path, status=response.status_code).inc()
-    REQUEST_LATENCY.labels(method=request.method, path=path).observe(elapsed)
-
-    log.info(
-        "request",
-        method=request.method,
-        path=path,
-        status=response.status_code,
-        duration_ms=round(elapsed * 1000, 2),
-    )
-    return response
+    status = 500
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        # Starlette attaches the matched route after routing. Use its template,
+        # never the raw URL, so arbitrary path scans cannot create new series.
+        route = request.scope.get("route")
+        path = getattr(route, "path", "unmatched")
+        elapsed = time.perf_counter() - start
+        REQUEST_COUNT.labels(method=request.method, path=path, status=status).inc()
+        REQUEST_LATENCY.labels(method=request.method, path=path).observe(elapsed)
+        log.info(
+            "request",
+            method=request.method,
+            path=path,
+            status=status,
+            duration_ms=round(elapsed * 1000, 2),
+        )
 
 
 @app.get("/healthz")

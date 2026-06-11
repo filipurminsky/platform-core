@@ -43,6 +43,7 @@ from app.config import (
     JOB_STATE_TTL_SECONDS,
     KAFKA_TOPIC_JOBS,
     MAX_UPLOAD_BYTES,
+    REDIS_PASSWORD,
     REDIS_URL,
     S3_BUCKET,
     S3_ENDPOINT_URL,
@@ -82,7 +83,9 @@ async def lifespan(_app: FastAPI):
         s3_client = boto3.client("s3", **s3_kwargs)
 
     if redis_client is None:
-        redis_client = redis_lib.from_url(REDIS_URL, decode_responses=True)
+        redis_client = redis_lib.from_url(
+            REDIS_URL, password=REDIS_PASSWORD or None, decode_responses=True
+        )
 
     if kafka_producer is None:
         kafka_producer = Producer(_kafka_config())

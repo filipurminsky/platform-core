@@ -13,11 +13,25 @@ spec:
   args:
     - name: canary-hash
   metrics:
+    - name: canary-metrics-present
+      interval: 20s
+      count: 4
+      # Allow two warm-up misses, but fail the rollout if three consecutive
+      # samples have no canary traffic/series. This prevents vacuous SLO passes.
+      successCondition: "len(result) > 0 && result[0] > 0"
+      failureCondition: "len(result) == 0 || result[0] <= 0"
+      failureLimit: 3
+      provider:
+        prometheus:
+          address: http://prometheus-operated.monitoring.svc:9090
+          query: |
+            sum(rate(echo_requests_total{rollouts_pod_template_hash="{{args.canary-hash}}"}[1m]))
     - name: success-rate
       interval: 20s
       count: 4
-      # >= 99% non-5xx. len(result)==0 tolerates the warm-up window with no traffic.
+      # The separate canary-metrics-present check handles sustained empties.
       successCondition: "len(result) == 0 || result[0] >= 0.99"
+      failureCondition: "len(result) > 0 && result[0] < 0.99"
       failureLimit: 1
       provider:
         prometheus:
@@ -30,6 +44,7 @@ spec:
       interval: 20s
       count: 4
       successCondition: "len(result) == 0 || result[0] <= 0.5"
+      failureCondition: "len(result) > 0 && result[0] > 0.5"
       failureLimit: 1
       provider:
         prometheus:

@@ -8,18 +8,17 @@ Legend: **Critical** = a headline feature of the project does not work as claime
 **High** = correctness/data-loss/security defect. **Medium** = real defect with bounded blast radius or
 operational risk. **Low** = hygiene, drift, polish.
 
-> **Status update (2026-06-11):** C1–C3 and H1–H7 are fixed (see the working tree / git history).
-> C2b was resolved by aligning config with the shipped image — all environments now explicitly run
-> the `stub` backends until a GPU image build pipeline exists (TODO.md §B); the nemo/kokoro
-> re-enable path is documented in the manifests and Dockerfile. H7 trades the shared model-cache
-> PVC for per-pod ephemeral volumes (cold-start download cost accepted; documented in the
-> manifest). Medium and Low findings are still open.
+> **Status update (2026-06-11):** C1-C3, H1-H7, and M1-M17 have been addressed and
+> verified against the current implementation and validation suite. Low findings were not
+> verified in this pass and retain their previous status.
 
 ---
 
 ## Critical
 
 ### C1. The canary SLO gate is inert — analysis can never fail, bad images promote
+
+**Status: verified.**
 
 `services/echo-service/k8s/base/analysistemplate.yaml:26` scopes every Prometheus query to
 `rollouts_pod_template_hash="{{args.canary-hash}}"`. That label only exists on the metrics if the
@@ -46,6 +45,8 @@ acceptable during the no-traffic warm-up window; `count: 4` with all four empty 
 Then re-run `canary-demo.sh bad` as the regression proof.
 
 ### C2. The prod audio pipeline is broken end-to-end — three independent blockers
+
+**Status: verified.**
 
 Each of these alone makes every prod job fail; together they show the prod path was never exercised
 (TODO.md §B acknowledges "unverified", but these are concrete, findable-by-inspection defects, not just
@@ -77,6 +78,8 @@ prod env to `stub` until it exists, so prod is honest); patch `LLM_MODEL` in the
 
 ### C3. vLLM scale-from-zero deadlock — the KEDA trigger metric only exists while vLLM is running
 
+**Status: verified.**
+
 `services/vllm-inference/k8s/base/scaledobject.yaml:20` activates 0→1 on the Prometheus query
 `vllm:num_requests_waiting`. That is a **vLLM server metric** — it is only exposed by a running vLLM
 pod. At `minReplicaCount: 0` there are no pods, the series is absent, KEDA reads 0, and activation can
@@ -95,6 +98,8 @@ scaling, use the gateway metric for 0→1 activation.
 
 ### H1. Consumers commit offsets without confirming the output event was delivered — message loss
 
+**Status: verified.**
+
 All four Kafka consumers produce their output (or DLQ) event with `producer.produce(...)` followed by
 `producer.flush(timeout=5)` and **ignore the flush return value and use no delivery callback**
 (e.g. `services/stt-worker/main.py:183-189`, same in llm-worker, tts-worker, worker-service DLQ path).
@@ -110,6 +115,8 @@ check `flush()`'s return, and raise (so the retry/DLQ path engages and the offse
 when delivery is unconfirmed.
 
 ### H2. Several alerts can never fire (and one will false-fire) — silent monitoring gaps
+
+**Status: verified.**
 
 `observability/prometheus/rules/alerts.yaml`:
 
@@ -133,6 +140,8 @@ make them prod-dead too.
 
 ### H3. NetworkPolicies cut off the tracing pipeline (and are inconsistently strict)
 
+**Status: verified.**
+
 Every audio service and worker-service exports OTLP to `otel-collector.monitoring:4317`, but their
 egress NetworkPolicies only allow: platform ns (9092/9093/6379/9000), DNS, and 443
 (`services/stt-worker/k8s/base/networkpolicy.yaml:17-36`, same for llm/tts/audio-api/worker-service).
@@ -143,6 +152,8 @@ broken and inconsistent. **Fix:** add a `to: monitoring` / `port: 4317` egress r
 restricted policies (or standardize on one egress posture per tier and document it).
 
 ### H4. ArgoCD will fight KEDA over `spec.replicas` — `ignoreDifferences` without `RespectIgnoreDifferences`
+
+**Status: verified.**
 
 The worker ApplicationSets set `ignoreDifferences: [/spec/replicas]` with `selfHeal: true` and
 `ServerSideApply=true` (`kubernetes/apps/stt-worker/applicationset.yaml:26-44`) — but
@@ -155,6 +166,8 @@ KEDA-managed apps — or better, omit `replicas` from the manifests entirely (SS
 to the HPA's field manager), which is the documented Argo+KEDA pattern.
 
 ### H5. Prod `audio-api` runs with authentication disabled behind a public Ingress
+
+**Status: verified.**
 
 `API_TOKEN` defaults to empty → `_check_auth` is skipped entirely
 (`services/audio-api/main.py:152-154`). The base deployment sets no `API_TOKEN`, and
@@ -169,6 +182,8 @@ Secret (ESO) in the prod overlay, fail-closed in prod (refuse to start without i
 
 ### H6. NetworkPolicies are not enforced at all in prod
 
+**Status: verified.**
+
 Prod EKS uses the stock `vpc-cni` addon (`terraform/modules/eks/main.tf:25-29`) with no
 `enableNetworkPolicy` configuration and no other policy engine — so every NetworkPolicy in the repo
 (zero-trust tenants, per-service segmentation, the OPA relationship checks gating CI) is a **no-op in
@@ -178,6 +193,8 @@ therefore dev-only. **Fix:** enable VPC CNI network policy support
 which one the design intends.
 
 ### H7. vLLM `maxReplicaCount: 4` with a single ReadWriteOnce PVC
+
+**Status: verified.**
 
 `services/vllm-inference/k8s/base/pvc.yaml` is `accessModes: [ReadWriteOnce]` (gp3/EBS), and the
 Deployment mounts it in every replica, but the ScaledObject allows up to 4 replicas
@@ -192,6 +209,8 @@ S3-pulled weights), RWX storage, or `maxReplicaCount: 1` until solved.
 
 ### M1. Kafka SASL credentials and data go over plaintext in prod
 
+**Status: verified.**
+
 All prod overlays set `KAFKA_SECURITY_PROTOCOL=SASL_PLAINTEXT` against the un-TLS'd 9092 listener
 (`services/stt-worker/k8s/overlays/prod/patch-kafka-auth.yaml:12-13`), while the header comment claims
 "Prod uses Strimzi's TLS/SCRAM listener". SCRAM doesn't reveal the password, but all message payloads
@@ -201,6 +220,8 @@ and is unused. KEDA's trigger likewise polls 9092. **Fix:** point bootstrap at 9
 `tls: enable` + CA on the KEDA trigger; or delete the misleading comments and document the tradeoff.
 
 ### M2. llm-gateway rate limiter: spoofable key and unbounded memory
+
+**Status: verified.**
 
 - `_client_ip` trusts `X-Real-IP`/`X-Forwarded-For` from the request (`services/llm-gateway/main.py:93-101`).
   Any in-cluster caller (the netpol allows whole-namespace ingress, see M5) — or any client whose
@@ -214,6 +235,8 @@ and is unused. KEDA's trigger likewise polls 9092. **Fix:** point bootstrap at 9
 
 ### M3. llm-gateway leaks upstream connections on client disconnect
 
+**Status: verified.**
+
 `_stream_body` only closes the upstream response after full iteration
 (`services/llm-gateway/main.py:190-193`). If the client disconnects mid-SSE or `aiter_bytes()` raises,
 `aclose()` never runs and the pooled connection leaks (pool max 100, then the gateway wedges). **Fix:**
@@ -222,6 +245,8 @@ wrap in `try/finally`, or pass `background=BackgroundTask(upstream_resp.aclose)`
 (only `UPSTREAM_ERRORS.inc()`), so error rate and latency SLIs under-count exactly when it matters.
 
 ### M4. PDB `minAvailable: 1` on scale-to-zero / single-replica workers blocks node drains
+
+**Status: verified.**
 
 All four audio workers ship a PDB with `minAvailable: 1` (`services/stt-worker/k8s/base/pdb.yaml`).
 When KEDA runs them at 1 replica, the PDB makes that pod **unevictable** — `kubectl drain`, managed
@@ -234,6 +259,8 @@ covers eviction mid-job) or use `maxUnavailable: 1`.
 
 ### M5. vllm-inference NetworkPolicy allows the whole `apps` namespace, voiding the gateway-only contract
 
+**Status: verified.**
+
 `services/vllm-inference/k8s/base/networkpolicy.yaml:11-19` lists `podSelector: app=llm-gateway` and
 `namespaceSelector: apps` as **two separate `from` peers (OR)** — so every pod in `apps` can reach
 vLLM:8000 directly, contradicting contract §6 ("workers never call vLLM directly") and the comment in
@@ -243,6 +270,8 @@ opens vLLM:8000 toward the `platform` namespace, but vLLM lives in `apps` — al
 TODO.md §D.)
 
 ### M6. Worst-case message handling exceeds `max.poll.interval.ms` → rebalance storm
+
+**Status: verified.**
 
 llm-worker: 3 attempts × (`LLM_TIMEOUT` 120 s + S3 I/O) + backoff ≈ 360 s+, against
 `max.poll.interval.ms = 300_000` (`app/kafka_io.py:59`). A slow/unresponsive gateway gets the consumer
@@ -254,6 +283,8 @@ to cover the worst case, and treat `commit` failures as expected after rebalance
 
 ### M7. Positional JSON6902 env patches are a footgun (and one comment is already wrong)
 
+**Status: verified.**
+
 Prod overlays patch env vars **by array index** (`patch-s3-prod.yaml: /env/11`,
 `patch-prod-env.yaml: /env/7, /env/8`, dev `patch-dev.yaml: /env/7`). Inserting one env var in a base
 deployment silently rewires the wrong variable in prod — the worst failure mode (no error, wrong
@@ -262,6 +293,8 @@ strategic-merge patches on `env` (merge key is `name`, no indices needed) — th
 motivated op-lists applies to whole-container patches, not env-only SMPs.
 
 ### M8. Redis job-state store is unauthenticated, unrestricted, and volatile
+
+**Status: verified.**
 
 `kubernetes/platform/redis/manifests/redis.yaml`: no AUTH, **no NetworkPolicy anywhere in
 `kubernetes/platform/`** (any pod in any namespace can read/rewrite all job state — including marking
@@ -272,6 +305,8 @@ NetworkPolicy allowing 6379 only from the five client apps; `requirepass` from a
 
 ### M9. ECR repositories are not provisioned anywhere
 
+**Status: verified.**
+
 `docker-build.yaml` pushes to `platform-core/<app>` ECR repos, but no tracked Terraform creates
 `aws_ecr_repository` (only `.terraform/` module-cache hits). First prod push fails until someone
 hand-creates seven repos — and hand-created repos have no immutability, lifecycle policy, or
@@ -279,6 +314,8 @@ scan-on-push config. **Fix:** an `ecr` module (for_each over the app list) with
 `image_tag_mutability = IMMUTABLE` (you promote by digest anyway) + lifecycle policy.
 
 ### M10. CI OIDC role is assumable from any ref; signature policy accepts any workflow
+
+**Status: verified.**
 
 `subject_filter` defaults to `*` (`terraform/modules/github-oidc/variables.tf:12`) and prod leaves it
 commented (`environments/prod/github-oidc.tf:9`) — any branch, tag, or PR workflow in the repo can
@@ -289,6 +326,8 @@ The supply-chain story is only as strong as this subject. **Fix:** `subject_filt
 
 ### M11. `docker-compose.yml` is broken: Confluent images have no `*.sh` tools
 
+**Status: verified.**
+
 `services/docker-compose.yml:43-46` runs `kafka-topics.sh` inside `confluentinc/cp-kafka` — Confluent
 images ship `kafka-topics` (no suffix; the healthcheck on line 31 gets it right). `kafka-init` exits
 non-zero → `worker-service` (gated on `service_completed_successfully`) never starts. The usage header
@@ -296,6 +335,8 @@ non-zero → `worker-service` (gated on `service_completed_successfully`) never 
 compose file despite AGENTS.md selling it as "running the stack locally".
 
 ### M12. `smoke-test.sh` looks for Kafka in the wrong namespace and asserts a path it didn't test
+
+**Status: verified.**
 
 - `KAFKA_NS="kafka"` (`scripts/smoke-test.sh:19`) but the Strimzi cluster lives in `platform` — the
   pre-flight fails on every cluster this repo builds.
@@ -306,6 +347,8 @@ compose file despite AGENTS.md selling it as "running the stack locally".
 
 ### M13. tts-worker treats a Redis blip as a job failure (inconsistent with its siblings)
 
+**Status: verified.**
+
 stt/llm `job_state` helpers swallow Redis errors by design ("never raise"), but tts-worker's
 `_get_state/_save_state` (`services/tts-worker/app/job_state.py:25-31`) propagate — and
 `set_synthesizing` is called *inside* the retry loop (`main.py:137`), so a transient Redis outage burns
@@ -313,6 +356,8 @@ all 3 attempts and DLQs a job whose actual processing would have succeeded. Alig
 log-and-continue policy (state writes are best-effort by contract).
 
 ### M14. `seen_ids` dedup sets grow without bound
+
+**Status: verified.**
 
 Every consumer accumulates `seen_ids` forever (`services/stt-worker/main.py:285` et al.). Long-lived
 pods (audio-api aside, workers can run for days under steady load) leak memory and the "dedup" gets
@@ -322,12 +367,16 @@ and actually delivers the idempotency the README implies.
 
 ### M15. echo-service metrics use the raw URL path as a label — unbounded cardinality
 
+**Status: verified.**
+
 `services/echo-service/main.py:39-41` labels `REQUEST_COUNT`/`REQUEST_LATENCY` with `request.url.path`,
 so any path-scanning traffic mints unlimited series (llm-gateway solved this with `_normalize_path` —
 reuse it; or label with the route template). Exceptions from `call_next` also bypass metrics, so 500s
 from crashes are uncounted.
 
 ### M16. Hidden cross-app dependency: `env-config` is generated by the worker-service Application
+
+**Status: verified.**
 
 Every audio service hard-depends on the `env-config` ConfigMap via non-optional `configMapKeyRef`, but
 only worker-service's overlay generates it (`services/worker-service/k8s/overlays/dev/kustomization.yaml:25`).
@@ -337,6 +386,8 @@ references `optional: true` with in-code defaults (the apps already default `ENV
 or move env-config into its own tiny config Application owned by the platform.
 
 ### M17. audio-api does blocking I/O on the event loop
+
+**Status: verified.**
 
 `create_job` runs `s3_client.put_object`, `redis_client.setex`, and `redis_client.get` (in `get_job`)
 synchronously inside `async def` handlers (`services/audio-api/main.py:216-239,301`); only the Kafka

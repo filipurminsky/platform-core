@@ -30,7 +30,7 @@ USER appuser
 # Metrics port
 EXPOSE 9090
 
-# Allow longer poll interval without pod eviction (matches max.poll.interval.ms=300000)
+# Allow the full gateway retry budget (matches max.poll.interval.ms=480000).
 ENV PYTHONUNBUFFERED=1
 
 CMD ["python", "main.py"]

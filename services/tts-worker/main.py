@@ -314,7 +314,10 @@ def run() -> None:
             )
 
             # Manual commit — only after output or DLQ produced
-            consumer.commit(message=msg, asynchronous=False)
+            try:
+                consumer.commit(message=msg, asynchronous=False)
+            except KafkaException as exc:
+                log.warning("offset_commit_failed", error=str(exc))
 
     finally:
         log.info("tts_worker_shutting_down")

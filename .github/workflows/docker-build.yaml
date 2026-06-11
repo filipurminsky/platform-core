@@ -151,6 +151,16 @@ jobs:
           KUSTOMIZE="$(command -v kustomize)"
           ( cd services/${{ matrix.app }}/k8s/overlays/prod \
             && "$KUSTOMIZE" edit set image "${{ matrix.app }}=${{ steps.ref.outputs.repo }}@${DIGEST}" )
+          # The four audio services also need the account-specific IRSA role ARN.
+          # Resolve it from the same AWS identity used for ECR promotion so the
+          # checked-in placeholder can never reach a promoted prod deployment.
+          case "${{ matrix.app }}" in
+            audio-api|stt-worker|llm-worker|tts-worker)
+              ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+              ROLE_PATCH="services/${{ matrix.app }}/k8s/overlays/prod/patch-serviceaccount-irsa.yaml"
+              sed -i -E "s#arn:aws:iam::[0-9]+:role/platform-core-prod-audio-pipeline#arn:aws:iam::${ACCOUNT_ID}:role/platform-core-prod-audio-pipeline#" "$ROLE_PATCH"
+              ;;
+          esac
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add services/${{ matrix.app }}/k8s/overlays/prod

@@ -35,7 +35,7 @@ spec:
               entries:
                 - keyless:
                     # Identity that signed the image == our GitHub Actions workflow
-                    subject: "https://github.com/filipurminsky/platform-core/.github/workflows/*"
+                    subject: "https://github.com/filipurminsky/platform-core/.github/workflows/docker-build.yaml@refs/heads/main"
                     issuer: "https://token.actions.githubusercontent.com"
                     rekor:
                       url: https://rekor.sigstore.dev

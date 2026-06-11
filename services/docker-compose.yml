@@ -1,4 +1,4 @@
-# Local dev stack: Kafka (KRaft mode, no ZooKeeper), echo-service, worker-service, llm-gateway stub
+# Local dev stack: Kafka, object/state stores, demo services, and the audio pipeline.
 #
 # Usage:
 #   cd services/
@@ -44,7 +44,48 @@ services:
         --topic jobs --partitions 3 --replication-factor 1
       kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
         --topic jobs-dlq --partitions 1 --replication-factor 1
+      for topic in audio.jobs audio.transcripts audio.summaries audio.results \
+        audio.stt-dlq audio.llm-dlq audio.tts-dlq; do
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic "$$topic" --partitions 3 --replication-factor 1
+      done
       echo "Topics created."
+
+  minio:
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-05-09T17-04-24Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      mc alias set local http://minio:9000 minio minio123
+      mc mb --ignore-existing local/audio-pipeline
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "local-redis-password"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "local-redis-password", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   echo-service:
     build: ./echo-service
@@ -69,12 +110,15 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
-  # Lightweight mock for vLLM — echos the request body so llm-gateway can start
+  # Lightweight OpenAI-compatible mock for vLLM and the audio pipeline.
   vllm-mock:
-    image: mendhak/http-https-echo:33
+    image: python:3.12-alpine
     container_name: vllm-mock
+    command: ["python", "/app/vllm_mock.py"]
+    volumes:
+      - ./vllm_mock.py:/app/vllm_mock.py:ro
     ports:
-      - "8000:8080"
+      - "8000:8000"
 
   llm-gateway:
     build: ./llm-gateway
@@ -82,7 +126,77 @@ services:
     ports:
       - "8080:8080"
     environment:
-      VLLM_BASE_URL: "http://vllm-mock:8080"
+      VLLM_BASE_URL: "http://vllm-mock:8000"
       RATE_LIMIT_RPM: "60"
     depends_on:
       - vllm-mock
+
+  audio-api:
+    build: ./audio-api
+    ports:
+      - "8082:8080"
+    environment: &audio-common
+      ENVIRONMENT: dev
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      S3_ENDPOINT_URL: http://minio:9000
+      S3_BUCKET: audio-pipeline
+      S3_REGION: eu-west-1
+      AWS_ACCESS_KEY_ID: minio
+      AWS_SECRET_ACCESS_KEY: minio123
+      REDIS_URL: redis://redis:6379/0
+      REDIS_PASSWORD: local-redis-password
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  stt-worker:
+    build: ./stt-worker
+    ports:
+      - "9192:9090"
+    environment:
+      <<: *audio-common
+      STT_BACKEND: stub
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  llm-worker:
+    build: ./llm-worker
+    ports:
+      - "9093:9090"
+    environment:
+      <<: *audio-common
+      LLM_GATEWAY_URL: http://llm-gateway:8080
+      LLM_MODEL: local-mock
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      llm-gateway:
+        condition: service_started
+
+  tts-worker:
+    build: ./tts-worker
+    ports:
+      - "9094:9090"
+    environment:
+      <<: *audio-common
+      TTS_BACKEND: stub
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy

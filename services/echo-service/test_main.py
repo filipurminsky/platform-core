@@ -6,6 +6,7 @@ JSON-body reflection) via Starlette's TestClient — no network or cluster neede
 
 import main
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 
 client = TestClient(main.app)
 
@@ -50,3 +51,23 @@ def test_echo_ignores_non_json_body():
     resp = client.request("GET", "/", content=b"not json", headers={"content-type": "text/plain"})
     assert resp.status_code == 200
     assert resp.json()["request"]["body"] is None
+
+
+def test_middleware_records_unhandled_500():
+    @main.app.get("/test/crash")
+    async def crash():
+        raise RuntimeError("boom")
+
+    before = (
+        REGISTRY.get_sample_value(
+            "echo_requests_total", {"method": "GET", "path": "/test/crash", "status": "500"}
+        )
+        or 0.0
+    )
+    with TestClient(main.app, raise_server_exceptions=False) as error_client:
+        response = error_client.get("/test/crash")
+    after = REGISTRY.get_sample_value(
+        "echo_requests_total", {"method": "GET", "path": "/test/crash", "status": "500"}
+    )
+    assert response.status_code == 500
+    assert after == before + 1

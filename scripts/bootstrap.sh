@@ -121,6 +121,27 @@ stringData:
 EOF
 ok "Cluster labelled environment=$ENVIRONMENT"
 
+# Redis authentication is required in every environment. Local mode has no
+# external secret store, so create one random password in both the server and
+# client namespaces before ArgoCD starts the workloads. Prod uses ESO instead.
+if [[ "$MODE" == "local" ]]; then
+  log "Creating local Redis authentication Secrets"
+  if kubectl get secret redis-auth -n platform >/dev/null 2>&1; then
+    REDIS_PASSWORD=$(kubectl get secret redis-auth -n platform -o jsonpath='{.data.password}' | base64 -d)
+  else
+    REDIS_PASSWORD=$(openssl rand -hex 32)
+  fi
+  for namespace in platform apps; do
+    kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f -
+    kubectl create secret generic redis-auth \
+      --namespace "$namespace" \
+      --from-literal=password="$REDIS_PASSWORD" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  done
+  unset REDIS_PASSWORD
+  ok "Local Redis authentication configured"
+fi
+
 # ─── Bootstrap App-of-Apps ───────────────────────────────────────────────────
 # The AppProject must exist first — the echo-service Application references it.
 log "Applying platform-apps AppProject"

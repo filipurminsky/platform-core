@@ -20,7 +20,9 @@ from app.observability import log
 
 
 def make_redis_client():
-    return redis.from_url(config.REDIS_URL, decode_responses=True)
+    return redis.from_url(
+        config.REDIS_URL, password=config.REDIS_PASSWORD or None, decode_responses=True
+    )
 
 
 def now_iso() -> str:

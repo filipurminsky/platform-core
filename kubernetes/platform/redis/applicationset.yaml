@@ -5,13 +5,14 @@
 # and audio-api reads it for the status endpoint.
 #
 # Service DNS: redis.platform.svc.cluster.local:6379
-# Client env var: REDIS_URL=redis://redis.platform.svc.cluster.local:6379/0
+# Client env vars: REDIS_URL plus REDIS_PASSWORD from the redis-auth Secret.
 #
 # Deploys the in-repo manifest under manifests/ (a single-replica upstream
 # redis:7.4-alpine Deployment + Service). We deliberately do NOT use the
 # Bitnami Helm chart: Bitnami removed older image tags from Docker Hub and the
 # chart names its Service `redis-master`, which breaks the contract DNS name.
-# Auth is disabled (demo). For prod hardening, add auth + External Secrets.
+# Redis requires authentication. Local bootstrap creates matching Secrets in
+# platform/apps; prod materializes them from AWS Secrets Manager via ESO.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -36,7 +37,7 @@ spec:
       source:
         repoURL: https://github.com/filipurminsky/platform-core.git
         targetRevision: main
-        path: kubernetes/platform/redis/manifests
+        path: kubernetes/platform/redis/overlays/{{.metadata.labels.environment}}
       destination:
         server: "{{.server}}"
         namespace: platform

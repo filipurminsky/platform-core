@@ -41,6 +41,7 @@ class Settings(BaseSettings):
 
     # Redis — job-state store (§5)
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    redis_password: SecretStr = Field(default=SecretStr(""), alias="REDIS_PASSWORD")
     job_state_ttl_seconds: int = Field(default=604800, alias="JOB_STATE_TTL_SECONDS")  # 7 days
 
     @model_validator(mode="after")
@@ -74,4 +75,5 @@ S3_ENDPOINT_URL = settings.s3_endpoint_url
 S3_BUCKET = settings.s3_bucket
 S3_REGION = settings.s3_region
 REDIS_URL = settings.redis_url
+REDIS_PASSWORD = settings.redis_password.get_secret_value()
 JOB_STATE_TTL_SECONDS = settings.job_state_ttl_seconds

@@ -84,6 +84,11 @@ spec:
             # Redis
             - name: REDIS_URL
               value: redis://redis.platform.svc.cluster.local:6379/0
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
             - name: JOB_STATE_TTL_SECONDS
               value: "604800"
 

@@ -30,7 +30,7 @@ USER appuser
 # Metrics port
 EXPOSE 9090
 
-# Allow longer poll interval without pod eviction (matches max.poll.interval.ms=300000)
+# Allow long-running model inference (matches max.poll.interval.ms=900000).
 ENV PYTHONUNBUFFERED=1
 
 # TTS_BACKEND=stub by default; prod image overrides to kokoro.

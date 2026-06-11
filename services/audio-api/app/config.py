@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     s3_region: str = Field(default="eu-west-1", alias="S3_REGION")
 
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    redis_password: SecretStr = Field(default=SecretStr(""), alias="REDIS_PASSWORD")
     job_state_ttl_seconds: int = Field(default=604800, alias="JOB_STATE_TTL_SECONDS")
 
     kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
@@ -62,9 +63,8 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _require_token_in_prod(self) -> "Settings":
         # Fail closed: an unset API_TOKEN silently disables auth, which is a dev
-        # convenience only. In prod the service is behind a public Ingress, so
-        # refuse to start rather than run open (the prod overlay wires API_TOKEN
-        # from the audio-api-auth Secret).
+        # convenience only. Refuse to start in prod without the token even though
+        # the current prod overlay keeps the Service cluster-internal.
         if (
             self.environment.lower() in ("prod", "production")
             and not self.api_token.get_secret_value()
@@ -90,6 +90,7 @@ S3_BUCKET = settings.s3_bucket
 S3_REGION = settings.s3_region
 
 REDIS_URL = settings.redis_url
+REDIS_PASSWORD = settings.redis_password.get_secret_value()
 JOB_STATE_TTL_SECONDS = settings.job_state_ttl_seconds
 
 KAFKA_BOOTSTRAP_SERVERS = settings.kafka_bootstrap_servers

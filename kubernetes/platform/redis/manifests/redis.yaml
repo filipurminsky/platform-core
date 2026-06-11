@@ -7,8 +7,7 @@
 # Service name, and is plenty for a single-replica demo state store.
 #
 # Service DNS: redis.platform.svc.cluster.local:6379
-# Client env:  REDIS_URL=redis://redis.platform.svc.cluster.local:6379/0
-# Auth disabled (demo); job state carries a 7-day TTL set by the workers.
+# Client env: REDIS_URL plus REDIS_PASSWORD from the redis-auth Secret.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,7 +35,17 @@ spec:
         - name: redis
           image: redis:7.4-alpine
           imagePullPolicy: IfNotPresent
-          args: ["--save", "", "--appendonly", "no"]   # in-memory only; state is disposable (TTL'd)
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              printf 'save ""\nappendonly no\nrequirepass %s\n' "$REDIS_PASSWORD" > /data/redis.conf
+              exec redis-server /data/redis.conf
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
           ports:
             - name: redis
               containerPort: 6379
@@ -47,7 +56,7 @@ spec:
             periodSeconds: 20
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["/bin/sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" --no-auth-warning ping"]
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

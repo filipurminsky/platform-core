@@ -99,8 +99,9 @@ exchange **keys**, never inline payloads.
   completes. Terminal `done` written by tts-worker; any worker writes `failed`
   with `error.{stage,message,dlq_topic}` when it dead-letters.
 - audio-api `GET`s `job:<job_id>` for the status endpoint.
-- **Redis client config (env):** `REDIS_URL` (e.g. `redis://redis.platform.svc.cluster.local:6379/0`).
-  Use the `redis` Python client. `JOB_STATE_TTL_SECONDS=604800`.
+- **Redis client config (env):** `REDIS_URL` (e.g. `redis://redis.platform.svc.cluster.local:6379/0`)
+  plus `REDIS_PASSWORD` from the `redis-auth` Secret. Use the `redis` Python client.
+  `JOB_STATE_TTL_SECONDS=604800`.
 
 ## 6. LLM contract
 

@@ -181,7 +181,12 @@ def run() -> None:
             process_message(msg.value(), producer, seen_ids, headers=msg.headers())
 
             # Manual commit — only after successful processing or DLQ publish
-            consumer.commit(message=msg, asynchronous=False)
+            try:
+                consumer.commit(message=msg, asynchronous=False)
+            except KafkaException as exc:
+                # Processing completed; a rebalance can still reject the commit.
+                # Redelivery is safe because handlers are idempotent and deduped.
+                log.warning("offset_commit_failed", error=str(exc))
 
     finally:
         log.info("worker_shutting_down")

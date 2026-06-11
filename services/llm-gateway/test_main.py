@@ -11,6 +11,7 @@ import httpx
 import main
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 # --- rate limiter ---------------------------------------------------------
 
@@ -58,12 +59,13 @@ class FakeResponse:
         self.status_code = status_code
         self.content = content
         self.headers = headers or {"content-type": "application/json"}
+        self.closed = False
 
     async def aiter_bytes(self, chunk_size=None):
         yield self.content
 
     async def aclose(self):
-        pass
+        self.closed = True
 
 
 class FakeClient:
@@ -92,12 +94,34 @@ def client(monkeypatch):
 
 
 def test_proxy_forwards_and_adds_rate_limit_headers(client):
-    main.http_client = FakeClient(lambda m, u: FakeResponse(200, b'{"id":"x"}'))
+    upstream = FakeResponse(200, b'{"id":"x"}')
+    main.http_client = FakeClient(lambda m, u: upstream)
     resp = client.post("/v1/chat/completions", json={"prompt": "hi"})
     assert resp.status_code == 200
     assert resp.content == b'{"id":"x"}'
     assert resp.headers["X-RateLimit-Limit"] == str(main.RATE_LIMIT_RPM)
     assert "X-RateLimit-Remaining" in resp.headers
+    assert upstream.closed is True
+
+
+def test_client_ip_ignores_spoofable_forwarding_headers():
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/v1/models",
+            "headers": [(b"x-real-ip", b"203.0.113.99")],
+            "client": ("10.0.0.42", 12345),
+            "server": ("testserver", 80),
+            "scheme": "http",
+            "query_string": b"",
+        }
+    )
+    assert main._client_ip(request) == "10.0.0.42"
+
+
+def test_metric_path_does_not_include_user_controlled_segments():
+    assert main._normalize_path("/v1/arbitrary/model/name") == "/v1/*"
 
 
 def test_proxy_rejects_when_rate_limited(client, monkeypatch):

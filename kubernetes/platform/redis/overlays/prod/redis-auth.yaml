@@ -1,0 +1,28 @@
+# Materialize the same Redis password into the server namespace and the client
+# namespace. Seed AWS Secrets Manager key platform-core/prod/redis with JSON
+# {"password":"<generated>"} before the first prod sync.
+apiVersion: external-secrets.io/v1beta1
+kind: ClusterExternalSecret
+metadata:
+  name: redis-auth
+spec:
+  externalSecretName: redis-auth
+  refreshTime: 1h
+  namespaceSelectors:
+    - matchLabels:
+        kubernetes.io/metadata.name: platform
+    - matchLabels:
+        kubernetes.io/metadata.name: apps
+  externalSecretSpec:
+    refreshInterval: 1h
+    secretStoreRef:
+      kind: ClusterSecretStore
+      name: aws-secrets-manager
+    target:
+      name: redis-auth
+      creationPolicy: Owner
+    data:
+      - secretKey: password
+        remoteRef:
+          key: platform-core/prod/redis
+          property: password

@@ -330,7 +330,12 @@ def run() -> None:
             )
 
             # Manual commit — only after successful processing or DLQ publish (contract §1)
-            consumer.commit(message=msg, asynchronous=False)
+            try:
+                consumer.commit(message=msg, asynchronous=False)
+            except KafkaException as exc:
+                # A rebalance may revoke the partition after a long inference.
+                # The message will be redelivered and Redis dedup makes that safe.
+                log.warning("offset_commit_failed", error=str(exc))
 
     finally:
         log.info("stt_worker_shutting_down")

@@ -58,7 +58,9 @@ def make_consumer() -> Consumer:
             "group.id": config.CONSUMER_GROUP,
             "auto.offset.reset": "earliest",
             "enable.auto.commit": False,  # manual commit only after producing output event
-            "max.poll.interval.ms": 300_000,
+            # Real model inference can take minutes. Keep the consumer in the
+            # group for the full retry budget instead of rebalancing mid-job.
+            "max.poll.interval.ms": 900_000,
         }
     )
     consumer = Consumer(cfg)

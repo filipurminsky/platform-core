@@ -9,8 +9,8 @@ Responsibilities:
   - Liveness / readiness probes
 
 Rate limiting: sliding-window per client IP, 60 req/min by default (env: RATE_LIMIT_RPM).
-Client IP is extracted from X-Real-IP / X-Forwarded-For (set by nginx ingress) so each
-real client gets its own bucket rather than all traffic sharing the nginx pod IP.
+Rate-limit identity uses the direct peer address. Forwarding headers are not trusted:
+internal callers can set them too, so using them would make the limit trivially spoofable.
 Upstream: env VLLM_BASE_URL (default http://vllm-inference:8000).
 
 Config, logging/tracing, metrics, and the rate-limiter class live in the `app`
@@ -30,7 +30,6 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from starlette.background import BackgroundTask
 
 # ---------------------------------------------------------------------------
 # Shared, mutable state (overridable in tests via monkeypatch)
@@ -93,15 +92,11 @@ async def metrics():
 # Proxy helpers
 # ---------------------------------------------------------------------------
 def _client_ip(request: Request) -> str:
-    """Real client IP. In prod/dev with an ingress, the ingress (nginx) sets
-    X-Real-IP. We trust it only because the ingress is our only entry point.
-    """
-    # Prefer X-Real-IP if set (by our trusted ingress)
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
+    """Return the non-spoofable direct peer address.
 
-    # Fallback to direct connection IP
+    Kubernetes NetworkPolicy also permits llm-worker to call this service
+    directly, so X-Real-IP/X-Forwarded-For cannot be trusted as ingress-only.
+    """
     if request.client and request.client.host:
         return request.client.host
 
@@ -109,9 +104,21 @@ def _client_ip(request: Request) -> str:
 
 
 def _normalize_path(path: str) -> str:
-    """Collapse to at most two path segments to bound Prometheus label cardinality."""
-    parts = path.strip("/").split("/")[:2]
-    return "/" + "/".join(parts) if parts else "/"
+    """Return a fixed route label; never expose user-controlled path segments."""
+    if path == "/":
+        return "/"
+    if path.startswith("/v1/"):
+        return "/v1/*"
+    return "unmatched"
+
+
+async def _stream_body(upstream_resp):
+    """Yield upstream bytes and always release the pooled connection."""
+    try:
+        async for chunk in upstream_resp.aiter_bytes():
+            yield chunk
+    finally:
+        await upstream_resp.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +208,8 @@ async def proxy(path: str, request: Request):
         response_headers.pop(hop, None)
 
     return StreamingResponse(
-        upstream_resp.aiter_bytes(),
+        _stream_body(upstream_resp),
         status_code=upstream_resp.status_code,
         headers=response_headers,
         media_type=upstream_resp.headers.get("content-type"),
-        background=BackgroundTask(upstream_resp.aclose),
     )

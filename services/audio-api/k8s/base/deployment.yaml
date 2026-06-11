@@ -72,6 +72,11 @@ spec:
             # Redis
             - name: REDIS_URL
               value: redis://redis.platform.svc.cluster.local:6379/0
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password
           livenessProbe:
             httpGet:
               path: /healthz
