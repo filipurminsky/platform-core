@@ -324,15 +324,25 @@ jobs:
       # upstream modules emit many IAM-policy findings we don't own, and the
       # public-subnet/public-endpoint posture (CKV_AWS_130 etc.) is a documented,
       # accepted design choice for this showcase, not a regression to block on.
-      - name: Run Checkov with external modules (informational)
-        uses: bridgecrewio/checkov-action@v12
+      # Run via the Checkov CLI rather than bridgecrewio/checkov-action: with
+      # external modules resolved the result set is huge (1200+ checks), and the
+      # action's entrypoint tries to base64-encode all of it into $GITHUB_ENV
+      # ("Argument list too long" → empty heredoc delimiter → the step errors out
+      # despite soft_fail). The CLI does no result-encoding, so --soft-fail alone
+      # keeps this informational. Pinned for determinism (matches the local toolset).
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          directory: terraform/
-          framework: terraform
-          download_external_modules: "true"
-          soft_fail: true
-          output_format: cli
-          skip_check: CKV_TF_1
+          python-version: "3.12"
+      - name: Run Checkov with external modules (informational)
+        run: |
+          pip install "checkov==3.2.520"
+          checkov --directory terraform/ \
+            --framework terraform \
+            --download-external-modules true \
+            --skip-check CKV_TF_1 \
+            --soft-fail \
+            --compact --quiet
 
   trivy-iac:
     name: Trivy IaC + Dockerfile misconfig scan
