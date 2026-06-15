@@ -15,7 +15,7 @@ kustomize build kubernetes/platform/kafka/overlays/prod | kubeconform -strict -s
 for chart in helm/*/; do helm lint "$chart"; done
 
 # Helm — render and validate (requires kubeconform)
-helm template demo helm/demo-app | kubeconform -strict -summary
+helm template demo helm/demo-app --set image.repository=registry.example.com/demo-app | kubeconform -strict -summary
 helm template vllm helm/vllm     | kubeconform -strict -summary
 
 # Terraform — format check and validate

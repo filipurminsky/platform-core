@@ -106,11 +106,18 @@ spec:
           port: 9092   # Kafka bootstrap
         - protocol: TCP
           port: 9093   # Kafka TLS
-    # vllm-inference is deployed in the apps namespace, not platform.
+    # The llm-gateway (apps namespace) is the only sanctioned entrypoint to the
+    # model — it enforces per-IP rate limiting and observability. Tenants reach
+    # the gateway, NOT vllm-inference (:8000) directly; routing them to :8000
+    # would bypass the gateway the architecture exists to funnel them through
+    # (and vllm-inference's own NetworkPolicy already restricts ingress to the
+    # gateway, so this is defence in depth).
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: apps
       ports:
         - protocol: TCP
-          port: 8000   # vLLM OpenAI API
+          port: 80     # llm-gateway Service port
+        - protocol: TCP
+          port: 8080   # llm-gateway container port (post-Service-translation)

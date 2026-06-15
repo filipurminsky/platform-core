@@ -21,3 +21,7 @@ RATE_LIMITED = Counter(
     "gateway_rate_limited_total",
     "Requests rejected by the rate limiter",
 )
+RATE_LIMITER_ERRORS = Counter(
+    "gateway_rate_limiter_errors_total",
+    "Rate-limiter backend (Redis) errors; the limiter fails open on these",
+)

@@ -15,6 +15,7 @@ dependencies = [
     "prometheus-client==0.20.0",
     "structlog==24.1.0",
     "pydantic-settings==2.14.1",
+    "redis==5.0.4",
 ]
 
 [dependency-groups]

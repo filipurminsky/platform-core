@@ -38,8 +38,10 @@ jobs:
 
       - name: Set up kubeconform
         run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
-            | tar -xz && sudo mv kubeconform /usr/local/bin/
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
+          # Verify integrity before trusting the binary that gates manifests.
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf kubeconform.tar.gz && sudo mv kubeconform /usr/local/bin/
 
       - name: Download Strimzi + KEDA CRD schemas
         run: |
@@ -59,7 +61,10 @@ jobs:
 
       - name: Helm template + kubeconform (demo-app)
         run: |
+          # image.repository is required (chart fails closed if unset); pass a
+          # placeholder so the render validates. tag defaults to appVersion.
           helm template demo helm/demo-app \
+            --set image.repository=registry.example.com/demo-app \
             | kubeconform -strict -summary \
               -schema-location default \
               -schema-location '/tmp/crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
@@ -107,13 +112,18 @@ jobs:
         env:
           KUSTOMIZE_VERSION: "5.4.3"
         run: |
-          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /tmp kustomize && sudo mv /tmp/kustomize /usr/local/bin/
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+          # Pinned to KUSTOMIZE_VERSION=5.4.3; bumping the version fails this check
+          # until the sum is updated (which is the point).
+          echo "3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7  /tmp/kustomize.tar.gz" | sha256sum -c -
+          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize && sudo mv /tmp/kustomize /usr/local/bin/
 
       - name: Set up kubeconform
         run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
-            | tar -xz && sudo mv kubeconform /usr/local/bin/
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
+          # Verify integrity before trusting the binary that gates manifests.
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf kubeconform.tar.gz && sudo mv kubeconform /usr/local/bin/
 
       - name: Build + validate dev overlay
         run: |
@@ -173,8 +183,9 @@ jobs:
           # (conftest_<ver>_Linux_x86_64.tar.gz), so the version-less
           # /latest/download/ URL 404s. Pin an explicit version instead.
           CONFTEST_VERSION=0.56.0
-          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
-            | tar -xz && sudo mv conftest /usr/local/bin/
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o conftest.tar.gz
+          echo "620f41640d63bbde1646a108ce2816ba54c980466ceebb7e754dda2d508e8cd5  conftest.tar.gz" | sha256sum -c -
+          tar -xzf conftest.tar.gz && sudo mv conftest /usr/local/bin/
 
       - name: Set up kustomize
         # Pinned direct download — the upstream install_kustomize.sh script breaks
@@ -182,8 +193,11 @@ jobs:
         env:
           KUSTOMIZE_VERSION: "5.4.3"
         run: |
-          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /tmp kustomize && sudo mv /tmp/kustomize /usr/local/bin/
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+          # Pinned to KUSTOMIZE_VERSION=5.4.3; bumping the version fails this check
+          # until the sum is updated (which is the point).
+          echo "3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7  /tmp/kustomize.tar.gz" | sha256sum -c -
+          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize && sudo mv /tmp/kustomize /usr/local/bin/
 
       # --combine evaluates the whole rendered overlay as one set, so policies can
       # check RELATIONSHIPS (e.g. does a NetworkPolicy actually select each
@@ -278,7 +292,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Checkov on Terraform
+      # Gate on our own Terraform (resources + IAM policies authored in-repo).
+      # External modules are NOT resolved here, so this is fast and deterministic.
+      - name: Run Checkov on Terraform (gating — our code)
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: terraform/
@@ -289,6 +305,23 @@ jobs:
           # come from the Terraform Registry pinned with semver (~> X.0); commit-hash
           # pinning is not applicable to registry sources, and CKV_TF_2 (version tag
           # present) already passes. Skip only this one check.
+          skip_check: CKV_TF_1
+
+      # Informational scan that DOES resolve the registry modules, so the actual
+      # EKS/VPC/subnet resource config is evaluated (closes the "registry-module
+      # blind spot": without this, how we configure terraform-aws-modules/eks and
+      # /vpc is never scanned). soft_fail so it reports rather than gates —
+      # upstream modules emit many IAM-policy findings we don't own, and the
+      # public-subnet/public-endpoint posture (CKV_AWS_130 etc.) is a documented,
+      # accepted design choice for this showcase, not a regression to block on.
+      - name: Run Checkov with external modules (informational)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform/
+          framework: terraform
+          download_external_modules: "true"
+          soft_fail: true
+          output_format: cli
           skip_check: CKV_TF_1
 
   trivy-iac:
@@ -325,8 +358,10 @@ jobs:
 
       - name: Set up kubeconform
         run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
-            | tar -xz && sudo mv kubeconform /usr/local/bin/
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
+          # Verify integrity before trusting the binary that gates manifests.
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf kubeconform.tar.gz && sudo mv kubeconform /usr/local/bin/
 
       - name: Validate all manifests in kubernetes/
         run: |

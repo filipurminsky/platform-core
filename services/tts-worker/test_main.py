@@ -75,6 +75,21 @@ class FakeRedis:
         self._store[key] = value
         self.calls.append({"key": key, "value": value, "ex": ttl})
 
+    def eval(self, _script, _numkeys, key, update_json, ttl, now):
+        """Replicate the job_state cjson merge: shallow-merge keys, stamp now."""
+        update = json.loads(update_json)
+        raw = self._store.get(key)
+        cur = json.loads(raw) if raw else {}
+        if isinstance(update.get("keys"), dict):
+            cur["keys"] = {**cur.get("keys", {}), **update["keys"]}
+            update = {k: v for k, v in update.items() if k != "keys"}
+        cur.update(update)
+        cur["updated_at"] = now
+        value = json.dumps(cur)
+        self._store[key] = value
+        self.calls.append({"key": key, "value": value, "ex": int(ttl)})
+        return 1
+
 
 # ---------------------------------------------------------------------------
 # Fixtures

@@ -30,6 +30,41 @@ spec:
       ports:
         - port: 8080
   egress:
-    # Egress to the vLLM inference service (in this namespace) plus DNS. The
-    # vllm-inference NetworkPolicy already allows ingress from app: llm-gateway.
-    - {}
+    # Upstream inference on :8000 in the apps namespace — the real
+    # vllm-inference in prod, the vllm-mock stand-in in dev. The vllm-inference
+    # NetworkPolicy still restricts *ingress* to app: llm-gateway, so this does
+    # not let anything else reach vLLM.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apps
+      ports:
+        - port: 8000
+    # Shared rate-limiter backend (Redis) in the platform namespace (prod).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: platform
+      ports:
+        - port: 6379
+    # OTLP span export to the collector in the monitoring namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - port: 4317
+          protocol: TCP
+    # DNS to CoreDNS only (not unrestricted :53 egress).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

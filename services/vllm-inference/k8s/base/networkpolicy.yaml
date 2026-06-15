@@ -27,4 +27,24 @@ spec:
       ports:
         - port: 8000
   egress:
-    - {}    # allow HuggingFace downloads, DNS
+    # HuggingFace model/tokenizer downloads over HTTPS at startup. AWS endpoints
+    # vary by region, so this can't be IP-pinned tighter than 443.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - port: 443
+          protocol: TCP
+    # DNS to CoreDNS only.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP

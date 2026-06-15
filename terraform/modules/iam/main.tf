@@ -34,27 +34,6 @@ resource "aws_iam_policy" "external_secrets" {
   })
 }
 
-# ─── Cluster Autoscaler ───────────────────────────────────────────────────────
-# NOTE: The prod cluster uses Karpenter for node autoscaling, not Cluster Autoscaler.
-# This IRSA role is retained in case CA is ever deployed alongside Karpenter for
-# managed node group scaling, but nothing currently uses it. If CA is never needed,
-# this module and its outputs can be removed.
-module "irsa_cluster_autoscaler" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
-
-  role_name                        = "${var.project}-${var.environment}-cluster-autoscaler"
-  attach_cluster_autoscaler_policy = true
-  cluster_autoscaler_cluster_names = [var.cluster_name]
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = ["kube-system:cluster-autoscaler"]
-    }
-  }
-}
-
 # ─── Crossplane provider-aws (S3) ─────────────────────────────────────────────
 # IRSA for the Crossplane AWS S3 provider. The provider's controller pod runs
 # as ServiceAccount crossplane-system:provider-aws-s3 (pinned via a
@@ -99,6 +78,10 @@ resource "aws_iam_policy" "crossplane_s3" {
         "s3:GetBucketLocation",
         "s3:GetBucket*",
         "s3:PutBucket*",
+        # Lifecycle config is its own action pair, not covered by *Bucket* —
+        # the Composition's BucketLifecycleConfiguration needs these.
+        "s3:GetLifecycleConfiguration",
+        "s3:PutLifecycleConfiguration",
       ]
       Resource = "arn:aws:s3:::${var.project}-${var.environment}-*"
     }]
@@ -163,22 +146,8 @@ resource "aws_iam_policy" "audio_pipeline_s3" {
   })
 }
 
-# ─── ECR pull (worker nodes already have this via node role,  ─────────────────
-#     but explicit IRSA is cleaner for restricted nodes) ────────────────────────
-module "irsa_ecr_pull" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
-
-  role_name = "${var.project}-${var.environment}-ecr-pull"
-
-  oidc_providers = {
-    main = {
-      provider_arn               = var.oidc_provider_arn
-      namespace_service_accounts = ["apps:default"]
-    }
-  }
-
-  role_policy_arns = {
-    ECRReadOnly = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  }
-}
+# NOTE: there is intentionally no app-level ECR-pull IRSA role. The managed node
+# IAM role already carries AmazonEC2ContainerRegistryReadOnly, so the kubelet
+# pulls images without per-pod credentials; an `apps:default` IRSA role would be
+# unused (every app runs under its own named ServiceAccount). Cluster Autoscaler
+# IRSA is likewise omitted — node autoscaling is Karpenter's job (see eks module).

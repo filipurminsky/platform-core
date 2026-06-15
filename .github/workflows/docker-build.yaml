@@ -130,8 +130,11 @@ jobs:
         run: |
           # Pinned direct download — the upstream install_kustomize.sh script
           # breaks intermittently (its release-asset glob fails to find the tarball).
-          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
-            | tar -xz -C /tmp kustomize && sudo mv /tmp/kustomize /usr/local/bin/
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+          # Verify integrity before this binary edits the prod overlay. Pinned to
+          # KUSTOMIZE_VERSION=5.4.3; a version bump fails here until the sum updates.
+          echo "3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7  /tmp/kustomize.tar.gz" | sha256sum -c -
+          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize && sudo mv /tmp/kustomize /usr/local/bin/
           KUSTOMIZE="$(command -v kustomize)"
           ( cd services/${{ matrix.app }}/k8s/overlays/prod \
             && "$KUSTOMIZE" edit set image "${{ matrix.app }}=${{ steps.ref.outputs.repo }}@${DIGEST}" )
@@ -148,7 +151,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add services/${{ matrix.app }}/k8s/overlays/prod
-          git commit -m "chore(${{ matrix.app }}): promote ${{ steps.ref.outputs.sha }} (${DIGEST})" || exit 0
+          # [skip ci] guards against a build→promote→build loop: the promotion
+          # commit touches services/** (this workflow's own trigger path). Today
+          # GitHub also suppresses runs for GITHUB_TOKEN pushes, but that's
+          # implicit — if the push ever uses a PAT/deploy key (e.g. to satisfy
+          # branch protection) the skip phrase still breaks the cycle.
+          git commit -m "chore(${{ matrix.app }}): promote ${{ steps.ref.outputs.sha }} (${DIGEST}) [skip ci]" || exit 0
           for attempt in 1 2 3 4 5; do
             if git pull --rebase --autostash origin main && git push; then
               exit 0

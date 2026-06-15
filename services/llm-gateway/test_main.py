@@ -51,6 +51,44 @@ def test_reset_at_is_in_the_future():
     assert asyncio.run(run()) > 0
 
 
+class _FakeAsyncRedis:
+    """Async-redis stand-in. `script_ok` toggles eval success vs. failure."""
+
+    def __init__(self, allowed=True, remaining=3, raise_on_eval=False):
+        self._allowed = allowed
+        self._remaining = remaining
+        self._raise = raise_on_eval
+
+    async def eval(self, *_args):
+        if self._raise:
+            raise ConnectionError("redis down")
+        return [1 if self._allowed else 0, self._remaining]
+
+    async def zrange(self, *_args, **_kwargs):
+        if self._raise:
+            raise ConnectionError("redis down")
+        return [("m", 1000.0)]
+
+
+def test_redis_limiter_returns_script_result():
+    rl = main.RedisSlidingWindowRateLimiter(60, _FakeAsyncRedis(allowed=True, remaining=7))
+
+    async def run():
+        return await rl.is_allowed("1.2.3.4")
+
+    assert asyncio.run(run()) == (True, 7)
+
+
+def test_redis_limiter_fails_open_when_redis_unavailable():
+    rl = main.RedisSlidingWindowRateLimiter(60, _FakeAsyncRedis(raise_on_eval=True))
+
+    async def run():
+        return await rl.is_allowed("1.2.3.4")
+
+    # Fail open: a Redis outage must not reject traffic (returns full budget).
+    assert asyncio.run(run()) == (True, 60)
+
+
 # --- proxy ----------------------------------------------------------------
 
 

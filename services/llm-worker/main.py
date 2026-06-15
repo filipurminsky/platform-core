@@ -38,6 +38,7 @@ import httpx
 from app.config import (
     BOOTSTRAP_SERVERS,
     CONSUMER_GROUP,
+    JOB_STATE_TTL,
     LLM_GATEWAY_URL,
     LLM_MODEL,
     LLM_TIMEOUT,
@@ -192,7 +193,7 @@ def process_message(
                 )
                 if job_id:
                     try:
-                        r.setex(f"dedup:llm:{job_id}", 86400, "1")
+                        r.setex(f"dedup:llm:{job_id}", JOB_STATE_TTL, "1")
                     except Exception as exc:
                         log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
                 return

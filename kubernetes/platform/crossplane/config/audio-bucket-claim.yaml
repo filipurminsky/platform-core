@@ -5,21 +5,15 @@
 # `apps` namespace exposes `bucket` and `region` keys consumed by the workers
 # (S3_BUCKET env var) via ExternalSecret or direct Secret mount.
 #
-# TODO: S3 lifecycle policy — prod should expire raw audio and synthesised speech
-# to control storage costs:
-#   audio/<job_id>    — expire after 30 days (audio/wav uploads)
-#   speech/<job_id>   — expire after 30 days (synthesised audio)
-#   transcripts/<job_id> and summaries/<job_id> — retain longer (audit/replay)
-#
-# The current XRD/Composition (config/definition.yaml) does NOT expose a
-# lifecycle parameter — only `region` and `versioning` are supported. To add
-# lifecycle rules, either:
-#   a) Extend the XRD with a `lifecycle` parameter and add a
-#      BucketLifecycleConfiguration resource in the Composition, OR
-#   b) Apply the lifecycle policy out-of-band via the AWS console / CLI /
-#      Terraform after the bucket is provisioned.
-# Do NOT add unsupported fields to spec.parameters — they would be silently
-# ignored by Crossplane and the rule would never be created.
+# Lifecycle: the Composition attaches a BucketLifecycleConfiguration driven by
+# the parameters below —
+#   audio/<job_id>, speech/<job_id>          — expire after audioRetentionDays (30)
+#   transcripts/<job_id>, summaries/<job_id> — retained (audit/replay); only their
+#                                              noncurrent versions are reaped
+#   all prefixes                             — noncurrent versions deleted after
+#                                              noncurrentVersionExpirationDays (7),
+#                                              incomplete multipart uploads aborted
+# This bounds storage cost despite versioning being enabled.
 apiVersion: platform.io/v1alpha1
 kind: ObjectStorageBucket
 metadata:
@@ -29,5 +23,7 @@ spec:
   parameters:
     region: eu-west-1
     versioning: true
+    audioRetentionDays: 30
+    noncurrentVersionExpirationDays: 7
   writeConnectionSecretToRef:
     name: audio-pipeline-conn

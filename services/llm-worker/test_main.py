@@ -152,12 +152,12 @@ def test_happy_path(monkeypatch):
     assert "Ship feature X by Friday" in out_value["action_items"]
     assert out_value["created_at"] == FAKE_CREATED_AT
 
-    # Assert: Redis updated (set called with job key)
-    assert r.set.called
-    last_call = r.set.call_args_list[-1]
-    key_arg = last_call[0][0]
-    assert key_arg == f"job:{FAKE_JOB_ID}"
-    state = json.loads(last_call[0][1])
+    # Assert: Redis updated via the atomic eval merge.
+    # r.eval(LUA, 1, key, update_json, ttl, now) — key is arg 2, patch is arg 3.
+    assert r.eval.called
+    last_call = r.eval.call_args_list[-1]
+    assert last_call[0][2] == f"job:{FAKE_JOB_ID}"
+    state = json.loads(last_call[0][3])
     assert "summary" in state.get("keys", {})
 
     # Assert: job_id deduped on second call
@@ -237,9 +237,9 @@ def test_gateway_error_goes_to_dlq(monkeypatch):
     assert dlq_value["attempts"] == 2
     assert "gateway timeout" in dlq_value["error"]
 
-    # Redis marked failed
-    last_set = r.set.call_args_list[-1]
-    state = json.loads(last_set[0][1])
+    # Redis marked failed (atomic eval merge: update patch is call arg index 3)
+    last_eval = r.eval.call_args_list[-1]
+    state = json.loads(last_eval[0][3])
     assert state["status"] == "failed"
     assert state["error"]["stage"] == "llm"
     assert state["error"]["dlq_topic"] == main.TOPIC_DLQ

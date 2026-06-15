@@ -1,8 +1,8 @@
 replicaCount: 2
 
 image:
-  repository: ""          # required — set per environment
-  tag: latest
+  repository: ""          # required — set per environment (templating fails if unset)
+  tag: ""                 # defaults to the chart appVersion; never ":latest"
   pullPolicy: IfNotPresent
 
 service:

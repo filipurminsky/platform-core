@@ -5,7 +5,11 @@ metadata:
   labels:
     {{- include "demo-app.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.hpa.enabled }}
+  # Only pin replicas when the HPA is NOT managing them. Setting both makes every
+  # `helm upgrade`/ArgoCD sync reset replicas to replicaCount, fighting the HPA.
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "demo-app.selectorLabels" . | nindent 6 }}
@@ -23,6 +27,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       {{- if .Values.podAntiAffinity.enabled }}
       affinity:
         podAntiAffinity:
@@ -36,7 +42,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ required "demo-app: image.repository is required (set it per environment)" .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http

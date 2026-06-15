@@ -46,18 +46,35 @@ class FakeRedisClient:
 
 
 class FakeProducer:
-    """Records produced messages without a broker."""
+    """Records produced messages without a broker.
 
-    def __init__(self):
+    Models confluent_kafka.Producer's delivery semantics: produce() queues a
+    message + its on_delivery callback, and the callback is served on the next
+    poll()/flush() (with `delivery_error` to simulate a broker rejection). The
+    app confirms delivery per-message via that callback, so the fake must fire
+    it rather than just record the message.
+    """
+
+    def __init__(self, delivery_error=None):
         self.produced: list[dict] = []
+        self._pending: list = []
+        self.delivery_error = delivery_error
 
     def produce(self, topic, value=None, key=None, headers=None, on_delivery=None):
         self.produced.append({"topic": topic, "value": value, "key": key, "headers": headers})
+        if on_delivery is not None:
+            self._pending.append(on_delivery)
+
+    def _drain(self):
+        while self._pending:
+            self._pending.pop(0)(self.delivery_error, None)
 
     def poll(self, timeout=0):
+        self._drain()
         return 0
 
     def flush(self, timeout=10):
+        self._drain()
         return 0
 
 
@@ -254,6 +271,24 @@ def test_metrics_endpoint(client):
 # ---------------------------------------------------------------------------
 # Config — prod fails closed without an API token
 # ---------------------------------------------------------------------------
+
+
+def test_kafka_delivery_failure_returns_503_and_marks_failed(client, fakes):
+    """A per-message delivery error must fail the request and flip Redis to failed."""
+    fake_s3, fake_redis, fake_producer = fakes
+    fake_producer.delivery_error = "broker rejected"
+
+    resp = client.post(
+        "/v1/audio/jobs",
+        files={"file": ("test.wav", b"RIFF" + b"\x00" * 40, "audio/wav")},
+    )
+    assert resp.status_code == 503
+
+    # Exactly one job stored, and it is marked failed (not left 'queued').
+    assert len(fake_redis._store) == 1
+    state = json.loads(next(iter(fake_redis._store.values())))
+    assert state["status"] == "failed"
+    assert state["error"]["stage"] == "audio-api"
 
 
 def test_settings_prod_requires_api_token():

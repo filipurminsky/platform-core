@@ -32,6 +32,8 @@ import asyncio
 import datetime
 import json
 import secrets
+import threading
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -53,7 +55,7 @@ from app.kafka_io import _kafka_config, kafka_header_setter
 from app.metrics import UPLOAD_BYTES, UPLOADS_TOTAL
 from app.observability import log
 from botocore.config import Config
-from confluent_kafka import Producer
+from confluent_kafka import KafkaException, Producer
 from fastapi import FastAPI, Header, HTTPException, Request, Response, UploadFile
 from opentelemetry import propagate
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
@@ -88,7 +90,9 @@ async def lifespan(_app: FastAPI):
         )
 
     if kafka_producer is None:
-        kafka_producer = Producer(_kafka_config())
+        # enable.idempotence: safe producer retries (no duplicate/reordered events
+        # on the audio.jobs hop); librdkafka then forces acks=all.
+        kafka_producer = Producer(_kafka_config({"enable.idempotence": True}))
 
     log.info(
         "audio_api_started",
@@ -125,7 +129,9 @@ async def readyz():
     checks: dict = {"redis": "unknown", "kafka": "unknown"}
     try:
         if redis_client is not None:
-            redis_client.ping()
+            # redis-py is synchronous; offload so a slow/hung Redis can't stall
+            # the event loop (and every other in-flight request) on a probe.
+            await asyncio.get_running_loop().run_in_executor(None, redis_client.ping)
             checks["redis"] = "ok"
         else:
             checks["redis"] = "not_initialized"
@@ -147,6 +153,47 @@ async def readyz():
 @app.get("/metrics")
 async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+# ---------------------------------------------------------------------------
+# Kafka delivery helper
+# ---------------------------------------------------------------------------
+def _produce_and_wait(
+    topic: str,
+    value: bytes,
+    key: bytes,
+    headers: list[tuple[str, bytes]],
+    timeout: float = 5.0,
+) -> None:
+    """Produce one event and block until THIS message is acked (or fail).
+
+    The producer is a process-wide singleton, so `flush()` reports the global
+    backlog — under concurrent uploads its non-zero remaining count reflects
+    *other* requests' in-flight messages and would make this request wrongly
+    report a delivery failure. Instead we wait on a per-message delivery Event:
+    `poll()` drives callbacks for any pending message, but we only block on our
+    own, so the confirmation is request-scoped and correct under concurrency.
+
+    Runs on a worker thread (called via run_in_executor); the blocking poll loop
+    must never run on the event loop.
+    """
+    done = threading.Event()
+    box: dict = {}
+
+    def _on_delivery(err, _msg):
+        box["err"] = err
+        done.set()
+
+    kafka_producer.produce(topic, value=value, key=key, headers=headers, on_delivery=_on_delivery)
+
+    deadline = time.monotonic() + timeout
+    while not done.is_set() and time.monotonic() < deadline:
+        kafka_producer.poll(0.1)
+
+    if not done.is_set():
+        raise KafkaException(f"delivery not confirmed within {timeout}s")
+    if box.get("err") is not None:
+        raise KafkaException(box["err"])
 
 
 # ---------------------------------------------------------------------------
@@ -265,25 +312,22 @@ async def create_job(
     headers: list[tuple[str, bytes]] = []
     propagate.inject(headers, setter=kafka_header_setter)
 
-    # Produce with delivery confirmation — fail the request if the broker rejects
-    # the event so the client knows the job was not enqueued.
-    delivery_errors: list[str] = []
-
-    def _on_delivery(err, _msg):
-        if err:
-            delivery_errors.append(str(err))
-
-    kafka_producer.produce(
-        KAFKA_TOPIC_JOBS,
-        value=json.dumps(event).encode(),
-        key=job_id.encode(),
-        headers=headers,
-        on_delivery=_on_delivery,
-    )
-    # Flush in a thread pool so the async event loop is not blocked.
-    remaining = await loop.run_in_executor(None, lambda: kafka_producer.flush(timeout=5))
-    if delivery_errors or remaining:
-        error_msg = delivery_errors[0] if delivery_errors else "kafka delivery timeout"
+    # Produce with per-message delivery confirmation — fail the request if the
+    # broker rejects the event so the client knows the job was not enqueued.
+    # Confirmation is request-scoped (see _produce_and_wait) and runs on a worker
+    # thread so the async event loop is not blocked.
+    try:
+        await loop.run_in_executor(
+            None,
+            lambda: _produce_and_wait(
+                KAFKA_TOPIC_JOBS,
+                json.dumps(event).encode(),
+                job_id.encode(),
+                headers,
+            ),
+        )
+    except Exception as exc:
+        error_msg = str(exc)
         log.error("kafka_delivery_failed", error=error_msg, job_id=job_id)
         # Mark as failed in Redis so it doesn't stay 'queued' forever
         job_state["status"] = "failed"
@@ -296,7 +340,7 @@ async def create_job(
                 json.dumps(job_state),
             ),
         )
-        raise HTTPException(status_code=503, detail=f"event delivery failed: {error_msg}")
+        raise HTTPException(status_code=503, detail=f"event delivery failed: {error_msg}") from exc
 
     UPLOADS_TOTAL.labels(status="success").inc()
     UPLOAD_BYTES.observe(byte_count)
