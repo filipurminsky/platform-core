@@ -126,6 +126,7 @@ metadata:
     app.kubernetes.io/part-of: platform-core
 spec:
   maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app: redis

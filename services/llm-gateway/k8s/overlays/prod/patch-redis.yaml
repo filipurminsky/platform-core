@@ -14,6 +14,11 @@ spec:
     spec:
       containers:
         - name: llm-gateway
+          # Redundant with the base (readOnlyRootFilesystem: true) — repeated here
+          # because Trivy scans this patch fragment standalone and would otherwise
+          # flag the container as missing it (KSV014).
+          securityContext:
+            readOnlyRootFilesystem: true
           env:
             - name: REDIS_URL
               value: redis://redis.platform.svc.cluster.local:6379/0

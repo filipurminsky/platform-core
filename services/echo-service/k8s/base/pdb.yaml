@@ -3,6 +3,9 @@ kind: PodDisruptionBudget
 metadata:
   name: echo-service
 spec:
+  # AlwaysAllow lets a node drain evict an unready pod (e.g. mid-restart) instead
+  # of stalling on it; safe here, the workload tolerates a replica being evicted.
+  unhealthyPodEvictionPolicy: AlwaysAllow
   minAvailable: 1
   selector:
     matchLabels:
