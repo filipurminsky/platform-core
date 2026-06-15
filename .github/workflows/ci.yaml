@@ -171,6 +171,16 @@ jobs:
           # Pin the binary — `latest` renames/adds checks and breaks the config.
           version: v0.8.3
 
+      # PDB best-practice checks over the WHOLE repo (kubernetes/, services/, helm/).
+      # PDBs are identical across base and overlay, so unlike the workload checks
+      # above they can be enforced everywhere — see .kube-linter-pdb.yaml.
+      - name: Run kube-linter PDB checks on all manifests
+        uses: stackrox/kube-linter-action@v1
+        with:
+          directory: .
+          config: .kube-linter-pdb.yaml
+          version: v0.8.3
+
   opa-policies:
     name: OPA / conftest policy checks
     runs-on: ubuntu-latest

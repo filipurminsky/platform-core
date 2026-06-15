@@ -1,0 +1,19 @@
+# PDB-only kube-linter profile, run over the WHOLE repo (kubernetes/, services/,
+# helm/). The main .kube-linter.yaml deliberately scans only kubernetes/, because
+# the service/helm base manifests are pre-overlay (un-patched vLLM, :latest
+# placeholder images) and would fail the workload checks that their kustomize
+# overlays / digest-pinning resolve at deploy time.
+#
+# PodDisruptionBudgets, by contrast, are identical across base and overlay, so the
+# PDB best-practice checks are safe to enforce everywhere. doNotAutoAddDefaults
+# strips every default check so ONLY the PDB checks below run — no workload noise.
+checks:
+  doNotAutoAddDefaults: true
+  addAllBuiltIn: false
+  include:
+    - "pdb-unhealthy-pod-eviction-policy"
+    - "pdb-max-unavailable"
+    # pdb-min-available is intentionally NOT included: it correlates the PDB against
+    # the base manifest's replica count (1), but the web services scale to 2 in their
+    # prod overlay — so it false-positives on the un-rendered base, the same reason
+    # the main config scans only kubernetes/.

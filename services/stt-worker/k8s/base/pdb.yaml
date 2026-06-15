@@ -3,6 +3,9 @@ kind: PodDisruptionBudget
 metadata:
   name: stt-worker
 spec:
+  # AlwaysAllow lets a node drain evict an unready pod (e.g. mid-restart) instead
+  # of stalling on it; safe here, the workload tolerates a replica being evicted.
+  unhealthyPodEvictionPolicy: AlwaysAllow
   # maxUnavailable: 1 allows eviction even at single-replica scale (minAvailable:1
   # would block kubectl drain / node-group upgrades / Karpenter consolidation when
   # KEDA runs the pod at exactly 1 replica).  Kafka redelivery covers eviction

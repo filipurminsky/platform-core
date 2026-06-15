@@ -68,3 +68,50 @@ repos:
         files: ^services/
         pass_filenames: false
         stages: [pre-push]
+
+      # ── kube-linter (mirrors the kube-linter CI job) ────────────────────────
+      # Unlike the other manifest CLIs (kubeconform/conftest/helm/kyverno) we keep
+      # in CI only, kube-linter runs here so best-practice regressions — e.g. a PDB
+      # missing unhealthyPodEvictionPolicy — surface before push. Requires the
+      # kube-linter binary on PATH: https://docs.kubelinter.io (`brew install
+      # kube-linter`); the hook fails with that hint if it's missing.
+      - id: kube-linter
+        name: kube-linter best-practice checks (kubernetes/)
+        entry: bash -c 'command -v kube-linter >/dev/null || { echo "kube-linter not on PATH — install it (brew install kube-linter) to run this hook"; exit 1; }; kube-linter lint kubernetes/ --config .kube-linter.yaml'
+        language: system
+        files: ^kubernetes/.*\.ya?ml$
+        pass_filenames: false
+
+      - id: kube-linter-pdb
+        name: kube-linter PDB checks (all manifests)
+        entry: bash -c 'command -v kube-linter >/dev/null || { echo "kube-linter not on PATH — install it (brew install kube-linter) to run this hook"; exit 1; }; kube-linter lint . --config .kube-linter-pdb.yaml'
+        language: system
+        files: ^(kubernetes|services|helm)/.*\.ya?ml$
+        pass_filenames: false
+
+      # ── Trivy IaC/misconfig scan (mirrors the trivy-iac CI job) ─────────────
+      # Pinned to the SAME image CI's trivy-action@v0.20.0 runs
+      # (ghcr.io/aquasecurity/trivy:0.51.1) so verdicts match exactly — a locally
+      # installed trivy is a different version and flags manifests CI accepts.
+      # Requires Docker running (and signed in). Flags mirror the CI job:
+      #   --ignorefile .trivyignore.yaml  == CI's TRIVY_IGNOREFILE env var
+      #   --skip-dirs .github             == CI's skip-dirs
+      # The remaining skips are local-only paths a fresh CI checkout never has, so
+      # skipping them keeps the verdict matched to CI:
+      #   --skip-dirs **/.terraform/**    == terraform-init vendored modules
+      #   --skip-dirs .agents --skip-dirs .claude == untracked agent tooling
+      #                                      (e.g. helm-validator's insecure test
+      #                                      fixture chart under .agents/skills/).
+      - id: trivy-config
+        name: trivy IaC + manifest misconfig scan (pinned 0.51.1)
+        entry: >-
+          ghcr.io/aquasecurity/trivy:0.51.1
+          --cache-dir /tmp/trivy-cache
+          config --severity HIGH,CRITICAL --exit-code 1
+          --ignorefile .trivyignore.yaml
+          --skip-dirs .github --skip-dirs **/.terraform/**
+          --skip-dirs .agents --skip-dirs .claude
+          .
+        language: docker_image
+        files: (\.ya?ml|\.tf|Dockerfile)$
+        pass_filenames: false

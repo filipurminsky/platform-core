@@ -3,6 +3,9 @@ kind: PodDisruptionBudget
 metadata:
   name: llm-worker
 spec:
+  # AlwaysAllow lets a node drain evict an unready pod (e.g. mid-restart) instead
+  # of stalling on it; safe here, the workload tolerates a replica being evicted.
+  unhealthyPodEvictionPolicy: AlwaysAllow
   # maxUnavailable: 1 allows eviction even at single-replica scale.
   maxUnavailable: 1
   selector:

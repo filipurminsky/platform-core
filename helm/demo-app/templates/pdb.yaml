@@ -6,6 +6,9 @@ metadata:
   labels:
     {{- include "demo-app.labels" . | nindent 4 }}
 spec:
+  # AlwaysAllow lets a node drain evict an unready pod (e.g. mid-restart) instead
+  # of stalling on it; safe here, the workload tolerates a replica being evicted.
+  unhealthyPodEvictionPolicy: AlwaysAllow
   minAvailable: {{ .Values.pdb.minAvailable }}
   selector:
     matchLabels:
