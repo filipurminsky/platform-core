@@ -23,6 +23,7 @@ spec:
                   - stt-worker
                   - tts-worker
                   - llm-worker
+                  - llm-gateway   # shared rate-limiter backend (prod)
       ports:
         - protocol: TCP
           port: 6379

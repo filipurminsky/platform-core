@@ -22,6 +22,26 @@ module "eks" {
   cluster_endpoint_public_access       = true
   cluster_endpoint_public_access_cidrs = var.allowed_cidrs
 
+  # Full control-plane logging to CloudWatch. The upstream module defaults to
+  # only api/audit/authenticator; we pin the list explicitly (so it can't
+  # silently regress on a module bump) and add controllerManager/scheduler for
+  # complete audit + forensic coverage.
+  cluster_enabled_log_types = [
+    "api",
+    "audit",
+    "authenticator",
+    "controllerManager",
+    "scheduler",
+  ]
+
+  # Envelope-encrypt Kubernetes Secrets in etcd with a dedicated KMS key. This
+  # matches the module's secure default; pinning it explicitly documents the
+  # posture and guards against an upstream default change.
+  create_kms_key = true
+  cluster_encryption_config = {
+    resources = ["secrets"]
+  }
+
   cluster_addons = {
     coredns    = { most_recent = true }
     kube-proxy = { most_recent = true }

@@ -22,20 +22,25 @@ import time
 from contextlib import asynccontextmanager
 
 import httpx
-from app.config import RATE_LIMIT_RPM, REQUEST_TIMEOUT, VLLM_BASE_URL
+from app.config import RATE_LIMIT_RPM, REDIS_PASSWORD, REDIS_URL, REQUEST_TIMEOUT, VLLM_BASE_URL
 from app.metrics import PROXY_LATENCY, PROXY_REQUESTS, RATE_LIMITED, UPSTREAM_ERRORS
 from app.observability import log
-from app.rate_limiter import SlidingWindowRateLimiter
+from app.rate_limiter import RedisSlidingWindowRateLimiter, SlidingWindowRateLimiter
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from redis.asyncio import Redis as AsyncRedis
 
 # ---------------------------------------------------------------------------
 # Shared, mutable state (overridable in tests via monkeypatch)
 # ---------------------------------------------------------------------------
+# Default to the in-process limiter (correct for single-replica dev and what the
+# unit tests construct). When REDIS_URL is set (prod, 2 replicas), lifespan swaps
+# in the Redis-backed limiter so the per-IP limit is enforced across all pods.
 limiter = SlidingWindowRateLimiter(RATE_LIMIT_RPM)
 http_client: httpx.AsyncClient | None = None
+redis_client: AsyncRedis | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -43,17 +48,32 @@ http_client: httpx.AsyncClient | None = None
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global http_client
+    global http_client, limiter, redis_client
     http_client = httpx.AsyncClient(
         base_url=VLLM_BASE_URL,
         timeout=httpx.Timeout(REQUEST_TIMEOUT),
         limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
     )
-    limiter.start_cleanup()
-    log.info("gateway_started", upstream=VLLM_BASE_URL, rate_limit_rpm=RATE_LIMIT_RPM)
+    if REDIS_URL:
+        redis_client = AsyncRedis.from_url(
+            REDIS_URL, password=REDIS_PASSWORD or None, decode_responses=True
+        )
+        limiter = RedisSlidingWindowRateLimiter(RATE_LIMIT_RPM, redis_client)
+        backend = "redis"
+    else:
+        limiter.start_cleanup()
+        backend = "in-memory"
+    log.info(
+        "gateway_started",
+        upstream=VLLM_BASE_URL,
+        rate_limit_rpm=RATE_LIMIT_RPM,
+        rate_limiter_backend=backend,
+    )
     yield
     if http_client:
         await http_client.aclose()
+    if redis_client is not None:
+        await redis_client.aclose()
 
 
 # ---------------------------------------------------------------------------

@@ -8,7 +8,8 @@
 #   3. allow-intra-namespace   — pods within the tenant may talk to each other
 #   4. allow-from-ingress      — ingress-nginx may reach tenant workloads
 #   5. allow-from-monitoring   — Prometheus may scrape /metrics
-#   6. allow-to-platform       — egress to shared platform services (Kafka, vLLM)
+#   6. allow-to-platform       — egress to shared services: Kafka (platform ns)
+#                                and vLLM (apps ns)
 # ---------------------------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -95,6 +96,7 @@ spec:
   policyTypes:
     - Egress
   egress:
+    # Kafka (Strimzi) runs in the platform namespace.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -104,5 +106,18 @@ spec:
           port: 9092   # Kafka bootstrap
         - protocol: TCP
           port: 9093   # Kafka TLS
+    # The llm-gateway (apps namespace) is the only sanctioned entrypoint to the
+    # model — it enforces per-IP rate limiting and observability. Tenants reach
+    # the gateway, NOT vllm-inference (:8000) directly; routing them to :8000
+    # would bypass the gateway the architecture exists to funnel them through
+    # (and vllm-inference's own NetworkPolicy already restricts ingress to the
+    # gateway, so this is defence in depth).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: apps
+      ports:
         - protocol: TCP
-          port: 8000   # vLLM OpenAI API
+          port: 80     # llm-gateway Service port
+        - protocol: TCP
+          port: 8080   # llm-gateway container port (post-Service-translation)

@@ -428,8 +428,9 @@ deleting/marking failed in the error path.
   loop is wedged (e.g. stuck commit, deadlocked poll). Track a "last poll heartbeat" timestamp and fail
   the probe when stale.
 - **L8. Duplicate deployment paths:** `helm/demo-app` and `helm/vllm` parallel the kustomize trees that
-  ArgoCD actually deploys, and `helm/platform-services` is a stub (tracked in TODO §C) — drift bait for
-  reviewers and Renovate; delete or clearly mark as packaging examples.
+  ArgoCD actually deploys — drift bait for reviewers and Renovate; clearly marked as packaging examples
+  in `helm/README.md`. (The `helm/platform-services` umbrella stub was deleted — it was unused and had
+  already drifted from the live chart pins.)
 - **L9. MinIO dev credentials (`minio`/`minio123`) are inlined in three places** (minio values, audio
   worker dev patches) — fine for kind, but a single generated Secret would also exercise the same env
   plumbing prod uses, making dev a better rehearsal.

@@ -12,7 +12,7 @@ variable "environment" {
 variable "kubernetes_version" {
   description = "Kubernetes version for the EKS cluster"
   type        = string
-  default     = "1.29"
+  default     = "1.31" # matches environments/prod; bump together
 }
 
 variable "vpc_id" {

@@ -17,6 +17,10 @@ patches:
     target:
       kind: Deployment
       name: llm-gateway
+  - path: patch-redis.yaml
+    target:
+      kind: Deployment
+      name: llm-gateway
 
 replicas:
   - name: llm-gateway

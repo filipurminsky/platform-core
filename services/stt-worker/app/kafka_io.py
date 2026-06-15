@@ -69,7 +69,9 @@ def make_consumer() -> Consumer:
 
 
 def make_producer() -> Producer:
-    return Producer(_kafka_config())
+    # enable.idempotence makes internal producer retries safe (no duplicate or
+    # reordered writes on the output hop; librdkafka then forces acks=all).
+    return Producer(_kafka_config({"enable.idempotence": True}))
 
 
 def produce_confirmed(

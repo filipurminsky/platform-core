@@ -7,3 +7,9 @@ spec:
     - parameter: password
       name: worker-service
       key: password
+    # KEDA must trust the Strimzi self-signed cluster CA to TLS-connect to the
+    # :9093 SASL_SSL listener. Without this the scaler cannot reach the broker,
+    # the ScaledObject errors, and the Deployment never scales off zero.
+    - parameter: ca
+      name: platform-kafka-cluster-ca-cert
+      key: ca.crt

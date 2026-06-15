@@ -83,8 +83,8 @@ def test_happy_path_stub(monkeypatch):
     assert put_kwargs["Key"] == "transcripts/happy-job-1"
     assert b"stub transcript" in put_kwargs["Body"]
 
-    # Redis updated at least once
-    assert redis.set.call_count >= 1
+    # Redis updated at least once (state writes go through the atomic eval merge)
+    assert redis.eval.call_count >= 1
 
     # Producer produced to audio.transcripts (not DLQ)
     assert producer.produce.call_count == 1
@@ -202,10 +202,10 @@ def test_s3_error_goes_to_dlq(monkeypatch):
     assert dlq_value["attempts"] == 3
     assert "failed_at" in dlq_value
 
-    # Redis updated to failed
-    # Find the set() call that contains "failed" status
-    set_calls = redis.set.call_args_list
-    final_state = json.loads(set_calls[-1][0][1])
+    # Redis updated to failed. State writes go through the atomic eval merge:
+    # r.eval(LUA, 1, key, update_json, ttl, now) — the update patch is arg index 3.
+    eval_calls = redis.eval.call_args_list
+    final_state = json.loads(eval_calls[-1][0][3])
     assert final_state["status"] == "failed"
     assert final_state["error"]["stage"] == "stt"
     assert final_state["error"]["dlq_topic"] == main.TOPIC_DLQ
@@ -243,7 +243,7 @@ def test_bad_json_is_skipped():
     main.process_message(b"not-json{{{", producer, s3, redis)
 
     producer.produce.assert_not_called()
-    redis.set.assert_not_called()
+    redis.eval.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

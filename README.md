@@ -139,7 +139,7 @@ platform-core/
 │   ├── echo-service/        #   main.py, Dockerfile, catalog-info.yaml, …
 │   │   └── k8s/             #   base/ + overlays/{dev,prod}/ (what ArgoCD deploys)
 │   └── <svc>/               #   worker-service, llm-gateway, audio-api, stt/tts/llm-worker, vllm-inference
-├── helm/                    # Custom Helm charts (demo-app, vllm, platform-services)
+├── helm/                    # Custom Helm charts (demo-app, vllm, backstage)
 ├── kustomize/validation/    # CI-only aggregate overlay (kubeconform + OPA --combine)
 ├── backstage/               # Backstage config, catalog, scaffolding templates
 ├── observability/           # Prometheus rules, Grafana dashboards, Loki config

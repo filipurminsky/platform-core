@@ -1,6 +1,13 @@
 # Enforce that every image from our registry is cryptographically signed by the
 # CI workflow (cosign keyless). Unsigned or tampered images are rejected at
 # admission — the runtime counterpart to signing in docker-build.yaml.
+#
+# This is fail-closed (failurePolicy: Fail, background: false), so Pod admission
+# of our images depends on reachability of public sigstore (Fulcio/Rekor).
+# Kyverno caches verified digests (~60m), so steady state is fine, but cold
+# paths (first rollout, KEDA scale-from-zero, mass reschedule, Kyverno restart)
+# hit sigstore. If a sigstore outage blocks admission, see the break-glass and
+# permanent-mitigation steps in docs/runbooks/image-signature-admission.md.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:

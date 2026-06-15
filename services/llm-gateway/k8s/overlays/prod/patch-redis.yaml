@@ -1,0 +1,24 @@
+# Prod: point the rate limiter at the shared Redis so the per-IP limit holds
+# across both replicas. Dev runs a single replica and leaves REDIS_URL unset, so
+# the in-process limiter is used there. redis-auth is materialized into the apps
+# namespace by the redis ClusterExternalSecret (overlays/prod/redis-auth.yaml).
+#
+# Strategic-merge patch: env vars merge by `name`, so this appends without
+# disturbing the base list order.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+spec:
+  template:
+    spec:
+      containers:
+        - name: llm-gateway
+          env:
+            - name: REDIS_URL
+              value: redis://redis.platform.svc.cluster.local:6379/0
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: password

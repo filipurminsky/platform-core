@@ -1,15 +1,22 @@
-# Minimal single-instance Redis for the AI audio pipeline job-state store.
+# Single-instance Redis for the AI audio pipeline job-state store.
 #
 # Replaces the Bitnami Helm chart: Bitnami removed older image tags from Docker
 # Hub (docker.io/bitnami/redis:<tag> now 404s) and its chart names the Service
 # `redis-master`, but the pipeline contract requires `redis.platform.svc:6379`.
 # A hand-rolled manifest with the upstream image pins both the image and the
-# Service name, and is plenty for a single-replica demo state store.
+# Service name.
+#
+# Durability: state is the source of truth for `GET /jobs/{id}` and the 7-day
+# job-state TTL, so it must survive a pod reschedule. Persistence is therefore a
+# StatefulSet with a PVC (not an emptyDir) and AOF enabled (appendfsync everysec)
+# — a node drain / image bump no longer wipes in-flight jobs. Single replica is
+# still a deliberate SPOF for a demo state store; for HA, move to a Redis
+# Sentinel/cluster or managed ElastiCache.
 #
 # Service DNS: redis.platform.svc.cluster.local:6379
 # Client env: REDIS_URL plus REDIS_PASSWORD from the redis-auth Secret.
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: redis
   namespace: platform
@@ -18,6 +25,7 @@ metadata:
     app.kubernetes.io/part-of: platform-core
 spec:
   replicas: 1
+  serviceName: redis
   selector:
     matchLabels:
       app: redis
@@ -30,15 +38,18 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 999          # `redis` user in the official image
-        fsGroup: 999            # make the /data emptyDir group-writable
+        fsGroup: 999            # make the /data PVC group-writable
       containers:
         - name: redis
           image: redis:7.4-alpine
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
+          # AOF on (durable), RDB snapshot as a periodic backstop. requirepass is
+          # injected from the Secret. redis.conf is rewritten each start (cheap,
+          # idempotent); the AOF/RDB data alongside it on the PVC is what persists.
           args:
             - |
-              printf 'save ""\nappendonly no\nrequirepass %s\n' "$REDIS_PASSWORD" > /data/redis.conf
+              printf 'appendonly yes\nappendfsync everysec\nsave 900 1\nsave 300 10\ndir /data\nrequirepass %s\n' "$REDIS_PASSWORD" > /data/redis.conf
               exec redis-server /data/redis.conf
           env:
             - name: REDIS_PASSWORD
@@ -74,9 +85,16 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-      volumes:
-        - name: data
-          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # No storageClassName: bind to the cluster default (kind: `standard`,
+        # EKS: gp2/gp3). Keeps the manifest portable across dev/prod.
+        resources:
+          requests:
+            storage: 1Gi
 ---
 apiVersion: v1
 kind: Service
@@ -94,3 +112,20 @@ spec:
     - name: redis
       port: 6379
       targetPort: redis
+---
+# Declared so node drains / Karpenter consolidation don't silently evict the
+# only Redis pod with no budget. maxUnavailable: 1 still permits voluntary
+# eviction (data survives on the PVC); minAvailable: 1 would block drains.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis
+  namespace: platform
+  labels:
+    app: redis
+    app.kubernetes.io/part-of: platform-core
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: redis

@@ -113,3 +113,68 @@ spec:
                     map:
                       "true": Enabled
                       "false": Suspended
+
+          # Lifecycle: expire raw + synthesised audio after audioRetentionDays,
+          # reap noncurrent versions (versioning is on, so without this every
+          # overwrite/expiry leaves a version behind forever), and abort stalled
+          # multipart uploads. transcripts/ and summaries/ have no expiration —
+          # only their noncurrent versions are bounded.
+          - name: lifecycle
+            base:
+              apiVersion: s3.aws.upbound.io/v1beta1
+              kind: BucketLifecycleConfiguration
+              spec:
+                forProvider:
+                  region: eu-west-1
+                  bucketSelector:
+                    matchControllerRef: true
+                  rule:
+                    - id: expire-audio
+                      status: Enabled
+                      filter:
+                        - prefix: audio/
+                      expiration:
+                        - days: 30
+                      noncurrentVersionExpiration:
+                        - noncurrentDays: 7
+                    - id: expire-speech
+                      status: Enabled
+                      filter:
+                        - prefix: speech/
+                      expiration:
+                        - days: 30
+                      noncurrentVersionExpiration:
+                        - noncurrentDays: 7
+                    - id: reap-noncurrent-derived
+                      status: Enabled
+                      filter:
+                        - prefix: ""
+                      noncurrentVersionExpiration:
+                        - noncurrentDays: 7
+                    - id: abort-incomplete-multipart
+                      status: Enabled
+                      filter:
+                        - prefix: ""
+                      abortIncompleteMultipartUpload:
+                        - daysAfterInitiation: 7
+                providerConfigRef:
+                  name: default
+            patches:
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.region
+                toFieldPath: spec.forProvider.region
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.audioRetentionDays
+                toFieldPath: spec.forProvider.rule[0].expiration[0].days
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.audioRetentionDays
+                toFieldPath: spec.forProvider.rule[1].expiration[0].days
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.noncurrentVersionExpirationDays
+                toFieldPath: spec.forProvider.rule[0].noncurrentVersionExpiration[0].noncurrentDays
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.noncurrentVersionExpirationDays
+                toFieldPath: spec.forProvider.rule[1].noncurrentVersionExpiration[0].noncurrentDays
+              - type: FromCompositeFieldPath
+                fromFieldPath: spec.parameters.noncurrentVersionExpirationDays
+                toFieldPath: spec.forProvider.rule[2].noncurrentVersionExpiration[0].noncurrentDays

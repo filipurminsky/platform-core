@@ -71,12 +71,19 @@ def make_consumer() -> Consumer:
 
 
 def make_producer() -> Producer:
-    return Producer(_kafka_config())
+    # enable.idempotence makes internal producer retries safe — no duplicate or
+    # reordered writes on the output hop (librdkafka then forces acks=all and
+    # bounds in-flight requests). Consumers still dedup, but this makes the
+    # at-least-once intent explicit rather than relying on broker defaults.
+    return Producer(_kafka_config({"enable.idempotence": True}))
 
 
 def update_lag(consumer: Consumer) -> None:
     """Poll watermark offsets and update the lag gauge for each assigned partition."""
     try:
+        # Drop series for partitions we no longer own, so a rebalance doesn't
+        # leave a stale lag value pinned forever under an old partition label.
+        CONSUMER_LAG.clear()
         for tp in consumer.assignment():
             low, high = consumer.get_watermark_offsets(tp, timeout=1.0, cached=True)
             committed = consumer.committed([tp], timeout=1.0)

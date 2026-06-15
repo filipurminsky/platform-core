@@ -42,6 +42,7 @@ from app.backends import _synthesize_kokoro, _synthesize_stub
 from app.config import (
     BOOTSTRAP_SERVERS,
     CONSUMER_GROUP,
+    JOB_STATE_TTL_SECONDS,
     MAX_RETRIES,
     S3_BUCKET,
     TOPIC_DLQ,
@@ -212,7 +213,7 @@ def process_message(
                 span.set_attribute("speech.key", speech_key)
                 if job_id:
                     try:
-                        redis_client.setex(f"dedup:tts:{job_id}", 86400, "1")
+                        redis_client.setex(f"dedup:tts:{job_id}", JOB_STATE_TTL_SECONDS, "1")
                     except Exception as exc:
                         log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
                 return

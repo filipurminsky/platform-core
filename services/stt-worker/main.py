@@ -33,6 +33,7 @@ from app.backends import _transcribe_nemo, _transcribe_stub
 from app.config import (
     BOOTSTRAP_SERVERS,
     CONSUMER_GROUP,
+    JOB_STATE_TTL_SECONDS,
     MAX_RETRIES,
     S3_BUCKET,
     STT_BACKEND,
@@ -211,7 +212,7 @@ def process_message(
                 )
                 if job_id:
                     try:
-                        redis_client.setex(f"dedup:stt:{job_id}", 86400, "1")
+                        redis_client.setex(f"dedup:stt:{job_id}", JOB_STATE_TTL_SECONDS, "1")
                     except Exception as exc:
                         log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
                 return

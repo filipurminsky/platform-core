@@ -45,6 +45,21 @@ spec:
                       type: boolean
                       description: Enable S3 object versioning.
                       default: true
+                    audioRetentionDays:
+                      type: integer
+                      description: >-
+                        Days after which objects under the audio/ and speech/
+                        prefixes expire (raw + synthesised audio). Bounds storage
+                        growth; transcripts/ and summaries/ are retained for
+                        audit/replay.
+                      default: 30
+                    noncurrentVersionExpirationDays:
+                      type: integer
+                      description: >-
+                        Days after which noncurrent object versions are deleted.
+                        Required alongside versioning: without it, overwritten and
+                        expired objects accumulate versions forever.
+                      default: 7
                   required:
                     - region
               required:
