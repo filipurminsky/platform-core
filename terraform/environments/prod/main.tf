@@ -1,12 +1,23 @@
 terraform {
-  required_version = ">= 1.6.0"
+  # >= 1.10 for S3-native state locking (use_lockfile).
+  required_version = ">= 1.10"
 
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.72"
+    }
+  }
+
+  # State locking uses an S3 lock object (<key>.tflock) instead of the
+  # deprecated DynamoDB table. Migration from dynamodb_table: see the note in
+  # terraform/backend.tf (run `terraform init -reconfigure` once).
   backend "s3" {
-    bucket         = "platform-core-tfstate"
-    key            = "prod/terraform.tfstate"
-    region         = "eu-west-1"
-    encrypt        = true
-    dynamodb_table = "platform-core-tflock"
+    bucket       = "platform-core-tfstate"
+    key          = "prod/terraform.tfstate"
+    region       = "eu-west-1"
+    encrypt      = true
+    use_lockfile = true
   }
 }
 
@@ -26,6 +37,12 @@ module "networking" {
   project     = "platform-core"
   environment = "prod"
   vpc_cidr    = "10.1.0.0/16"
+
+  # 3 AZs: Kafka runs 3 brokers with min.insync.replicas=2 and must survive an
+  # AZ loss. One NAT gateway per AZ + interface endpoints for ECR/STS/EC2/SQS/Logs.
+  az_count                   = 3
+  single_nat_gateway         = false
+  enable_interface_endpoints = true
 }
 
 module "eks" {
@@ -33,18 +50,28 @@ module "eks" {
   project     = "platform-core"
   environment = "prod"
 
-  vpc_id            = module.networking.vpc_id
-  public_subnet_ids = module.networking.public_subnet_ids
+  vpc_id             = module.networking.vpc_id
+  private_subnet_ids = module.networking.private_subnet_ids
 
-  kubernetes_version = "1.31"
+  # Fleet target. EKS upgrades one minor at a time — an existing 1.31 cluster
+  # must be walked 1.32 → 1.33 → 1.34 → 1.35 (see modules/eks/main.tf).
+  kubernetes_version = "1.35"
 
-  # Small static managed node group for baseline/system capacity (CoreDNS,
-  # Karpenter controller, platform operators). Karpenter provisions everything
-  # else — app burst capacity and GPU nodes — on demand.
+  # Private API endpoint only by default — reach it from inside the VPC (SSM
+  # Session Manager port-forward / VPN). Setting api_public_access = true
+  # additionally requires explicit api_allowed_cidrs; 0.0.0.0/0 is rejected.
+  endpoint_public_access = var.api_public_access
+  allowed_cidrs          = var.api_allowed_cidrs
+
+  # Small static ON_DEMAND managed node group for baseline/system capacity
+  # (CoreDNS, Karpenter controller, ArgoCD, Kafka brokers) — one node per AZ.
+  # Karpenter provisions everything else — Spot app burst capacity and GPU
+  # nodes — on demand.
+  node_capacity_type  = "ON_DEMAND"
   node_instance_types = ["m5.large"]
-  node_min            = 2
-  node_max            = 3
-  node_desired        = 2
+  node_min            = 3
+  node_max            = 6
+  node_desired        = 3
 
   # GPU is handled by the Karpenter GPU NodePool (kubernetes/platform/karpenter),
   # not a static managed node group — provision-on-demand, scale-to-zero.
@@ -73,6 +100,18 @@ data "aws_caller_identity" "current" {}
 variable "aws_region" {
   type    = string
   default = "eu-west-1"
+}
+
+variable "api_public_access" {
+  description = "Expose the prod EKS API publicly (restricted to api_allowed_cidrs). Default false: private endpoint only."
+  type        = bool
+  default     = false
+}
+
+variable "api_allowed_cidrs" {
+  description = "CIDRs allowed to reach the prod public API endpoint when api_public_access = true. 0.0.0.0/0 is rejected."
+  type        = list(string)
+  default     = []
 }
 
 output "cluster_name" { value = module.eks.cluster_name }

@@ -1,39 +1,14 @@
-# Local kind cluster for zero-cost development
-# Mirrors the prod EKS topology as closely as possible.
-# Used by bootstrap.sh --mode=local
+# Local kind cluster for zero-cost development (used by bootstrap.sh --mode=local).
+#
+# The single source of truth is the committed kind-config.yaml next to this file
+# (Cilium instead of kindnet, digest-pinned kindest/node matching the EKS fleet
+# version, ingress port mappings). This module used to re-render that file from
+# an inline heredoc, which had silently drifted (no image pin, default CNI) and
+# would have overwritten the committed config on apply — so it now only exposes
+# the path. The cluster itself is created by:
+#   kind create cluster --config terraform/modules/kind/kind-config.yaml
 
-# kind-config.yaml is read by the CLI — this file documents what it contains.
-# The actual cluster is created by: kind create cluster --config kind-config.yaml
-
-resource "local_file" "kind_config" {
-  filename = "${path.module}/kind-config.yaml"
-  content  = <<-YAML
-    kind: Cluster
-    apiVersion: kind.x-k8s.io/v1alpha4
-    name: platform-core
-    nodes:
-      - role: control-plane
-        kubeadmConfigPatches:
-          - |
-            kind: InitConfiguration
-            nodeRegistration:
-              kubeletExtraArgs:
-                node-labels: "ingress-ready=true"
-        extraPortMappings:
-          - containerPort: 80
-            hostPort: 80
-            protocol: TCP
-          - containerPort: 443
-            hostPort: 443
-            protocol: TCP
-      - role: worker
-        labels:
-          role: platform
-      - role: worker
-        labels:
-          role: apps
-    networking:
-      podSubnet: "10.244.0.0/16"
-      serviceSubnet: "10.96.0.0/12"
-  YAML
+output "kind_config_path" {
+  description = "Path to the committed kind cluster config"
+  value       = "${path.module}/kind-config.yaml"
 }

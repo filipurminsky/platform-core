@@ -8,25 +8,43 @@ locals {
 }
 
 # ─── EKS Cluster ─────────────────────────────────────────────────────────────
+# terraform-aws-modules/eks v21 (inputs lost their cluster_ prefix; see
+# docs/UPGRADE-21.0.md upstream). No state moves are required by the module
+# bump itself.
+#
+# Upgrading an EXISTING cluster's Kubernetes version: EKS only upgrades one
+# minor at a time, so a cluster created on 1.31 must be walked
+#   1.31 → 1.32 → 1.33 → 1.34 → 1.35
+# by setting kubernetes_version to each intermediate minor and applying in turn
+# (control plane first, then the managed node groups roll; Karpenter nodes
+# drift-replace onto the new AMI on their own). Before each hop: check the EKS
+# upgrade insights (`aws eks list-insights`) for removed APIs, and keep add-ons
+# (coredns/kube-proxy/vpc-cni, most_recent = true) in step. AL2 AMIs stop at
+# 1.32, which is why every node group here is AL2023.
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 20.0"
+  version = "~> 21.29"
 
-  cluster_name    = local.cluster_name
-  cluster_version = var.kubernetes_version
+  name               = local.cluster_name
+  kubernetes_version = var.kubernetes_version
 
-  vpc_id     = var.vpc_id
-  subnet_ids = var.public_subnet_ids # Nodes run in public subnets (egress via IGW, no NAT gateway cost)
+  vpc_id = var.vpc_id
+  # Control-plane ENIs and every node live in the private subnets; egress is via
+  # NAT (+ VPC endpoints). Public subnets carry only internet-facing LBs.
+  subnet_ids               = var.private_subnet_ids
+  control_plane_subnet_ids = var.private_subnet_ids
 
-  # Allow kubectl from the internet (for a showcase project)
-  cluster_endpoint_public_access       = true
-  cluster_endpoint_public_access_cidrs = var.allowed_cidrs
+  # API endpoint: private always; public only when explicitly enabled AND fenced
+  # to explicit CIDRs (validated in variables.tf — 0.0.0.0/0 is rejected in prod).
+  endpoint_private_access      = true
+  endpoint_public_access       = var.endpoint_public_access
+  endpoint_public_access_cidrs = var.endpoint_public_access ? var.allowed_cidrs : null
 
   # Full control-plane logging to CloudWatch. The upstream module defaults to
   # only api/audit/authenticator; we pin the list explicitly (so it can't
   # silently regress on a module bump) and add controllerManager/scheduler for
   # complete audit + forensic coverage.
-  cluster_enabled_log_types = [
+  enabled_log_types = [
     "api",
     "audit",
     "authenticator",
@@ -38,11 +56,12 @@ module "eks" {
   # matches the module's secure default; pinning it explicitly documents the
   # posture and guards against an upstream default change.
   create_kms_key = true
-  cluster_encryption_config = {
+  encryption_config = {
     resources = ["secrets"]
   }
 
-  cluster_addons = {
+  # v21 defaults: most_recent = true, resolve_conflicts_on_create = "NONE".
+  addons = {
     coredns    = { most_recent = true }
     kube-proxy = { most_recent = true }
     vpc-cni = {
@@ -57,11 +76,16 @@ module "eks" {
     }
   }
 
-  # Default managed node group — general workloads
+  # Baseline managed node group — hosts the Karpenter controller, ArgoCD,
+  # Strimzi/Kafka and other platform operators. ON_DEMAND (prod) so a Spot
+  # reclaim can't take out the autoscaler that would replace it, or a Kafka
+  # broker; min = one node per AZ. Burst/app capacity is Spot via Karpenter.
   eks_managed_node_groups = {
     platform = {
-      capacity_type  = "SPOT"
+      ami_type       = "AL2023_x86_64_STANDARD" # AL2 is unsupported on EKS >= 1.33
+      capacity_type  = var.node_capacity_type
       instance_types = var.node_instance_types
+      subnet_ids     = var.private_subnet_ids
       min_size       = var.node_min
       max_size       = var.node_max
       desired_size   = var.node_desired
@@ -88,7 +112,7 @@ module "gpu_nodegroup" {
 
   cluster_name  = module.eks.cluster_name
   node_role_arn = module.eks.eks_managed_node_groups["platform"].iam_role_arn
-  subnet_ids    = var.public_subnet_ids # Nodes run in public subnets (egress via IGW, no NAT gateway cost)
+  subnet_ids    = var.private_subnet_ids
 
   instance_type = var.gpu_instance_type # default: g4dn.xlarge
   min_size      = 0                     # scale-to-zero when idle
@@ -98,27 +122,55 @@ module "gpu_nodegroup" {
 
 # ─── Karpenter (prod node autoscaling) ───────────────────────────────────────
 # The community submodule provisions everything Karpenter needs on the AWS side:
-# the controller IAM role (IRSA), the node IAM role + access entry so nodes can
-# join, the SQS interruption queue, and the EventBridge rules feeding it. The
+# the controller IAM role, the node IAM role + access entry so nodes can join,
+# the SQS interruption queue, and the EventBridge rules feeding it. The
 # in-cluster controller + NodePools/EC2NodeClass ship via the prod-only
 # kubernetes/platform/karpenter ApplicationSet. This replaces the static GPU
 # managed node group for vLLM with an on-demand Karpenter GPU NodePool.
+#
+# IRSA, not Pod Identity: v21 of the submodule dropped its built-in IRSA inputs
+# (enable_irsa / irsa_*) and defaults to EKS Pod Identity. We keep the platform-
+# wide IRSA model by (a) not creating the pod identity association and (b)
+# supplying the IRSA web-identity trust statement ourselves. The role name,
+# policy and queue are unchanged, so no state moves. Migrating the whole
+# platform to Pod Identity is a separate, deliberate change.
+data "aws_iam_policy_document" "karpenter_irsa_trust" {
+  count = var.enable_karpenter ? 1 : 0
+
+  statement {
+    sid     = "IRSA"
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [module.eks.oidc_provider_arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${module.eks.oidc_provider}:sub"
+      values   = ["system:serviceaccount:kube-system:karpenter"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${module.eks.oidc_provider}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+  }
+}
+
 module "karpenter" {
   source  = "terraform-aws-modules/eks/aws//modules/karpenter"
-  version = "~> 20.0"
+  version = "~> 21.29"
   count   = var.enable_karpenter ? 1 : 0
 
   cluster_name = module.eks.cluster_name
 
-  enable_v1_permissions = true # Karpenter v1.0+ controller policy
-
-  # Use IRSA (cluster OIDC) like the rest of the platform, not Pod Identity.
-  # The Helm chart's ServiceAccount is kube-system:karpenter.
-  enable_pod_identity             = false
-  create_pod_identity_association = false
-  enable_irsa                     = true
-  irsa_oidc_provider_arn          = data.aws_iam_openid_connect_provider.eks.arn
-  irsa_namespace_service_accounts = ["kube-system:karpenter"]
+  # IRSA (see above). The Helm chart's ServiceAccount is kube-system:karpenter.
+  create_pod_identity_association         = false
+  iam_role_source_assume_policy_documents = [data.aws_iam_policy_document.karpenter_irsa_trust[0].json]
 
   # SSM on nodes for break-glass debugging.
   node_iam_role_additional_policies = {
@@ -126,9 +178,4 @@ module "karpenter" {
   }
 
   tags = local.common_tags
-}
-
-# ─── IRSA — shared OIDC provider ─────────────────────────────────────────────
-data "aws_iam_openid_connect_provider" "eks" {
-  url = module.eks.cluster_oidc_issuer_url
 }
