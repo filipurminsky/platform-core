@@ -2,7 +2,11 @@
 #
 # Usage:
 #   cd services/
-#   docker compose up -d
+#   docker compose up -d --build
+#
+# Images build with context `services/` (this directory) and
+# `dockerfile: <app>/Dockerfile`, so the shared `platform-common/` library is
+# inside the build context — the same layout CI uses.
 #   docker compose logs -f worker-service
 #   # Produce a test job:
 #   docker compose exec kafka kafka-console-producer \
@@ -11,7 +15,7 @@
 
 services:
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
+    image: confluentinc/cp-kafka:8.4.0
     hostname: kafka
     container_name: kafka
     ports:
@@ -34,50 +38,68 @@ services:
       retries: 5
 
   kafka-init:
-    image: confluentinc/cp-kafka:7.6.0
+    image: confluentinc/cp-kafka:8.4.0
     depends_on:
       kafka:
         condition: service_healthy
     entrypoint: ["/bin/bash", "-c"]
-    command: |
-      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-        --topic jobs --partitions 3 --replication-factor 1
-      kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-        --topic jobs-dlq --partitions 1 --replication-factor 1
-      for topic in audio.jobs audio.transcripts audio.summaries audio.results \
-        audio.stt-dlq audio.llm-dlq audio.tts-dlq; do
+    # List form: a plain `command: |` string is shell-split by compose, so
+    # `bash -c` would only receive its first word.
+    command:
+      - |
         kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
-          --topic "$$topic" --partitions 3 --replication-factor 1
-      done
-      echo "Topics created."
+          --topic jobs --partitions 3 --replication-factor 1
+        kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic jobs-dlq --partitions 1 --replication-factor 1
+        for topic in audio.jobs audio.transcripts audio.summaries audio.results \
+          audio.stt-dlq audio.llm-dlq audio.tts-dlq; do
+          kafka-topics --bootstrap-server kafka:9092 --create --if-not-exists \
+            --topic "$$topic" --partitions 3 --replication-factor 1
+        done
+        echo "Topics created."
 
+  # S3-compatible object store. MinIO community images are no longer published,
+  # so this is SeaweedFS (S3 gateway) — kept under the service name `minio`, on
+  # port 9000, with the same access/secret keys, so S3_ENDPOINT_URL and the
+  # credentials below are unchanged.
   minio:
-    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
-    command: server /data --console-address ":9001"
+    image: chrislusf/seaweedfs:4.52
+    command:
+      - server
+      - -ip.bind=0.0.0.0
+      - -dir=/data
+      - -s3
+      - -s3.port=9000
+      - -s3.config=/etc/seaweedfs/s3.json
+    configs:
+      - source: seaweedfs-s3
+        target: /etc/seaweedfs/s3.json
     ports:
       - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minio
-      MINIO_ROOT_PASSWORD: minio123
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:9000/healthz"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
 
   minio-init:
-    image: minio/mc:RELEASE.2024-05-09T17-04-24Z
+    image: chrislusf/seaweedfs:4.52
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: ["/bin/sh", "-c"]
-    command: |
-      mc alias set local http://minio:9000 minio minio123
-      mc mb --ignore-existing local/audio-pipeline
+    command:
+      - |
+        set -e
+        # Idempotent: re-running `compose up` must not fail on an existing bucket.
+        if echo "s3.bucket.list" | weed shell -master=minio:9333 | grep -qw audio-pipeline; then
+          echo "Bucket audio-pipeline already exists."
+        else
+          echo "s3.bucket.create -name audio-pipeline" | weed shell -master=minio:9333
+        fi
 
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4.12-alpine  # matches the in-cluster platform/redis major.minor
     command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "local-redis-password"]
     ports:
       - "6379:6379"
@@ -88,7 +110,9 @@ services:
       retries: 10
 
   echo-service:
-    build: ./echo-service
+    build:
+      context: .
+      dockerfile: echo-service/Dockerfile
     container_name: echo-service
     ports:
       - "8081:8080"
@@ -96,7 +120,9 @@ services:
       APP_VERSION: "local"
 
   worker-service:
-    build: ./worker-service
+    build:
+      context: .
+      dockerfile: worker-service/Dockerfile
     container_name: worker-service
     ports:
       - "9091:9090"   # metrics
@@ -112,7 +138,7 @@ services:
 
   # Lightweight OpenAI-compatible mock for vLLM and the audio pipeline.
   vllm-mock:
-    image: python:3.12-alpine
+    image: python:3.13.18-alpine
     container_name: vllm-mock
     command: ["python", "/app/vllm_mock.py"]
     volumes:
@@ -121,18 +147,24 @@ services:
       - "8000:8000"
 
   llm-gateway:
-    build: ./llm-gateway
+    build:
+      context: .
+      dockerfile: llm-gateway/Dockerfile
     container_name: llm-gateway
     ports:
       - "8080:8080"
     environment:
       VLLM_BASE_URL: "http://vllm-mock:8000"
       RATE_LIMIT_RPM: "60"
+      # Bearer keys accepted on /v1/* (CSV). llm-worker presents the first one.
+      GATEWAY_API_KEYS: "local-llm-worker-key"
     depends_on:
       - vllm-mock
 
   audio-api:
-    build: ./audio-api
+    build:
+      context: .
+      dockerfile: audio-api/Dockerfile
     ports:
       - "8082:8080"
     environment: &audio-common
@@ -154,7 +186,9 @@ services:
         condition: service_healthy
 
   stt-worker:
-    build: ./stt-worker
+    build:
+      context: .
+      dockerfile: stt-worker/Dockerfile
     ports:
       - "9192:9090"
     environment:
@@ -169,12 +203,15 @@ services:
         condition: service_healthy
 
   llm-worker:
-    build: ./llm-worker
+    build:
+      context: .
+      dockerfile: llm-worker/Dockerfile
     ports:
       - "9093:9090"
     environment:
       <<: *audio-common
       LLM_GATEWAY_URL: http://llm-gateway:8080
+      LLM_GATEWAY_API_KEY: local-llm-worker-key
       LLM_MODEL: local-mock
     depends_on:
       kafka-init:
@@ -187,7 +224,9 @@ services:
         condition: service_started
 
   tts-worker:
-    build: ./tts-worker
+    build:
+      context: .
+      dockerfile: tts-worker/Dockerfile
     ports:
       - "9094:9090"
     environment:
@@ -200,3 +239,17 @@ services:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+
+configs:
+  # SeaweedFS S3 identities: same access/secret key the services use.
+  seaweedfs-s3:
+    content: |
+      {
+        "identities": [
+          {
+            "name": "local",
+            "credentials": [{"accessKey": "minio", "secretKey": "minio123"}],
+            "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+          }
+        ]
+      }

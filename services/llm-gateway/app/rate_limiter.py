@@ -1,9 +1,12 @@
-"""Per-client-IP sliding-window rate limiting.
+"""Per-client sliding-window rate limiting.
+
+The identity is an opaque string chosen by the caller: a hashed API-key id when
+auth is on, otherwise the (proxy-aware) client IP.
 
 Two implementations with the same async interface:
 
 - ``SlidingWindowRateLimiter`` — in-process, per-pod. Correct only for a single
-  replica (dev). With N replicas the effective per-IP limit is ~N× the configured
+  replica (dev). With N replicas the effective per-client limit is ~N× the configured
   value because each pod keeps its own window.
 - ``RedisSlidingWindowRateLimiter`` — shared across all replicas via a Redis
   sorted set, mutated atomically by a Lua script so concurrent pods can't race.
@@ -48,52 +51,59 @@ class SlidingWindowRateLimiter:
         """Remove windows where all timestamps are outside the window."""
         now = time.time()
         async with self._lock:
-            expired_ips = []
-            for ip, dq in self._windows.items():
+            expired = []
+            for identity, dq in self._windows.items():
                 while dq and dq[0] < now - self.WINDOW:
                     dq.popleft()
                 if not dq:
-                    expired_ips.append(ip)
-            for ip in expired_ips:
-                del self._windows[ip]
+                    expired.append(identity)
+            for identity in expired:
+                del self._windows[identity]
 
-    async def is_allowed(self, client_ip: str) -> tuple[bool, int]:
-        """Returns (allowed, remaining)."""
+    async def is_allowed(self, identity: str) -> tuple[bool, int, int]:
+        """Returns (allowed, remaining, reset_at).
+
+        ``reset_at`` is the epoch second at which the oldest request in the window
+        expires (i.e. when a slot frees up), computed under the same lock as the
+        admission decision so the three values are mutually consistent.
+        """
         now = time.time()
         async with self._lock:
-            dq = self._windows.setdefault(client_ip, collections.deque())
+            dq = self._windows.setdefault(identity, collections.deque())
             # Drop timestamps outside the window
             while dq and dq[0] < now - self.WINDOW:
                 dq.popleft()
             if len(dq) >= self._limit:
-                return False, 0
+                return False, 0, int(dq[0] + self.WINDOW)
             dq.append(now)
-            return True, self._limit - len(dq)
-
-    async def reset_at(self, client_ip: str) -> int:
-        """Epoch second when the oldest request in the window expires."""
-        async with self._lock:
-            dq = self._windows.get(client_ip)
-            if dq:
-                return int(dq[0] + self.WINDOW)
-            return int(time.time() + self.WINDOW)
+            return True, self._limit - len(dq), int(dq[0] + self.WINDOW)
 
 
 # Atomic sliding window: prune expired entries, count, and conditionally admit —
-# all in one round trip so two replicas hitting the same IP can't both read a
-# stale count and over-admit. Returns {allowed, remaining}.
+# all in one round trip so two replicas hitting the same identity can't both read
+# a stale count and over-admit. Returns {allowed, remaining, reset_at}, where
+# reset_at is the epoch second the oldest in-window entry expires (Lua numbers are
+# truncated to integers in the reply, so it is floored explicitly).
 _SLIDING_WINDOW_LUA = """
 local now = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
 local limit = tonumber(ARGV[3])
 redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, now - window)
 local count = redis.call('ZCARD', KEYS[1])
-if count >= limit then
-  return {0, 0}
+local allowed = 0
+local remaining = 0
+if count < limit then
+  redis.call('ZADD', KEYS[1], now, ARGV[4])
+  redis.call('EXPIRE', KEYS[1], math.ceil(window))
+  allowed = 1
+  remaining = limit - count - 1
 end
-redis.call('ZADD', KEYS[1], now, ARGV[4])
-redis.call('EXPIRE', KEYS[1], math.ceil(window))
-return {1, limit - count - 1}
+local reset_at = now + window
+local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+if oldest[2] then
+  reset_at = tonumber(oldest[2]) + window
+end
+return {allowed, remaining, math.floor(reset_at)}
 """
 
 
@@ -110,38 +120,28 @@ class RedisSlidingWindowRateLimiter:
     def start_cleanup(self):
         """No-op: Redis EXPIRE reclaims idle windows; nothing to sweep locally."""
 
-    def _key(self, client_ip: str) -> str:
-        return f"{self.KEY_PREFIX}{client_ip}"
+    def _key(self, identity: str) -> str:
+        return f"{self.KEY_PREFIX}{identity}"
 
-    async def is_allowed(self, client_ip: str) -> tuple[bool, int]:
+    async def is_allowed(self, identity: str) -> tuple[bool, int, int]:
+        """Returns (allowed, remaining, reset_at) from one atomic Redis round trip."""
         now = time.time()
         # Unique member so two requests in the same millisecond don't collide on
         # an identical score (ZADD would otherwise overwrite, undercounting).
         member = f"{now:.6f}:{secrets.token_hex(4)}"
         try:
-            allowed, remaining = await self._redis.eval(
+            allowed, remaining, reset_at = await self._redis.eval(
                 _SLIDING_WINDOW_LUA,
                 1,
-                self._key(client_ip),
+                self._key(identity),
                 str(now),
                 str(self.WINDOW),
                 str(self._limit),
                 member,
             )
-            return bool(allowed), int(remaining)
+            return bool(allowed), int(remaining), int(reset_at)
         except Exception as exc:
             # Fail open: don't reject traffic because the limiter store is down.
             RATE_LIMITER_ERRORS.inc()
-            log.warning("rate_limiter_unavailable", error=str(exc), client_ip=client_ip)
-            return True, self._limit
-
-    async def reset_at(self, client_ip: str) -> int:
-        try:
-            oldest = await self._redis.zrange(self._key(client_ip), 0, 0, withscores=True)
-            if oldest:
-                _member, score = oldest[0]
-                return int(float(score) + self.WINDOW)
-        except Exception as exc:
-            RATE_LIMITER_ERRORS.inc()
-            log.warning("rate_limiter_unavailable", error=str(exc), client_ip=client_ip)
-        return int(time.time() + self.WINDOW)
+            log.warning("rate_limiter_unavailable", error=str(exc), identity=identity)
+            return True, self._limit, int(now + self.WINDOW)

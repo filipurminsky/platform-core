@@ -1,0 +1,26 @@
+# North-south route for the audio ingest API via the shared Envoy Gateway
+# (Gateway `platform` in envoy-gateway-system). Dev only in practice: the prod
+# overlay deletes it (patch-delete-httproute.yaml) until a real DNS name and
+# TLS listener exist; audio-api stays cluster-internal there.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: audio-api
+  labels:
+    app: audio-api
+    app.kubernetes.io/part-of: platform-core
+spec:
+  parentRefs:
+    - name: platform
+      namespace: envoy-gateway-system
+      sectionName: http
+  hostnames:
+    - audio-api.platform-core.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: audio-api
+          port: 80

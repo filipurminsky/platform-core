@@ -1,0 +1,37 @@
+[project]
+name = "platform-common"
+version = "0.2.0"
+description = "Shared building blocks for the platform-core Kafka workers: Kafka I/O, observability, health/metrics server, retry + error classification, Redis job-state + dedup, S3 client, and the audio-pipeline event models."
+requires-python = ">=3.13"
+dependencies = [
+    "confluent-kafka==2.16.1",
+    "opentelemetry-api==1.45.2",
+    "opentelemetry-exporter-otlp-proto-grpc==1.45.2",
+    "opentelemetry-sdk==1.45.2",
+    "prometheus-client==0.26.0",
+    "pydantic==2.14.3",
+    "pydantic-settings==2.16.2",
+    "structlog==26.1.0",
+]
+
+[project.optional-dependencies]
+# Object storage + job-state store, used by the audio-pipeline workers only
+# (worker-service needs neither).
+audio = [
+    "boto3==1.43.124",
+    "redis==8.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "boto3==1.43.124",
+    "httpx==0.28.1",
+    "pytest==9.2.0",
+    "redis==8.1.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
+
+# Ruff config is inherited from the repo-root pyproject.toml.

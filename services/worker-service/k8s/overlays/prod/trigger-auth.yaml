@@ -3,6 +3,13 @@ kind: TriggerAuthentication
 metadata:
   name: kafka-trigger-auth
 spec:
+  # KEDA's Kafka scaler reads `username` ONLY from a TriggerAuthentication (never
+  # from trigger metadata). Take it from the container's own KAFKA_SASL_USERNAME
+  # (set by patch-kafka-auth.yaml) so the two can't drift.
+  env:
+    - parameter: username
+      name: KAFKA_SASL_USERNAME
+      containerName: worker-service
   secretTargetRef:
     - parameter: password
       name: worker-service

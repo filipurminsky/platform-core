@@ -1,0 +1,24 @@
+# Prod environment settings for llm-gateway.
+#
+# ENVIRONMENT=prod makes the app fail closed: it refuses to start if
+# GATEWAY_API_KEYS (Secret llm-gateway-api-keys, from the ExternalSecret in this
+# overlay) is empty.
+#
+# TRUSTED_PROXY_CIDRS is intentionally NOT set (→ empty → X-Forwarded-For is
+# ignored). Prod ships no HTTPRoute, so every caller is an in-cluster pod that
+# connects directly; the peer address IS the client and no proxy hop needs to be
+# trusted. If a prod route is ever added, set this to the Envoy proxy pod CIDR.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+spec:
+  template:
+    spec:
+      containers:
+        - name: llm-gateway
+          securityContext:
+            readOnlyRootFilesystem: true
+          env:
+            - name: ENVIRONMENT
+              value: prod

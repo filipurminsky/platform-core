@@ -11,7 +11,7 @@ A lightweight FastAPI service used to validate platform connectivity, observabil
 
 ## Technology Stack
 
-- **Framework**: FastAPI (Python 3.12)
+- **Framework**: FastAPI (Python 3.13 in the container image; 3.12+ locally)
 - **Package Manager**: [uv](https://github.com/astral-sh/uv)
 - **Observability**: `prometheus-client`, OpenTelemetry (OTel), `structlog`
 
@@ -58,3 +58,14 @@ uv run pytest
 # Run locally
 uv run uvicorn main:app --host 0.0.0.0 --port 8080
 ```
+
+## Container image
+
+The build context is `services/` (shared by all services):
+
+```bash
+docker build -f services/echo-service/Dockerfile services/
+```
+
+Multi-stage: `uv` resolves `uv.lock` into a venv in the builder stage only; the
+runtime stage is `python:3.13-slim` (pinned by digest) running as UID 10001.

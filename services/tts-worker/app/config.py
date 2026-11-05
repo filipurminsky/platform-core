@@ -1,53 +1,42 @@
-"""Typed, validated configuration loaded from the environment (pydantic-settings).
+"""Typed, validated configuration (pydantic-settings, fail-fast at import).
 
-All env parsing lives in the `Settings` model — one place, validated and
-fail-fast at import. The UPPER_CASE module constants below are derived from the
-validated `settings` singleton and are what the rest of the app imports.
+Shared Kafka / retry / S3 / Redis fields come from
+`platform_common.settings.AudioWorkerSettings`; only service-specific defaults
+are declared here.
 """
 
 import sys
+from typing import Literal
 
-from pydantic import Field, SecretStr, ValidationError, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from platform_common.settings import AudioWorkerSettings
+from pydantic import Field, ValidationError
+
+SERVICE_NAME = "tts-worker"
+STAGE = "tts"
+
+# Kokoro cold start (model load) + synthesis can take minutes on CPU; 20 min
+# without a heartbeat means the loop is wedged.
+STALE_SECONDS = 1200
 
 
-class Settings(BaseSettings):
+class Settings(AudioWorkerSettings):
     """tts-worker configuration (safe defaults for local dev)."""
 
-    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
-
-    bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
     topic_in: str = Field(default="audio.summaries", alias="KAFKA_TOPIC_IN")
     topic_out: str = Field(default="audio.results", alias="KAFKA_TOPIC_OUT")
     topic_dlq: str = Field(default="audio.tts-dlq", alias="KAFKA_DLQ_TOPIC")
     consumer_group: str = Field(default="tts-worker", alias="KAFKA_CONSUMER_GROUP")
-    max_retries: int = Field(default=3, alias="MAX_RETRIES")
-    metrics_port: int = Field(default=9090, alias="METRICS_PORT")
 
-    # SASL/SCRAM — injected by Strimzi KafkaUser secret in prod; empty → plaintext for local dev
-    sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
-    sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
-    security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
-    ssl_ca_location: str = Field(default="", alias="KAFKA_SSL_CA_LOCATION")
+    max_poll_interval_ms: int = Field(
+        default=900_000, ge=10_000, alias="KAFKA_MAX_POLL_INTERVAL_MS"
+    )
+    retry_budget_seconds: float = Field(default=300.0, gt=0, alias="RETRY_BUDGET_SECONDS")
+    attempt_timeout_seconds: float = Field(default=300.0, gt=0, alias="ATTEMPT_TIMEOUT_SECONDS")
 
-    # S3 / MinIO
-    s3_bucket: str = Field(default="audio-pipeline", alias="S3_BUCKET")
-    s3_region: str = Field(default="eu-west-1", alias="S3_REGION")
-    s3_endpoint_url: str = Field(default="", alias="S3_ENDPOINT_URL")
-
-    # Redis
-    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
-    redis_password: SecretStr = Field(default=SecretStr(""), alias="REDIS_PASSWORD")
-    job_state_ttl_seconds: int = Field(default=604800, alias="JOB_STATE_TTL_SECONDS")
-
-    # TTS backend
-    tts_backend: str = Field(default="stub", alias="TTS_BACKEND")  # stub | kokoro
-
-    @model_validator(mode="after")
-    def _default_security_protocol(self) -> "Settings":
-        if self.security_protocol is None:
-            self.security_protocol = "SASL_SSL" if self.sasl_username else "PLAINTEXT"
-        return self
+    # TTS backend — a typo must fail at startup, not silently fall back to stub.
+    tts_backend: Literal["stub", "kokoro"] = Field(default="stub", alias="TTS_BACKEND")
+    kokoro_lang_code: str = Field(default="a", alias="KOKORO_LANG_CODE")  # a = American English
+    kokoro_voice: str = Field(default="af_heart", alias="KOKORO_VOICE")
 
 
 try:
@@ -65,14 +54,6 @@ TOPIC_DLQ = settings.topic_dlq
 CONSUMER_GROUP = settings.consumer_group
 MAX_RETRIES = settings.max_retries
 METRICS_PORT = settings.metrics_port
-SASL_USERNAME = settings.sasl_username
-SASL_PASSWORD = settings.sasl_password.get_secret_value()
-SECURITY_PROTOCOL = settings.security_protocol
-SSL_CA_LOCATION = settings.ssl_ca_location
 S3_BUCKET = settings.s3_bucket
-S3_REGION = settings.s3_region
-S3_ENDPOINT_URL = settings.s3_endpoint_url
-REDIS_URL = settings.redis_url
-REDIS_PASSWORD = settings.redis_password.get_secret_value()
 JOB_STATE_TTL_SECONDS = settings.job_state_ttl_seconds
 TTS_BACKEND = settings.tts_backend

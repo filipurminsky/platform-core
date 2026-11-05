@@ -312,3 +312,37 @@ def test_settings_dev_allows_empty_token():
 
     s = Settings(ENVIRONMENT="dev", API_TOKEN="")
     assert s.api_token.get_secret_value() == ""
+
+
+def test_oversized_upload_without_content_length_rejected_413(fakes, monkeypatch):
+    """The hard cap holds even when Content-Length is absent (chunked upload)."""
+    monkeypatch.setattr(main, "MAX_UPLOAD_BYTES", 16)
+    boundary = "xyz"
+    body = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="a.wav"\r\n'
+        f"Content-Type: audio/wav\r\n\r\n".encode()
+        + b"\x00" * 64
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+
+    def chunks():
+        yield body
+
+    with TestClient(main.app) as c:
+        resp = c.post(
+            "/v1/audio/jobs",
+            content=chunks(),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+    assert resp.status_code == 413
+    assert fakes[2].produced == []
+
+
+def test_kafka_failure_detail_does_not_leak_broker_error(client, fakes):
+    fakes[2].delivery_error = "broker internal: SASL user xyz"
+    resp = client.post(
+        "/v1/audio/jobs",
+        files={"file": ("test.wav", b"RIFF" + b"\x00" * 40, "audio/wav")},
+    )
+    assert resp.status_code == 503
+    assert "SASL" not in resp.text

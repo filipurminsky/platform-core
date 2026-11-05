@@ -1,49 +1,64 @@
-FROM python:3.12-slim AS base
+# syntax=docker/dockerfile:1
+# Build context: services/   →   docker build -f tts-worker/Dockerfile services/
+# (the shared services/platform-common library must be inside the context).
 
-# uv: copy the static binary from the official image (version-pinned; Renovate
-# tracks this tag via the dockerfile manager).
-COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /uvx /usr/local/bin/
+# ── builder: resolve the locked venv with uv ─────────────────────────────────
+FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS builder
+
+# uv: static binary from the official image (Renovate tracks tag + digest).
+COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /usr/local/bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=/usr/local/bin/python3.13
 
 WORKDIR /app
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
 
-# confluent-kafka needs librdkafka
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    librdkafka-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Third-party deps first (cached layer): lockfile only, no app code, no dev
+# group. --frozen fails the build if uv.lock is stale vs pyproject.toml.
+# confluent-kafka ships manylinux wheels with librdkafka bundled — no apt deps.
+COPY platform-common/pyproject.toml /platform-common/pyproject.toml
+COPY tts-worker/pyproject.toml tts-worker/uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project --no-install-package platform-common
 
-# Install runtime deps in a cached layer from the lockfile only.
-# --frozen fails the build if uv.lock is stale vs pyproject.toml.
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# Then the shared library, installed NON-editable so the venv is self-contained.
+COPY platform-common/ /platform-common/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project --no-editable
 
-# Run from the project venv.
-ENV PATH="/app/.venv/bin:$PATH"
+# ── runtime: no uv, no build tooling ─────────────────────────────────────────
+FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS runtime
 
-COPY main.py .
-COPY app ./app
+RUN useradd --uid 1000 --no-create-home --shell /bin/false appuser
 
-RUN useradd --no-create-home --shell /bin/false appuser
-USER appuser
+WORKDIR /app
+COPY --from=builder /app/.venv /app/.venv
+COPY tts-worker/main.py ./
+COPY tts-worker/app ./app
 
-# Metrics port
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+USER 1000
+
+# Metrics + probes
 EXPOSE 9090
 
-# Allow long-running model inference (matches max.poll.interval.ms=900000).
-ENV PYTHONUNBUFFERED=1
-
-# TTS_BACKEND=stub by default; prod image overrides to kokoro.
-#
-# --- KOKORO PROD IMAGE NOTES ---
-# The prod CPU image is built from this base with an additional layer that:
-#   1. Sets TTS_BACKEND=kokoro
-#   2. Installs kokoro + torch (CPU-only wheel) via:
-#        RUN pip install kokoro torch --index-url https://download.pytorch.org/whl/cpu
-#   3. Bakes the Kokoro model + voice packs by running:
-#        RUN python -c "import kokoro; kokoro.KPipeline(lang_code='en-us')"
-#      (downloads and caches model weights into the image layer)
-# This keeps the base image light + testable without ML deps.
-# ----------------------------------
-
 CMD ["python", "main.py"]
+
+# ---------------------------------------------------------------------------
+# KOKORO IMAGE NOTES (not built by CI — every overlay runs TTS_BACKEND=stub).
+# A kokoro variant extends the runtime stage with (as root, then back to 1000):
+#   - espeak-ng (apt) — kokoro's G2P fallback
+#   - kokoro + torch CPU wheels + numpy into /app/.venv, e.g.
+#       uv pip install --python /app/.venv/bin/python kokoro \
+#         torch --index-url https://download.pytorch.org/whl/cpu
+#     (done in the builder stage, which has uv, then copied over)
+#   - pre-download weights + voice pack so cold starts need no network:
+#       python -c "import kokoro; kokoro.KPipeline(lang_code='a')"
+#   - ENV TTS_BACKEND=kokoro (KOKORO_LANG_CODE / KOKORO_VOICE optional)
+# app/backends.py builds the KPipeline once per process and caches it.
+# ---------------------------------------------------------------------------

@@ -1,0 +1,13 @@
+# Dev: vLLM is not part of the dev request path — the llm-gateway dev overlay
+# points at `vllm-mock` instead. Without this, the gateway-demand activation
+# trigger (gateway traffic to the mock) would still wake this Deployment from
+# zero on every request burst and pull a multi-GiB CPU image + model on kind.
+# Pin it at 0; delete this annotation (or `kubectl annotate ... -`) to try the
+# CPU build of vLLM locally.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-inference
+  namespace: apps
+  annotations:
+    autoscaling.keda.sh/paused-replicas: "0"

@@ -1,0 +1,35 @@
+# North-south route for echo-service via the shared Envoy Gateway
+# (Gateway `platform` in envoy-gateway-system — the fixed parentRef contract).
+#
+# Canary traffic split: Argo Rollouts' gatewayAPI plugin owns the two weights
+# below and rewrites them at each setWeight step (10 → 50 → 100), then resets to
+# stable 100 / canary 0 once the rollout completes or aborts. The values here are
+# the steady state. The echo-service ApplicationSet must ignore the weight fields
+# (ignoreDifferences + RespectIgnoreDifferences) or ArgoCD selfHeal would revert
+# the split mid-canary.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: echo-service
+  labels:
+    app: echo-service
+    app.kubernetes.io/part-of: platform-core
+spec:
+  parentRefs:
+    - name: platform
+      namespace: envoy-gateway-system
+      sectionName: http
+  hostnames:
+    - echo.platform-core.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: echo-service          # stableService
+          port: 80
+          weight: 100
+        - name: echo-service-canary   # canaryService
+          port: 80
+          weight: 0

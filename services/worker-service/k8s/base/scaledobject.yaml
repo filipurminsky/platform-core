@@ -21,3 +21,5 @@ spec:
         lagThreshold: "10"          # scale up when lag > 10 messages per partition
         activationLagThreshold: "0" # activate (0->1) when lag > 0 (any unread message)
         offsetResetPolicy: earliest
+        # Kafka 4.x removed the old protocol request versions; KEDA defaults to 1.0.0.
+        version: "4.0.0"

@@ -5,7 +5,7 @@ resources:
   - rollout.yaml
   - service.yaml
   - service-canary.yaml
-  - ingress.yaml
+  - httproute.yaml
   - analysistemplate.yaml
   - networkpolicy.yaml
   - servicemonitor.yaml

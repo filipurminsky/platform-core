@@ -1,4 +1,13 @@
-# Dev: use CPU-compatible TinyLlama-1.1B; strip GPU requirements.
+# Dev: CPU-only TinyLlama-1.1B; strip GPU requirements.
+#
+# NOTE: in dev the llm-gateway points at `vllm-mock` (patch-upstream.yaml in the
+# llm-gateway dev overlay), so this Deployment is normally idle. This patch keeps
+# it runnable on CPU anyway: the CUDA `vllm/vllm-openai` image cannot
+# run on CPU and the old `--device cpu` flag no longer exists (the platform is
+# auto-detected), so we switch to the dedicated `vllm/vllm-openai-cpu` image.
+- op: replace
+  path: /spec/template/spec/containers/0/image
+  value: vllm/vllm-openai-cpu:v0.32.0
 - op: replace
   path: /spec/template/spec/containers/0/args
   value:
@@ -6,12 +15,20 @@
     - "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
     - "--download-dir"
     - "/model-cache"
+    # bf16 halves weight memory vs fp32 (~2.2 GiB vs ~4.4 GiB) and is the
+    # CPU backend's preferred dtype; fp32 would not fit the 4Gi limit.
     - "--dtype"
-    - "float32"
+    - "bfloat16"
     - "--max-model-len"
     - "2048"
-    - "--device"
-    - "cpu"
+    - "--port"
+    - "8000"
+# CPU backend sizes its KV cache from this (GiB); keep it small for kind.
+- op: add
+  path: /spec/template/spec/containers/0/env/-
+  value:
+    name: VLLM_CPU_KVCACHE_SPACE
+    value: "1"
 - op: remove
   path: /spec/template/spec/runtimeClassName
 - op: remove
@@ -23,7 +40,7 @@
   value:
     requests:
       cpu: "1"
-      memory: 2Gi
+      memory: 3Gi
     limits:
       cpu: "2"
-      memory: 4Gi
+      memory: 5Gi

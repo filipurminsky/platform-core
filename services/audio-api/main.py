@@ -125,7 +125,12 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    """Readiness: Redis ping (lenient — just checks connectivity)."""
+    """Readiness: 503 only when Redis (job state) fails a ping.
+
+    Kafka is reported but not gated on: the check only confirms the producer was
+    constructed (a broker round trip such as list_topics() can block), so a
+    broker outage surfaces as a 503 on POST /v1/audio/jobs, not here.
+    """
     checks: dict = {"redis": "unknown", "kafka": "unknown"}
     try:
         if redis_client is not None:
@@ -248,14 +253,15 @@ async def create_job(
         except ValueError:
             pass  # malformed Content-Length — enforce hard limit after reading
 
-    # Read the file and enforce hard size limit
-    audio_bytes = await file.read()
+    # Read at most one byte past the limit: enough to detect an oversized upload
+    # without pulling an arbitrarily large (spooled) file into memory.
+    audio_bytes = await file.read(MAX_UPLOAD_BYTES + 1)
     byte_count = len(audio_bytes)
     if byte_count > MAX_UPLOAD_BYTES:
         UPLOADS_TOTAL.labels(status="rejected_size").inc()
         raise HTTPException(
             status_code=413,
-            detail=f"upload size {byte_count} exceeds maximum {MAX_UPLOAD_BYTES}",
+            detail=f"upload exceeds maximum {MAX_UPLOAD_BYTES} bytes",
         )
 
     job_id = uuid.uuid4().hex
@@ -340,7 +346,8 @@ async def create_job(
                 json.dumps(job_state),
             ),
         )
-        raise HTTPException(status_code=503, detail=f"event delivery failed: {error_msg}") from exc
+        # Broker internals stay in logs / job state, not in the client response.
+        raise HTTPException(status_code=503, detail="event delivery failed") from exc
 
     UPLOADS_TOTAL.labels(status="success").inc()
     UPLOAD_BYTES.observe(byte_count)

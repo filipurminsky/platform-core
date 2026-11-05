@@ -8,11 +8,11 @@ spec:
       app: audio-api
   policyTypes: [Ingress, Egress]
   ingress:
-    # External traffic via ingress-nginx and Prometheus scraping /metrics.
+    # North-south traffic via Envoy Gateway (dev route) and Prometheus scraping /metrics.
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              kubernetes.io/metadata.name: envoy-gateway-system
       ports:
         - port: 8080
     - from:

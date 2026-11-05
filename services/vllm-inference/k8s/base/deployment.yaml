@@ -38,26 +38,44 @@ spec:
           image: busybox:1.36
           command: [sh, -c, "ls /model-cache || echo 'Cold start: model will be downloaded'"]
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534          # nobody — only lists the cache dir
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
           volumeMounts:
             - name: model-cache
               mountPath: /model-cache
       containers:
         - name: vllm
-          image: vllm/vllm-openai:v0.4.2
+          # v0.32 (V1 engine — the only engine since V0 was removed). The image
+          # entrypoint is `vllm serve`, so args below are `vllm serve` flags.
+          # -cu129 (CUDA 12.9) rather than the default CUDA 13.0 tag: CUDA 13
+          # needs NVIDIA driver >= 580, which the AL2 GPU AMI used by the GPU
+          # nodegroup/Karpenter EC2NodeClass does not ship.
+          image: vllm/vllm-openai:v0.32.0-cu129
           imagePullPolicy: IfNotPresent
           args:
             - "--model"
-            - "mistralai/Mistral-7B-Instruct-v0.2"   # patched by overlay
+            - "mistralai/Mistral-7B-Instruct-v0.2"   # patched by overlay; must match llm-worker LLM_MODEL
             - "--download-dir"
             - "/model-cache"
             - "--dtype"
             - "auto"
             - "--max-model-len"
             - "4096"
+            - "--gpu-memory-utilization"
+            - "0.90"
+            - "--port"
+            - "8000"
           ports:
             - name: http
               containerPort: 8000
@@ -68,20 +86,31 @@ spec:
                   name: huggingface-token
                   key: token
                   optional: true
-          livenessProbe:
+            # Keep tokenizer/config downloads (not just weights) on the cache volume.
+            - name: HF_HOME
+              value: /model-cache/hf
+          # vLLM only starts listening once the model is loaded, so /health
+          # refuses connections during download + load. startupProbe budgets
+          # 10 min for that; liveness/readiness only start once it passes, so
+          # they can stay tight without killing a pod mid-load.
+          startupProbe:
             httpGet:
               path: /health
-              port: 8000
-            initialDelaySeconds: 120
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health      # 503 once the engine core is dead
+              port: http
             periodSeconds: 30
             failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /health
-              port: 8000
-            initialDelaySeconds: 60
+              port: http
             periodSeconds: 10
-            failureThreshold: 30    # allow up to 5 min for model load
+            failureThreshold: 3
           resources:
             requests:
               cpu: "2"
@@ -101,7 +130,7 @@ spec:
         # ReadWriteOnce, so a single shared claim deadlocks every replica beyond
         # the first node in Multi-Attach errors (ScaledObject allows up to 4).
         # Cost: each new pod cold-downloads the model from HuggingFace before
-        # becoming Ready (readiness failureThreshold already budgets for model
+        # becoming Ready (the startupProbe budgets 10 min for model
         # load). If cold-start time becomes the bottleneck, bake the weights
         # into the image or move to RWX storage — do not share one RWO claim.
         - name: model-cache

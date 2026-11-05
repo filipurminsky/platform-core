@@ -1,58 +1,63 @@
-"""Typed, validated configuration loaded from the environment (pydantic-settings).
+"""Typed, validated configuration (pydantic-settings, fail-fast at import).
 
-All env parsing lives in the `Settings` model — one place, validated and
-fail-fast at import. The UPPER_CASE module constants below are derived from the
-validated `settings` singleton and are what the rest of the app imports.
+Shared Kafka / retry / S3 / Redis fields come from
+`platform_common.settings.AudioWorkerSettings`; only service-specific settings
+are declared here.
+
+Timing budget (all per message, validated against max.poll.interval.ms):
+  LLM_COLD_START_BUDGET_SECONDS (600) — total wall-clock spent waiting/retrying
+      while the gateway answers 429/502/503/504 or refuses connections (vLLM
+      scaling from zero). Honours the gateway's Retry-After.
+  LLM_ATTEMPT_BUDGET_SECONDS (240) — one full attempt (all map-reduce calls).
+  KAFKA_MAX_POLL_INTERVAL_MS (1 200 000) > 600 + 240 + 60 s margin.
 """
 
 import sys
 
-from pydantic import Field, SecretStr, ValidationError, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from platform_common.settings import AudioWorkerSettings
+from pydantic import Field, SecretStr, ValidationError
+
+SERVICE_NAME = "llm-worker"
+STAGE = "llm"
+
+# A single gateway call is bounded by LLM_TIMEOUT_SECONDS (120 s) and every
+# retry wait heartbeats, so 600 s without a heartbeat means a wedged loop.
+STALE_SECONDS = 600
 
 
-class Settings(BaseSettings):
+class Settings(AudioWorkerSettings):
     """llm-worker configuration (safe defaults for local dev)."""
 
-    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
-
-    bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
     topic_in: str = Field(default="audio.transcripts", alias="KAFKA_TOPIC_IN")
     topic_out: str = Field(default="audio.summaries", alias="KAFKA_TOPIC_OUT")
     topic_dlq: str = Field(default="audio.llm-dlq", alias="KAFKA_DLQ_TOPIC")
     consumer_group: str = Field(default="llm-worker", alias="KAFKA_CONSUMER_GROUP")
-    max_retries: int = Field(default=3, alias="MAX_RETRIES")
-    metrics_port: int = Field(default=9090, alias="METRICS_PORT")
 
-    # SASL/SCRAM — injected by Strimzi KafkaUser secret in prod; empty → plaintext for local dev
-    sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
-    sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
-    security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
-    ssl_ca_location: str = Field(default="", alias="KAFKA_SSL_CA_LOCATION")
+    max_poll_interval_ms: int = Field(
+        default=1_200_000, ge=10_000, alias="KAFKA_MAX_POLL_INTERVAL_MS"
+    )
+    # For this worker the retry budget IS the cold-start budget.
+    retry_budget_seconds: float = Field(default=600.0, gt=0, alias="LLM_COLD_START_BUDGET_SECONDS")
+    attempt_timeout_seconds: float = Field(default=240.0, gt=0, alias="LLM_ATTEMPT_BUDGET_SECONDS")
 
-    # LLM gateway — never talk to vLLM directly (§6). In dev the gateway proxies
-    # to TinyLlama (low quality by design — pipeline wiring demo).
+    # LLM gateway — never talk to vLLM directly (contract §6).
     llm_gateway_url: str = Field(
         default="http://llm-gateway.apps.svc.cluster.local:80", alias="LLM_GATEWAY_URL"
     )
+    # Sent as `Authorization: Bearer <key>`; optional (dev gateway may run without auth).
+    llm_gateway_api_key: SecretStr | None = Field(default=None, alias="LLM_GATEWAY_API_KEY")
     llm_model: str = Field(default="TinyLlama/TinyLlama-1.1B-Chat-v1.0", alias="LLM_MODEL")
-    llm_timeout: float = Field(default=120.0, alias="LLM_TIMEOUT_SECONDS")
+    llm_timeout: float = Field(default=120.0, gt=0, alias="LLM_TIMEOUT_SECONDS")
+    llm_max_tokens: int = Field(default=512, gt=0, alias="LLM_MAX_TOKENS")
+    llm_chunk_max_tokens: int = Field(default=256, gt=0, alias="LLM_CHUNK_MAX_TOKENS")
 
-    # S3 / MinIO (§4)
-    s3_bucket: str = Field(default="audio-pipeline", alias="S3_BUCKET")
-    s3_region: str = Field(default="eu-west-1", alias="S3_REGION")
-    s3_endpoint_url: str = Field(default="", alias="S3_ENDPOINT_URL")
-
-    # Redis job-state (§5)
-    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
-    redis_password: SecretStr = Field(default=SecretStr(""), alias="REDIS_PASSWORD")
-    job_state_ttl: int = Field(default=604800, alias="JOB_STATE_TTL_SECONDS")
-
-    @model_validator(mode="after")
-    def _default_security_protocol(self) -> "Settings":
-        if self.security_protocol is None:
-            self.security_protocol = "SASL_SSL" if self.sasl_username else "PLAINTEXT"
-        return self
+    # Context-window guard. TinyLlama has a 2 048-token context: 512 output +
+    # prompt overhead leaves ~1 300 input tokens ≈ 4 000 chars (≈ 3-4 chars/token).
+    # Longer transcripts are summarised map-reduce in chunks of this size.
+    llm_max_input_chars: int = Field(default=4000, ge=500, alias="LLM_MAX_INPUT_CHARS")
+    # Map-phase cap; anything beyond max_chunks × max_input_chars is truncated
+    # (logged + llm_transcript_truncated_total).
+    llm_max_chunks: int = Field(default=4, ge=1, alias="LLM_MAX_CHUNKS")
 
 
 try:
@@ -70,16 +75,8 @@ TOPIC_DLQ = settings.topic_dlq
 CONSUMER_GROUP = settings.consumer_group
 MAX_RETRIES = settings.max_retries
 METRICS_PORT = settings.metrics_port
-SASL_USERNAME = settings.sasl_username
-SASL_PASSWORD = settings.sasl_password.get_secret_value()
-SECURITY_PROTOCOL = settings.security_protocol
-SSL_CA_LOCATION = settings.ssl_ca_location
 LLM_GATEWAY_URL = settings.llm_gateway_url
 LLM_MODEL = settings.llm_model
 LLM_TIMEOUT = settings.llm_timeout
 S3_BUCKET = settings.s3_bucket
-S3_REGION = settings.s3_region
-S3_ENDPOINT_URL = settings.s3_endpoint_url
-REDIS_URL = settings.redis_url
-REDIS_PASSWORD = settings.redis_password.get_secret_value()
-JOB_STATE_TTL = settings.job_state_ttl
+JOB_STATE_TTL = settings.job_state_ttl_seconds

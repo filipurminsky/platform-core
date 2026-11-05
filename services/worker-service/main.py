@@ -2,46 +2,114 @@
 worker-service — Kafka consumer that processes jobs from the `jobs` topic.
 
 Processing contract:
-  - Deserialises JSON from `jobs` topic
+  - Validates each message as a `Job` ({"id": str, "type": <registered>, "payload": {}})
+  - Invalid messages (bad JSON, missing id, unknown type) → `jobs-dlq` with the
+    raw payload + reason, then commit. Never silently dropped.
   - Runs the registered handler for job["type"]
-  - On success: commits offset manually (enable.auto.commit=false)
-  - On failure: retries up to MAX_RETRIES; after that publishes to `jobs-dlq` then commits
-  - UUID-based deduplication via an in-memory set (survives restarts via Kafka offset)
+  - Permanent errors (e.g. ValueError for a bad operation) → DLQ immediately;
+    transient errors → exponential back-off with jitter (bounded by MAX_RETRIES
+    and RETRY_BUDGET_SECONDS), then DLQ
+  - Commits the offset manually (enable.auto.commit=false) only after success
+    or a delivery-confirmed DLQ publish
+  - Deduplication is **best-effort and in-memory**: an LRU of the last
+    DEDUP_CACHE_SIZE job ids *per pod*. It does NOT survive a restart and is
+    not shared across replicas — a message redelivered after a crash/rebalance
+    can be processed again, so handlers must be idempotent (at-least-once).
+    (The audio-pipeline workers use an atomic Redis claim instead; this demo
+    service deliberately has no Redis dependency.)
   - Drains gracefully on SIGTERM: finishes the in-flight message, commits, exits
 
-Prometheus metrics exposed on :9090/metrics:
+Prometheus metrics on :9090/metrics:
   worker_jobs_processed_total{status="success|error|dlq"}
   worker_job_duration_seconds (histogram)
-  worker_consumer_lag (gauge, polled from assignment watermarks)
-
-This module is the thin orchestration layer: per-job processing and the consume
-loop. Supporting concerns live in the `app` package (config, observability,
-metrics, kafka_io, handlers). Names re-exported below preserve the public
-surface that the test suite and operators rely on.
+  worker_consumer_lag{partition} (gauge, polled from assignment watermarks)
 """
 
-import json
-import signal
-import threading
 import time
 from collections import OrderedDict
 
-from app.config import BOOTSTRAP_SERVERS, CONSUMER_GROUP, MAX_RETRIES, TOPIC_DLQ, TOPIC_JOBS
+from app import config
+from app.config import SERVICE_NAME, STALE_SECONDS, settings
 from app.handlers import _HANDLERS, handle_data_transform, handle_ping, register  # noqa: F401
-from app.kafka_io import (
-    kafka_header_getter,  # noqa: F401  (re-exported for completeness/tests)
+from app.metrics import CONSUMER_LAG, JOB_DURATION, JOBS_PROCESSED
+from opentelemetry import propagate
+from platform_common.consumer_loop import (
+    SHUTDOWN,
+    Outcome,
+    install_signal_handlers,
+    run_consumer_loop,
+)
+from platform_common.events import InvalidMessage, build_dlq_payload, decode_json_object
+from platform_common.health import start_metrics_server, touch
+from platform_common.kafka_io import (
+    kafka_header_getter,
     kafka_header_setter,
     make_consumer,
     make_producer,
     produce_confirmed,
     update_lag,
 )
-from app.metrics import CONSUMER_LAG, JOB_DURATION, JOBS_PROCESSED  # noqa: F401
-from app.metrics_server import start_metrics_server
-from app.metrics_server import touch as _heartbeat
-from app.observability import log, tracer
-from confluent_kafka import KafkaError, KafkaException
-from opentelemetry import propagate
+from platform_common.observability import setup
+from platform_common.retry import RetryExhausted, RetryPolicy, call_with_retry
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+log, tracer = setup(SERVICE_NAME)
+
+# Re-exported for tests/operators (module-level so they can be monkeypatched).
+TOPIC_JOBS = config.TOPIC_JOBS
+TOPIC_DLQ = config.TOPIC_DLQ
+MAX_RETRIES = config.MAX_RETRIES
+DEDUP_CACHE_SIZE = config.DEDUP_CACHE_SIZE
+
+
+class Job(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: str = Field(min_length=1, max_length=256)
+    type: str = Field(min_length=1)
+    payload: dict = Field(default_factory=dict)
+
+
+def retry_policy() -> RetryPolicy:
+    return RetryPolicy.from_settings(settings, max_attempts=MAX_RETRIES)
+
+
+def _remember(seen_ids: OrderedDict, job_id: str) -> None:
+    seen_ids[job_id] = True
+    seen_ids.move_to_end(job_id)
+    while len(seen_ids) > DEDUP_CACHE_SIZE:
+        seen_ids.popitem(last=False)
+
+
+def _dead_letter(producer, *, original, raw_value, error, attempts, error_type, key) -> None:
+    dlq_headers: list[tuple[str, bytes]] = []
+    propagate.inject(dlq_headers, setter=kafka_header_setter)
+    # Historical worker-service DLQ shape ({"original_job": ...}) + additive
+    # envelope fields; unparseable input is carried as `raw_b64`.
+    value = build_dlq_payload(
+        original=None if original is None else {"original_job": original},
+        raw_value=raw_value,
+        error=error,
+        stage=SERVICE_NAME,
+        attempts=attempts,
+        error_type=error_type,
+    )
+    # Delivery-confirmed: if the DLQ publish fails this raises out of
+    # process_message — the loop exits without committing and the message is
+    # redelivered rather than silently dropped.
+    produce_confirmed(producer, TOPIC_DLQ, value=value, key=key, headers=dlq_headers)
+    JOBS_PROCESSED.labels(status="dlq").inc()
+
+
+def _validate(raw_value: bytes | None) -> Job:
+    original = decode_json_object(raw_value)
+    try:
+        job = Job.model_validate(original)
+    except ValidationError as exc:
+        raise InvalidMessage(f"invalid job: {exc.errors()[0]['msg']}", original=original) from exc
+    if job.type not in _HANDLERS:
+        raise InvalidMessage(f"unknown job type: {job.type!r}", original=original)
+    return job
 
 
 def process_message(
@@ -49,147 +117,122 @@ def process_message(
     producer,
     seen_ids: OrderedDict,
     headers: list[tuple[str, bytes]] | None = None,
-) -> None:
-    """Deserialise → deduplicate → dispatch → DLQ on repeated failure."""
+    key: bytes | None = None,
+) -> Outcome:
+    """Validate → deduplicate → dispatch (with retry) → DLQ on failure."""
     context = propagate.extract(headers or [], getter=kafka_header_getter)
+
     try:
-        job = json.loads(raw_value)
-    except json.JSONDecodeError as exc:
-        log.error("bad_json", error=str(exc), raw=raw_value[:200])
+        job = _validate(raw_value)
+    except InvalidMessage as exc:
+        log.error("invalid_message", reason=exc.reason)
         JOBS_PROCESSED.labels(status="error").inc()
-        return  # malformed message: commit and move on
+        _dead_letter(
+            producer,
+            original=exc.original,
+            raw_value=raw_value,
+            error=exc.reason,
+            attempts=0,
+            error_type="invalid",
+            key=key,
+        )
+        return Outcome.COMMIT
 
-    job_id = job.get("id", "")
-    job_type = job.get("type", "unknown")
+    if job.id in seen_ids:
+        log.info("duplicate_skipped", job_id=job.id)
+        return Outcome.COMMIT
 
-    # Deduplication — in-memory (within a pod lifetime).
-    # seen_ids is an OrderedDict to keep the last 10,000 IDs (contract M14).
-    if job_id and job_id in seen_ids:
-        log.info("duplicate_skipped", job_id=job_id)
-        return
-
-    handler = _HANDLERS.get(job_type)
-    if handler is None:
-        log.warning("unknown_job_type", job_type=job_type, job_id=job_id)
-        JOBS_PROCESSED.labels(status="error").inc()
-        return  # commit and move on — no handler available
+    handler = _HANDLERS[job.type]
+    job_dict = job.model_dump()
 
     with tracer.start_as_current_span(
         "worker.process",
         context=context,
         attributes={"messaging.system": "kafka", "messaging.destination.name": TOPIC_JOBS},
     ) as span:
-        span.set_attribute("job.id", job_id)
-        span.set_attribute("job.type", job_type)
+        span.set_attribute("job.id", job.id)
+        span.set_attribute("job.type", job.type)
 
-        last_exc: Exception | None = None
-        for attempt in range(1, MAX_RETRIES + 1):
+        def _on_failed(exc, attempt, ec, delay):
+            span.record_exception(exc)
+            log.warning(
+                "job_attempt_failed",
+                job_id=job.id,
+                job_type=job.type,
+                attempt=attempt,
+                error=str(exc),
+                retryable=ec.retryable,
+                retry_in_s=None if delay is None else round(delay, 2),
+            )
+
+        attempts = 0
+
+        def _attempt():
+            nonlocal attempts
+            attempts += 1
             start = time.perf_counter()
-            try:
-                result = handler(job)
-                elapsed = time.perf_counter() - start
-                JOB_DURATION.observe(elapsed)
-                JOBS_PROCESSED.labels(status="success").inc()
-                log.info(
-                    "job_processed",
-                    job_id=job_id,
-                    job_type=job_type,
-                    attempt=attempt,
-                    duration_ms=round(elapsed * 1000, 2),
-                    result=result,
-                )
-                if job_id:
-                    seen_ids[job_id] = True
-                    if len(seen_ids) > 10000:
-                        seen_ids.popitem(last=False)
-                return
-            except Exception as exc:
-                last_exc = exc
-                span.record_exception(exc)
-                log.warning(
-                    "job_attempt_failed",
-                    job_id=job_id,
-                    job_type=job_type,
-                    attempt=attempt,
-                    error=str(exc),
-                )
-                if attempt < MAX_RETRIES:
-                    time.sleep(0.1 * (2 ** (attempt - 1)))  # exponential back-off: 100ms, 200ms
+            result = handler(job_dict)
+            JOB_DURATION.observe(time.perf_counter() - start)
+            return result
 
-        # All retries exhausted → send to DLQ
-        dlq_payload = json.dumps(
-            {"original_job": job, "error": str(last_exc), "attempts": MAX_RETRIES}
-        ).encode()
-        dlq_headers: list[tuple[str, bytes]] = []
-        propagate.inject(dlq_headers, setter=kafka_header_setter)
-        # Delivery-confirmed: if the DLQ publish itself fails, this raises out of
-        # process_message — the run loop exits without committing, the pod
-        # restarts, and the message is redelivered rather than silently dropped.
-        produce_confirmed(
-            producer,
-            TOPIC_DLQ,
-            value=dlq_payload,
-            key=job_id.encode() if job_id else None,
-            headers=dlq_headers,
-        )
-        JOBS_PROCESSED.labels(status="dlq").inc()
-        log.error(
-            "job_sent_to_dlq",
-            job_id=job_id,
-            job_type=job_type,
-            error=str(last_exc),
-        )
-        if job_id:
-            seen_ids[job_id] = True
-            if len(seen_ids) > 10000:
-                seen_ids.popitem(last=False)
+        try:
+            result = call_with_retry(
+                _attempt,
+                retry_policy(),
+                on_attempt_failed=_on_failed,
+                heartbeat=touch,
+                abort=SHUTDOWN,
+            )
+        except RetryExhausted as exc:
+            error_type = "permanent" if exc.permanent else "retries_exhausted"
+            _dead_letter(
+                producer,
+                original=job_dict,
+                raw_value=raw_value,
+                error=str(exc.last_exc),
+                attempts=exc.attempts,
+                error_type=error_type,
+                key=job.id.encode(),
+            )
+            log.error(
+                "job_sent_to_dlq",
+                job_id=job.id,
+                job_type=job.type,
+                error=str(exc.last_exc),
+                error_type=error_type,
+            )
+            _remember(seen_ids, job.id)
+            return Outcome.COMMIT
+
+        JOBS_PROCESSED.labels(status="success").inc()
+        log.info("job_processed", job_id=job.id, job_type=job.type, attempt=attempts, result=result)
+        _remember(seen_ids, job.id)
+        return Outcome.COMMIT
 
 
 def run() -> None:
-    log.info("worker_starting", bootstrap=BOOTSTRAP_SERVERS, topic=TOPIC_JOBS, group=CONSUMER_GROUP)
+    log.info("worker_starting", bootstrap=config.BOOTSTRAP_SERVERS, topic=TOPIC_JOBS)
+    start_metrics_server(config.METRICS_PORT, STALE_SECONDS)
+    consumer = make_consumer(settings, SERVICE_NAME, [TOPIC_JOBS])
+    producer = make_producer(settings, SERVICE_NAME)
+    seen_ids: OrderedDict = OrderedDict()
+    install_signal_handlers()  # SIGTERM → SHUTDOWN: finish/abort in-flight work, exit
+    lag_last_polled = [0.0]
 
-    start_metrics_server()
-    consumer = make_consumer()
-    producer = make_producer()
-    seen_ids = OrderedDict()
-    shutdown = threading.Event()
-    lag_last_polled = 0.0
-
-    def _handle_signal(sig, frame):
-        log.info("shutdown_signal_received", signal=sig)
-        shutdown.set()
-
-    signal.signal(signal.SIGTERM, _handle_signal)
-    signal.signal(signal.SIGINT, _handle_signal)
+    def _tick():
+        now = time.monotonic()
+        if now - lag_last_polled[0] > 15:
+            update_lag(consumer, CONSUMER_LAG)
+            lag_last_polled[0] = now
 
     try:
-        while not shutdown.is_set():
-            msg = consumer.poll(timeout=1.0)
-            _heartbeat()
-
-            # Periodically refresh lag gauge
-            now = time.time()
-            if now - lag_last_polled > 15:
-                update_lag(consumer)
-                lag_last_polled = now
-
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                raise KafkaException(msg.error())
-
-            process_message(msg.value(), producer, seen_ids, headers=msg.headers())
-
-            # Manual commit — only after successful processing or DLQ publish
-            try:
-                consumer.commit(message=msg, asynchronous=False)
-            except KafkaException as exc:
-                # Processing completed; a rebalance can still reject the commit.
-                # Redelivery is safe because handlers are idempotent and deduped.
-                log.warning("offset_commit_failed", error=str(exc))
-
+        run_consumer_loop(
+            consumer,
+            lambda msg: process_message(
+                msg.value(), producer, seen_ids, headers=msg.headers(), key=msg.key()
+            ),
+            on_tick=_tick,
+        )
     finally:
         log.info("worker_shutting_down")
         consumer.close()

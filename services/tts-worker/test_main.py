@@ -1,99 +1,25 @@
 """Unit tests for tts-worker.
 
-All external services (S3, Redis, Kafka producer) are mocked. No network or
-broker required — tests run fully offline.
-
-Coverage:
-  - Stub backend happy path: writes speech WAV to S3, produces audio.results
-    with status=done, sets Redis done state, increments pipeline_jobs_completed_total.
-  - Failure path: all retries exhausted → DLQ produced, Redis set to failed,
-    pipeline_jobs_failed_total{stage="tts"} incremented.
-  - Deduplication: second call with same job_id is a no-op.
-  - Malformed JSON: swallowed, nothing produced.
+All external services (S3, Redis, Kafka producer) are in-memory fakes
+(platform_common.testing). conftest.py disables OTel export and makes retry
+back-off instant before `main` is imported.
 """
 
 from __future__ import annotations
 
 import json
+import sys
+import types
+import uuid
 from unittest.mock import MagicMock
 
 import main
 import pytest
+from app import backends
+from platform_common.testing import FakeProducer, FakeRedis, FakeS3
+from prometheus_client import REGISTRY
 
-# ---------------------------------------------------------------------------
-# Fake collaborators
-# ---------------------------------------------------------------------------
-
-
-class FakeProducer:
-    def __init__(self):
-        self.produced: list[dict] = []
-
-    def produce(self, topic, value=None, key=None, headers=None, on_delivery=None):
-        self.produced.append({"topic": topic, "value": value, "key": key})
-        if on_delivery is not None:
-            on_delivery(None, None)  # simulate broker ack (no error)
-
-    def flush(self, timeout=None):
-        return 0  # 0 messages still unconfirmed
-
-
-class FakeS3:
-    """Fake S3 client that stores objects in-memory."""
-
-    def __init__(self, initial: dict[str, bytes] | None = None):
-        self._store: dict[str, bytes] = initial or {}
-
-    def get_object(self, Bucket, Key):
-        data = self._store.get(Key)
-        if data is None:
-            raise KeyError(f"No object at {Key}")
-        # Mimic boto3 StreamingBody
-        body = MagicMock()
-        body.read.return_value = data
-        return {"Body": body}
-
-    def put_object(self, Bucket, Key, Body, ContentType=None):
-        self._store[Key] = Body if isinstance(Body, bytes) else Body.encode()
-
-
-class FakeRedis:
-    """Fake Redis that records SET calls."""
-
-    def __init__(self):
-        self._store: dict[str, str] = {}
-        self.calls: list[dict] = []
-
-    def set(self, key, value, ex=None):
-        self._store[key] = value
-        self.calls.append({"key": key, "value": value, "ex": ex})
-
-    def get(self, key):
-        return self._store.get(key)
-
-    def setex(self, key, ttl, value):
-        self._store[key] = value
-        self.calls.append({"key": key, "value": value, "ex": ttl})
-
-    def eval(self, _script, _numkeys, key, update_json, ttl, now):
-        """Replicate the job_state cjson merge: shallow-merge keys, stamp now."""
-        update = json.loads(update_json)
-        raw = self._store.get(key)
-        cur = json.loads(raw) if raw else {}
-        if isinstance(update.get("keys"), dict):
-            cur["keys"] = {**cur.get("keys", {}), **update["keys"]}
-            update = {k: v for k, v in update.items() if k != "keys"}
-        cur.update(update)
-        cur["updated_at"] = now
-        value = json.dumps(cur)
-        self._store[key] = value
-        self.calls.append({"key": key, "value": value, "ex": int(ttl)})
-        return 1
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+JOB = str(uuid.UUID(int=1))
 
 
 @pytest.fixture
@@ -102,182 +28,181 @@ def producer():
 
 
 @pytest.fixture
-def summary_s3(tmp_path):
-    """S3 fake pre-loaded with a summary for job-1."""
+def redis_client():
+    return FakeRedis()
+
+
+@pytest.fixture
+def summary_s3():
     summary = json.dumps(
         {
             "executive_summary": "Meeting concluded with three action items.",
             "action_items": ["Buy milk", "File report", "Schedule follow-up"],
         }
     ).encode()
-    return FakeS3({"summaries/job-1": summary})
-
-
-@pytest.fixture
-def redis_client():
-    return FakeRedis()
+    return FakeS3({f"summaries/{JOB}": summary})
 
 
 @pytest.fixture
 def valid_event():
     return json.dumps(
         {
-            "job_id": "job-1",
-            "summary_key": "summaries/job-1",
+            "job_id": JOB,
+            "summary_key": f"summaries/{JOB}",
             "action_items": ["Buy milk", "File report"],
             "created_at": "2024-01-01T00:00:00+00:00",
         }
     ).encode()
 
 
-# ---------------------------------------------------------------------------
-# Happy path
-# ---------------------------------------------------------------------------
-
-
+# --- happy path ----------------------------------------------------------------
 def test_stub_happy_path_writes_speech_to_s3(producer, summary_s3, redis_client, valid_event):
     main.process_message(valid_event, producer, summary_s3, redis_client)
-
-    # S3 write
-    assert "speech/job-1" in summary_s3._store
-    wav = summary_s3._store["speech/job-1"]
-    # RIFF header: first 4 bytes are b"RIFF"
-    assert wav[:4] == b"RIFF", "Expected a WAV RIFF header"
+    assert summary_s3.objects[f"speech/{JOB}"][:4] == b"RIFF"
 
 
 def test_stub_happy_path_produces_audio_results(producer, summary_s3, redis_client, valid_event):
     main.process_message(valid_event, producer, summary_s3, redis_client)
-
-    assert len(producer.produced) == 1
-    msg = producer.produced[0]
-    assert msg["topic"] == main.TOPIC_OUT
-    payload = json.loads(msg["value"])
-    assert payload["job_id"] == "job-1"
-    assert payload["speech_key"] == "speech/job-1"
-    assert payload["status"] == "done"
-    assert payload["created_at"] == "2024-01-01T00:00:00+00:00"
+    (payload,) = producer.on(main.TOPIC_OUT)
+    assert payload == {
+        "job_id": JOB,
+        "speech_key": f"speech/{JOB}",
+        "status": "done",
+        "created_at": "2024-01-01T00:00:00+00:00",
+    }
 
 
 def test_stub_happy_path_sets_redis_done(producer, summary_s3, redis_client, valid_event):
     main.process_message(valid_event, producer, summary_s3, redis_client)
-
-    # Last Redis write should be status=done
-    done_calls = [c for c in redis_client.calls if c["key"] == "job:job-1"]
-    assert done_calls, "Expected at least one Redis SET for job:job-1"
-    last_state = json.loads(done_calls[-1]["value"])
-    assert last_state["status"] == "done"
-    assert last_state["stage"] == "tts"
-    assert last_state["keys"]["speech"] == "speech/job-1"
+    state = redis_client.state(JOB)
+    assert state["status"] == "done"
+    assert state["stage"] == "tts"
+    assert state["keys"]["speech"] == f"speech/{JOB}"
+    assert redis_client.store[f"dedup:tts:{JOB}"] == "done"
 
 
-def test_stub_happy_path_increments_pipeline_completed(
+def test_stub_happy_path_increments_pipeline_metrics(
     producer, summary_s3, redis_client, valid_event
 ):
-    before = main.PIPELINE_COMPLETED._value.get()
+    before_done = REGISTRY.get_sample_value("pipeline_jobs_completed_total") or 0.0
+    before_e2e = REGISTRY.get_sample_value("pipeline_end_to_end_duration_seconds_count") or 0.0
+    before_wait = (
+        REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "tts"}) or 0.0
+    )
     main.process_message(valid_event, producer, summary_s3, redis_client)
-    after = main.PIPELINE_COMPLETED._value.get()
-    assert after == before + 1
+    assert REGISTRY.get_sample_value("pipeline_jobs_completed_total") == before_done + 1
+    assert REGISTRY.get_sample_value("pipeline_end_to_end_duration_seconds_count") == before_e2e + 1
+    assert (
+        REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", {"stage": "tts"})
+        == before_wait + 1
+    )
 
 
-def test_stub_happy_path_observes_e2e_duration(producer, summary_s3, redis_client, valid_event):
-    # Just ensure no exception; histogram sum grows
-    before = main.PIPELINE_E2E_DURATION._sum.get()
-    main.process_message(valid_event, producer, summary_s3, redis_client)
-    after = main.PIPELINE_E2E_DURATION._sum.get()
-    assert after >= before  # created_at is in the past → positive duration
+def test_summary_text_preferred(producer, redis_client, valid_event, monkeypatch):
+    spoken = []
+    monkeypatch.setattr(main, "synthesize", lambda t: spoken.append(t) or b"RIFF....")
+    s3 = FakeS3({f"summaries/{JOB}": json.dumps({"summary": "Hello team."}).encode()})
+    main.process_message(valid_event, producer, s3, redis_client)
+    assert spoken == ["Hello team."]
 
 
-def test_stub_happy_path_observes_queue_wait(producer, summary_s3, redis_client, valid_event):
-    from prometheus_client import REGISTRY
+# --- failure / DLQ ---------------------------------------------------------------
+def test_missing_summary_is_permanent(producer, redis_client, valid_event):
+    before = REGISTRY.get_sample_value("pipeline_jobs_failed_total", {"stage": "tts"}) or 0.0
+    main.process_message(valid_event, producer, FakeS3(), redis_client)
 
-    label = {"stage": "tts"}
-    before = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", label) or 0.0
-    main.process_message(valid_event, producer, summary_s3, redis_client)
-    after = REGISTRY.get_sample_value("pipeline_queue_wait_seconds_count", label)
-    assert after == before + 1  # queue-wait observed once per message
-
-
-# ---------------------------------------------------------------------------
-# Failure / DLQ path
-# ---------------------------------------------------------------------------
-
-
-def test_failure_sends_to_dlq(producer, redis_client, valid_event, monkeypatch):
-    # S3 always raises → all retries fail
-    bad_s3 = FakeS3()  # no objects loaded — get_object will raise KeyError
-
-    monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-
-    main.process_message(valid_event, producer, bad_s3, redis_client)
-
-    dlq_msgs = [m for m in producer.produced if m["topic"] == main.TOPIC_DLQ]
-    assert len(dlq_msgs) == 1
-    dlq = json.loads(dlq_msgs[0]["value"])
+    (dlq,) = producer.on(main.TOPIC_DLQ)
     assert dlq["stage"] == "tts"
+    assert dlq["attempts"] == 1
+    assert dlq["error_type"] == "permanent"
+    assert producer.produced[0]["key"] == JOB.encode()
+    state = redis_client.state(JOB)
+    assert state["status"] == "failed"
+    assert state["error"]["stage"] == "tts"
+    assert REGISTRY.get_sample_value("pipeline_jobs_failed_total", {"stage": "tts"}) == before + 1
+
+
+def test_corrupt_summary_json_is_permanent(producer, redis_client, valid_event):
+    s3 = FakeS3({f"summaries/{JOB}": b"{not json"})
+    main.process_message(valid_event, producer, s3, redis_client)
+    (dlq,) = producer.on(main.TOPIC_DLQ)
+    assert dlq["error_type"] == "permanent"
+
+
+def test_transient_failure_retries_then_dlq(producer, redis_client, valid_event):
+    s3 = MagicMock()
+    s3.get_object.side_effect = TimeoutError("s3 read timeout")
+    main.process_message(valid_event, producer, s3, redis_client)
+    (dlq,) = producer.on(main.TOPIC_DLQ)
+    assert s3.get_object.call_count == main.MAX_RETRIES
     assert dlq["attempts"] == main.MAX_RETRIES
-    assert "job-1" in dlq_msgs[0]["key"].decode()
+    assert dlq["error_type"] == "retries_exhausted"
 
 
-def test_failure_sets_redis_failed(producer, redis_client, valid_event, monkeypatch):
-    bad_s3 = FakeS3()
-    monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-
-    main.process_message(valid_event, producer, bad_s3, redis_client)
-
-    done_calls = [c for c in redis_client.calls if c["key"] == "job:job-1"]
-    last_state = json.loads(done_calls[-1]["value"])
-    assert last_state["status"] == "failed"
-    assert last_state["error"]["stage"] == "tts"
-
-
-def test_failure_increments_pipeline_failed(producer, redis_client, valid_event, monkeypatch):
-    bad_s3 = FakeS3()
-    monkeypatch.setattr(main.time, "sleep", lambda *_: None)
-
-    before = main.PIPELINE_FAILED.labels(stage="tts")._value.get()
-    main.process_message(valid_event, producer, bad_s3, redis_client)
-    after = main.PIPELINE_FAILED.labels(stage="tts")._value.get()
-    assert after == before + 1
-
-
-# ---------------------------------------------------------------------------
-# Edge cases
-# ---------------------------------------------------------------------------
-
-
+# --- edge cases ------------------------------------------------------------------
 def test_deduplication_skips_second_call(producer, summary_s3, redis_client, valid_event):
     main.process_message(valid_event, producer, summary_s3, redis_client)
-    first_count = len(producer.produced)
-
-    # Second call with same job_id — should be skipped entirely
     main.process_message(valid_event, producer, summary_s3, redis_client)
-    assert len(producer.produced) == first_count  # no new messages
+    assert len(producer.produced) == 1
 
 
-def test_malformed_json_is_dropped(producer, summary_s3, redis_client):
-    main.process_message(b"{not valid json", producer, summary_s3, redis_client)
-    assert producer.produced == []
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"{not valid json",
+        json.dumps({"summary_key": "summaries/x"}).encode(),
+        json.dumps({"job_id": JOB, "action_items": "not-a-list"}).encode(),
+    ],
+)
+def test_malformed_messages_are_dead_lettered(producer, summary_s3, redis_client, raw):
+    main.process_message(raw, producer, summary_s3, redis_client)
+    (dlq,) = producer.on(main.TOPIC_DLQ)
+    assert dlq["error_type"] == "invalid"
+    assert producer.on(main.TOPIC_OUT) == []
+
+
+def test_e2e_duration_missing_created_at(producer, summary_s3, redis_client):
+    event = json.dumps({"job_id": JOB, "summary_key": f"summaries/{JOB}"}).encode()
+    main.process_message(event, producer, summary_s3, redis_client)
+    assert len(producer.on(main.TOPIC_OUT)) == 1
 
 
 def test_stub_synthesizer_returns_valid_wav():
     wav = main._synthesize_stub("hello world")
     assert wav[:4] == b"RIFF"
-    assert len(wav) > 44  # at minimum larger than the 44-byte WAV header
+    assert len(wav) > 44
 
 
-def test_e2e_duration_missing_created_at(producer, summary_s3, redis_client):
-    """If created_at is absent, duration is skipped without crashing."""
-    event = json.dumps(
-        {
-            "job_id": "job-missing-ts",
-            "summary_key": "summaries/job-missing-ts",
-        }
-    ).encode()
-    # Pre-load S3
-    summary_s3._store["summaries/job-missing-ts"] = json.dumps(
-        {"executive_summary": "No timestamp test."}
-    ).encode()
+def test_settings_reject_unknown_backend(monkeypatch):
+    from pydantic import ValidationError
 
-    main.process_message(event, producer, summary_s3, redis_client)
-    # Should succeed without raising
-    assert any(m["topic"] == main.TOPIC_OUT for m in producer.produced)
+    monkeypatch.setenv("TTS_BACKEND", "kokor0")
+    with pytest.raises(ValidationError):
+        main.config.Settings()
+
+
+def test_kokoro_pipeline_is_cached(monkeypatch):
+    np = pytest.importorskip("numpy")
+    built = []
+
+    class FakePipeline:
+        def __init__(self, lang_code):
+            built.append(lang_code)
+
+        def __call__(self, text, voice):
+            yield text, "", np.zeros(240, dtype="float32")
+
+    monkeypatch.setitem(sys.modules, "kokoro", types.SimpleNamespace(KPipeline=FakePipeline))
+    monkeypatch.setattr(backends, "_kokoro_pipelines", {})
+    for _ in range(3):
+        assert backends._synthesize_kokoro("hi")[:4] == b"RIFF"
+    assert built == ["a"]
+
+
+def test_kokoro_missing_is_permanent(monkeypatch):
+    from platform_common.retry import PermanentError
+
+    monkeypatch.setitem(sys.modules, "kokoro", None)
+    monkeypatch.setattr(backends, "_kokoro_pipelines", {})
+    with pytest.raises(PermanentError):
+        backends._synthesize_kokoro("hi")

@@ -1,40 +1,32 @@
-"""Typed, validated configuration loaded from the environment (pydantic-settings).
+"""Typed, validated configuration (pydantic-settings, fail-fast at import).
 
-All env parsing lives in the `Settings` model — one place, validated and
-fail-fast at import. The UPPER_CASE module constants below are derived from the
-validated `settings` singleton and are what the rest of the app imports.
+Shared Kafka / retry / metrics fields come from `platform_common.settings`;
+only service-specific defaults are declared here.
 """
 
 import sys
 
-from pydantic import Field, SecretStr, ValidationError, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from platform_common.settings import WorkerSettings
+from pydantic import Field, ValidationError
+
+SERVICE_NAME = "worker-service"
+
+# The handlers run in milliseconds; 120 s without a poll heartbeat means the
+# loop is wedged (back-off sleeps heartbeat, so they never trip this).
+STALE_SECONDS = 120
 
 
-class Settings(BaseSettings):
+class Settings(WorkerSettings):
     """worker-service configuration (safe defaults for local dev)."""
 
-    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
-
-    bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
     topic_jobs: str = Field(default="jobs", alias="KAFKA_TOPIC")
     topic_dlq: str = Field(default="jobs-dlq", alias="KAFKA_DLQ_TOPIC")
     consumer_group: str = Field(default="worker-service", alias="KAFKA_CONSUMER_GROUP")
-    max_retries: int = Field(default=3, alias="MAX_RETRIES")
-    metrics_port: int = Field(default=9090, alias="METRICS_PORT")
-
-    # SASL/SCRAM — injected by Strimzi KafkaUser secret in prod; empty → plaintext for local dev
-    sasl_username: str = Field(default="", alias="KAFKA_SASL_USERNAME")
-    sasl_password: SecretStr = Field(default=SecretStr(""), alias="KAFKA_SASL_PASSWORD")
-    security_protocol: str | None = Field(default=None, alias="KAFKA_SECURITY_PROTOCOL")
-    ssl_ca_location: str = Field(default="", alias="KAFKA_SSL_CA_LOCATION")
-
-    @model_validator(mode="after")
-    def _default_security_protocol(self) -> "Settings":
-        # Default to SASL_SSL only when credentials are present, else PLAINTEXT.
-        if self.security_protocol is None:
-            self.security_protocol = "SASL_SSL" if self.sasl_username else "PLAINTEXT"
-        return self
+    # Handlers are fast: a 60 s retry budget + 10 s attempt fit the 300 s poll interval.
+    retry_budget_seconds: float = Field(default=60.0, gt=0, alias="RETRY_BUDGET_SECONDS")
+    attempt_timeout_seconds: float = Field(default=10.0, gt=0, alias="ATTEMPT_TIMEOUT_SECONDS")
+    # In-memory dedup window (job ids remembered per pod; see main.py).
+    dedup_cache_size: int = Field(default=10_000, ge=0, alias="DEDUP_CACHE_SIZE")
 
 
 try:
@@ -51,7 +43,4 @@ TOPIC_DLQ = settings.topic_dlq
 CONSUMER_GROUP = settings.consumer_group
 MAX_RETRIES = settings.max_retries
 METRICS_PORT = settings.metrics_port
-SASL_USERNAME = settings.sasl_username
-SASL_PASSWORD = settings.sasl_password.get_secret_value()
-SECURITY_PROTOCOL = settings.security_protocol
-SSL_CA_LOCATION = settings.ssl_ca_location
+DEDUP_CACHE_SIZE = settings.dedup_cache_size

@@ -57,6 +57,20 @@ spec:
             # LLM gateway — never vLLM directly (contract §6)
             - name: LLM_GATEWAY_URL
               value: http://llm-gateway.apps.svc.cluster.local:80
+            # Bearer key for llm-gateway auth (sent as `Authorization: Bearer`).
+            # Secret is created by bootstrap.sh in dev and by an ExternalSecret in
+            # the llm-gateway prod overlay. optional: a missing secret leaves auth
+            # off (dev gateway with no keys configured) instead of blocking startup.
+            - name: LLM_GATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-api-keys
+                  key: llm-worker
+                  optional: true
+            # Max wall-clock (s) to wait/retry while the gateway answers
+            # 429/502/503/504 or refuses connections — vLLM scaling from zero.
+            - name: LLM_COLD_START_BUDGET_SECONDS
+              value: "600"
             # In dev the gateway proxies to TinyLlama; low quality by design (pipeline wiring demo)
             - name: LLM_MODEL
               value: TinyLlama/TinyLlama-1.1B-Chat-v1.0

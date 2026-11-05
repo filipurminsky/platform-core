@@ -1,77 +1,86 @@
-FROM python:3.12-slim AS base
+# syntax=docker/dockerfile:1
+# Build context: services/   →   docker build -f stt-worker/Dockerfile services/
+# (the shared services/platform-common library must be inside the context).
 
-# uv: copy the static binary from the official image (version-pinned; Renovate
-# tracks this tag via the dockerfile manager).
-COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /uvx /usr/local/bin/
+# ── builder: resolve the locked venv with uv ─────────────────────────────────
+FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS builder
+
+# uv: static binary from the official image (Renovate tracks tag + digest).
+COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /usr/local/bin/uv
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PYTHON=/usr/local/bin/python3.13
 
 WORKDIR /app
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
 
-# confluent-kafka needs librdkafka; install it from OS packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    librdkafka-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Third-party deps first (cached layer): lockfile only, no app code, no dev
+# group. --frozen fails the build if uv.lock is stale vs pyproject.toml.
+# confluent-kafka ships manylinux wheels with librdkafka bundled — no apt deps.
+COPY platform-common/pyproject.toml /platform-common/pyproject.toml
+COPY stt-worker/pyproject.toml stt-worker/uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project --no-install-package platform-common
 
-# Install runtime deps in a cached layer from the lockfile only (no app code,
-# no dev group). --frozen fails the build if uv.lock is stale vs pyproject.toml.
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# Then the shared library, installed NON-editable so the venv is self-contained.
+COPY platform-common/ /platform-common/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project --no-editable
 
-# Run from the project venv.
-ENV PATH="/app/.venv/bin:$PATH"
+# ── runtime: no uv, no build tooling ─────────────────────────────────────────
+FROM python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc AS runtime
 
-COPY main.py .
-COPY app ./app
+RUN useradd --uid 1000 --no-create-home --shell /bin/false appuser
 
-RUN useradd --no-create-home --shell /bin/false appuser
-USER appuser
+WORKDIR /app
+COPY --from=builder /app/.venv /app/.venv
+COPY stt-worker/main.py ./
+COPY stt-worker/app ./app
 
-# Metrics port
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+USER 1000
+
+# Metrics + probes
 EXPOSE 9090
-
-# Allow long-running model inference (matches max.poll.interval.ms=900000).
-ENV PYTHONUNBUFFERED=1
 
 CMD ["python", "main.py"]
 
 # ---------------------------------------------------------------------------
-# GPU / NeMo prod image (not built by default — requires --target nemo or a
-# separate pipeline stage).  This stage bakes the Parakeet RNNT model weights
-# and all heavy ML deps on top of the base runtime layer.
+# GPU / NeMo image (NOT built by CI — requires `--target nemo` and a separate
+# pipeline, likely a GPU/self-hosted runner: the image is multi-gigabyte).
+# docker-build.yaml builds the default (runtime) target only and every k8s
+# overlay sets STT_BACKEND=stub to match. Never push it as the default tag.
 #
-# To build:
-#   docker build --target nemo -t stt-worker:nemo \
-#     --build-arg MODEL_ID=nvidia/parakeet-rnnt-0.6b .
+#   docker build -f stt-worker/Dockerfile --target nemo \
+#     --build-arg MODEL_ID=nvidia/parakeet-rnnt-0.6b -t stt-worker:nemo services/
 #
-# NOT built by CI: docker-build.yaml builds the default (stub) target only, and
-# every k8s overlay sets STT_BACKEND=stub to match. Switching any environment to
-# STT_BACKEND=nemo first requires a build pipeline for this target (likely a
-# GPU/self-hosted runner — the image is multi-gigabyte) and a separate tag;
-# never push it as the default tag.
+# Requirements of app/backends.py's nemo path:
+#   - ffmpeg binary on PATH (decodes wav/mp3/ogg/flac/m4a → 16 kHz mono PCM;
+#     override with FFMPEG_BINARY)
+#   - nemo_toolkit[asr] 2.x + CUDA torch + numpy in /app/.venv
+#   - model weights baked at NEMO_MODEL_PATH (default /model-cache/parakeet-rnnt-0.6b)
 # ---------------------------------------------------------------------------
-# FROM base AS nemo
+# FROM builder AS nemo-deps
+# # NeMo + CUDA torch; versions pinned by the ML platform team.
+# RUN uv pip install --python /app/.venv/bin/python \
+#       "nemo_toolkit[asr]==2.*" torch numpy \
+#       --extra-index-url https://download.pytorch.org/whl/cu121
 #
+# FROM runtime AS nemo
 # ARG MODEL_ID=nvidia/parakeet-rnnt-0.6b
-#
 # USER root
-# # NeMo + torch for CUDA 12.1; versions pinned by the ML platform team.
-# RUN pip install --no-cache-dir \
-#     "nemo_toolkit[asr]==2.0.*" \
-#     "torch==2.2.*+cu121" \
-#     --extra-index-url https://download.pytorch.org/whl/cu121
-#
-# # Pre-download the Parakeet model into the image so cold starts don't need
-# # network access (important for air-gapped clusters).
-# RUN python - <<'EOF'
-# from nemo.collections.asr.models import EncDecRNNTBPEModel
-# import os
-# model = EncDecRNNTBPEModel.from_pretrained(os.environ["MODEL_ID"])
-# model.save_to("/model-cache/parakeet-rnnt-0.6b")
-# EOF
-#
-# ENV NEMO_MODEL_PATH=/model-cache/parakeet-rnnt-0.6b
-# ENV STT_BACKEND=nemo
-#
-# USER appuser
+# RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libsndfile1 \
+#     && rm -rf /var/lib/apt/lists/*
+# COPY --from=nemo-deps /app/.venv /app/.venv
+# # Pre-download the model so cold starts need no network (air-gapped clusters).
+# RUN MODEL_ID=${MODEL_ID} python -c "import os; \
+#     from nemo.collections.asr.models import ASRModel; \
+#     ASRModel.from_pretrained(os.environ['MODEL_ID']).save_to('/model-cache/parakeet-rnnt-0.6b')"
+# ENV NEMO_MODEL_PATH=/model-cache/parakeet-rnnt-0.6b \
+#     STT_BACKEND=nemo
+# USER 1000
 # CMD ["python", "main.py"]
