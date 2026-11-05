@@ -42,7 +42,9 @@ sum(rate(echo_requests_total{rollouts_pod_template_hash="<hash>"}[1m]))
 1. **Confirm stable is healthy** (it should be — traffic already reverted):
    ```bash
    kubectl -n apps argo rollouts get rollout echo-service   # stable weight 100%
-   curl -s http://echo.platform-core.local/healthz
+   curl -s -H 'Host: echo.platform-core.local' http://localhost/healthz   # kind; via Envoy Gateway
+   kubectl -n apps get httproute echo-service \
+     -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight}{"\n"}{end}'   # expect echo-service=100, canary=0
    ```
 2. **Find the root cause** in the new revision: image bug, bad config, missing
    dependency, latency regression. Inspect canary pod logs from the aborted run
@@ -61,7 +63,8 @@ sum(rate(echo_requests_total{rollouts_pod_template_hash="<hash>"}[1m]))
 ```bash
 kubectl -n apps argo rollouts get rollout echo-service        # check replica/health
 kubectl -n apps argo rollouts undo echo-service               # roll back to a prior revision
-kubectl -n apps describe ingress echo-service echo-service-echo-service-canary
+kubectl -n apps describe httproute echo-service    # weights + Accepted/ResolvedRefs conditions
+kubectl -n argo-rollouts logs deploy/argo-rollouts | grep -i gatewayapi   # plugin errors (RBAC, route not found)
 ```
 
 ## Prevent recurrence

@@ -1,7 +1,7 @@
 # Runbook: Image-signature admission failures (cosign keyless / sigstore)
 
 **Applies to:** any `*.dkr.ecr.*.amazonaws.com/platform-core/*` Pod. Enforced by
-the Kyverno `verify-image-signatures` ClusterPolicy
+the Kyverno `verify-image-signatures` ImageValidatingPolicy
 (`kubernetes/platform/kyverno-policies/base/verify-image-signatures.yaml`).
 
 ## What this policy does (and its dependency)
@@ -63,12 +63,12 @@ admission guarantee for availability while sigstore is unreachable.
 ```bash
 # Option A: make the webhook fail-open so admission proceeds if Kyverno can't
 # evaluate (least invasive — keeps the rule, drops the hard dependency).
-kubectl patch clusterpolicy verify-image-signatures --type merge \
+kubectl patch imagevalidatingpolicy verify-image-signatures --type merge \
   -p '{"spec":{"failurePolicy":"Ignore"}}'
 
 # Option B: drop to Audit if Fulcio/Rekor are fully down (reports, doesn't block).
-kubectl patch clusterpolicy verify-image-signatures --type merge \
-  -p '{"spec":{"validationFailureAction":"Audit"}}'
+kubectl patch imagevalidatingpolicy verify-image-signatures --type merge \
+  -p '{"spec":{"validationActions":["Audit"]}}'
 ```
 
 **Revert as soon as sigstore recovers** — these are GitOps-managed, so ArgoCD
@@ -76,7 +76,7 @@ will also revert the live patch on the next sync; do not commit the relaxed
 values to Git.
 
 ```bash
-kubectl annotate clusterpolicy verify-image-signatures \
+kubectl annotate imagevalidatingpolicy verify-image-signatures \
   argocd.argoproj.io/refresh=hard --overwrite   # force ArgoCD back to desired state
 ```
 

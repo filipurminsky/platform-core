@@ -32,7 +32,7 @@ flowchart LR
 Inside the cluster:
 
 - **Apps** — echo-service, worker-service, the llm-gateway + vLLM inference, and the AI audio pipeline (`audio-api → stt → llm → tts`).
-- **Platform services** — Kafka (Strimzi), KEDA autoscaling, Redis, MinIO, cert-manager, External Secrets.
+- **Platform services** — Kafka (Strimzi, KRaft), KEDA autoscaling, Redis, SeaweedFS (dev S3), cert-manager, External Secrets, Envoy Gateway (Gateway API).
 - **Observability** — Prometheus, Grafana, Loki (logs), Tempo (traces).
 
 ---
