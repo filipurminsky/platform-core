@@ -1,0 +1,31 @@
+# Compatibility endpoint: the audio-pipeline services' dev overlays point
+# S3_ENDPOINT_URL at http://minio.platform.svc.cluster.local:9000 and their
+# NetworkPolicies allow egress to the `platform` namespace on TCP 9000. MinIO was
+# replaced by SeaweedFS, so this Service keeps that contract: same name,
+# namespace and port, selecting the SeaweedFS all-in-one pod whose S3 gateway
+# listens on 9000 (allInOne.s3.port) — NetworkPolicy matches the pod port, so
+# the gateway must really listen on 9000, not just be remapped here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: platform
+  annotations:
+    ignore-check.kube-linter.io/dangling-service: >-
+      Selects the SeaweedFS all-in-one pod rendered by the Helm chart source of
+      the same ArgoCD app, which kube-linter cannot see.
+  labels:
+    app.kubernetes.io/name: seaweedfs
+    app.kubernetes.io/component: s3-compat
+    app.kubernetes.io/part-of: platform-core
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: seaweedfs
+    app.kubernetes.io/instance: seaweedfs
+    app.kubernetes.io/component: seaweedfs-all-in-one
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+      protocol: TCP

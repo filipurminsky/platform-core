@@ -5,9 +5,11 @@
 # (Healthy or Degraded), then asserts the expected outcome. Works as a
 # live demo or as a scriptable smoke test.
 #
-# Prereqs (local kind): bootstrap.sh has run; argo-rollouts, ingress-nginx,
+# Prereqs (local kind): bootstrap.sh has run; argo-rollouts (with the
+# gatewayAPI traffic-router plugin), envoy-gateway + envoy-gateway-config,
 # kube-prometheus-stack and echo-service are synced; `kubectl argo rollouts`
-# plugin installed.
+# plugin installed. The k6 job (tests/load) sends traffic through the Envoy
+# Gateway so the HTTPRoute weight split actually reaches the canary pods.
 #
 # Usage:
 #   ./scripts/canary-demo.sh good   # healthy image → promotes to Healthy
@@ -89,6 +91,10 @@ done
 # ── Print current rollout state ────────────────────────────────────────────────
 echo ""
 kubectl -n "$NS" argo rollouts get rollout "$ROLLOUT" 2>/dev/null || true
+# Current Gateway API traffic split (stable/canary backendRef weights the
+# gatewayAPI plugin manages on the echo-service HTTPRoute).
+log "HTTPRoute weights: $(kubectl -n "$NS" get httproute "$ROLLOUT" \
+  -o jsonpath='{range .spec.rules[0].backendRefs[*]}{.name}={.weight} {end}' 2>/dev/null || echo n/a)"
 echo ""
 
 # ── Assert expected outcome ────────────────────────────────────────────────────

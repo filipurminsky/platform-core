@@ -1,10 +1,15 @@
 # Promote the CI conftest/OPA rules to ENFORCED admission policy for tenant
-# workloads. Graduated enforcement: strict (Enforce) in tenant-* namespaces (the
+# workloads. Graduated enforcement: strict (Deny) in tenant-* namespaces (the
 # governed paved road); platform's own namespaces rely on CI + their operators.
 # This is what makes the guardrails non-bypassable — `kubectl apply` is checked
 # too, not just PRs.
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+#
+# Migrated from a kyverno.io/v1 ClusterPolicy (deprecated since Kyverno 1.17,
+# removal planned for 1.20) to the CEL-based ValidatingPolicy. Autogen keeps the
+# previous behaviour of also rejecting the owning Deployment/StatefulSet/
+# DaemonSet/Job/CronJob up-front (not just its Pods).
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: require-pod-standards
   annotations:
@@ -12,53 +17,38 @@ metadata:
     policies.kyverno.io/category: Pod Security / Reliability
     policies.kyverno.io/severity: medium
 spec:
-  validationFailureAction: Enforce
-  background: true
-  rules:
-    - name: require-requests-and-limits
-      match:
-        any:
-          - resources:
-              kinds: [Pod]
-              namespaces: ["tenant-*"]
-      validate:
-        message: "Every container must set CPU and memory requests and limits."
-        pattern:
-          spec:
-            containers:
-              - resources:
-                  requests:
-                    cpu: "?*"
-                    memory: "?*"
-                  limits:
-                    cpu: "?*"
-                    memory: "?*"
-
-    - name: require-liveness-readiness-probes
-      match:
-        any:
-          - resources:
-              kinds: [Pod]
-              namespaces: ["tenant-*"]
-      validate:
-        message: "Every container must define liveness and readiness probes."
-        pattern:
-          spec:
-            containers:
-              - livenessProbe:
-                  "?*": "?*"
-                readinessProbe:
-                  "?*": "?*"
-
-    - name: require-run-as-non-root
-      match:
-        any:
-          - resources:
-              kinds: [Pod]
-              namespaces: ["tenant-*"]
-      validate:
-        message: "Pods must set securityContext.runAsNonRoot: true."
-        pattern:
-          spec:
-            securityContext:
-              runAsNonRoot: true
+  validationActions: [Deny]
+  evaluation:
+    background:
+      enabled: true
+  autogen:
+    podControllers:
+      controllers: [deployments, statefulsets, daemonsets, jobs, cronjobs]
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+    # Tenant namespaces only (the old `namespaces: ["tenant-*"]` match). Every
+    # kubernetes/tenants/team-*/namespace.yaml carries platform.io/tenant —
+    # keep that label when onboarding a team, or this policy won't apply.
+    namespaceSelector:
+      matchExpressions:
+        - key: platform.io/tenant
+          operator: Exists
+  validations:
+    - expression: >-
+        object.spec.containers.all(c,
+          has(c.resources) &&
+          has(c.resources.requests) && 'cpu' in c.resources.requests && 'memory' in c.resources.requests &&
+          has(c.resources.limits) && 'cpu' in c.resources.limits && 'memory' in c.resources.limits)
+      message: "Every container must set CPU and memory requests and limits."
+    - expression: >-
+        object.spec.containers.all(c, has(c.livenessProbe) && has(c.readinessProbe))
+      message: "Every container must define liveness and readiness probes."
+    - expression: >-
+        has(object.spec.securityContext) &&
+        has(object.spec.securityContext.runAsNonRoot) &&
+        object.spec.securityContext.runAsNonRoot == true
+      message: "Pods must set securityContext.runAsNonRoot: true."

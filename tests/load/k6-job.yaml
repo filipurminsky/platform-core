@@ -14,15 +14,28 @@ spec:
         app: k6-load
     spec:
       restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345        # the k6 image's built-in non-root user
+        runAsGroup: 12345
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: k6
           image: grafana/k6:0.49.0
           args: ["run", "/scripts/echo-load.js"]
           env:
-            # Drive the in-cluster stable Service so traffic flows through the
-            # canary split managed by Argo Rollouts + nginx.
+            # Drive traffic THROUGH the Envoy Gateway (its stable Service name
+            # comes from the EnvoyProxy, kubernetes/platform/envoy-gateway), with
+            # the echo HTTPRoute's hostname. Hitting the echo-service ClusterIP
+            # directly would bypass the canary split entirely: during a rollout
+            # Argo Rollouts pins that Service's selector to the STABLE pods, so
+            # the canary would get zero traffic and the canary-metrics-present
+            # analysis check would abort every good rollout.
             - name: TARGET
-              value: http://echo-service.apps.svc.cluster.local
+              value: http://envoy-platform.envoy-gateway-system.svc.cluster.local
+            - name: HOST
+              value: echo.platform-core.local
           resources:
             requests:
               cpu: 100m

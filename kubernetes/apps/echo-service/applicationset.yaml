@@ -41,6 +41,14 @@ spec:
           name: echo-service-canary
           jsonPointers:
             - /spec/selector/rollouts-pod-template-hash
+        # The Argo Rollouts Gateway API plugin shifts canary traffic by
+        # rewriting these backendRef weights mid-rollout; without this,
+        # selfHeal would revert them to the git values (100/0).
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          name: echo-service
+          jqPathExpressions:
+            - .spec.rules[].backendRefs[].weight
       syncPolicy:
         automated:
           prune: true

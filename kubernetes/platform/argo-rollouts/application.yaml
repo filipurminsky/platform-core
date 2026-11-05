@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://argoproj.github.io/argo-helm
     chart: argo-rollouts
-    targetRevision: 2.37.0
+    targetRevision: 2.43.9
     helm:
       values: |
         controller:
@@ -21,6 +21,66 @@ spec:
             enabled: true
             serviceMonitor:
               enabled: true
+          # Gateway API traffic routing (echo-service canary) via the
+          # argoproj-labs/gatewayAPI plugin: the controller rewrites the
+          # stable/canary backendRef weights on the echo-service HTTPRoute.
+          # Replaces the built-in nginx router (ingress-nginx was retired).
+          #
+          # The plugin binary is per-architecture and the plugin `location` can
+          # only name ONE file, so an init container downloads the build matching
+          # the node (arm64 kind on Apple Silicon, amd64/arm64 on EKS) into a
+          # shared emptyDir; the controller then loads it via file://.
+          # Bump PLUGIN_VERSION together with Argo Rollouts (pingPong etc. need
+          # Rollouts >= 1.10).
+          trafficRouterPlugins:
+            - name: argoproj-labs/gatewayAPI
+              location: file:///plugins/gatewayapi-plugin
+          initContainers:
+            - name: fetch-gatewayapi-plugin
+              image: curlimages/curl:8.23.0
+              env:
+                - name: PLUGIN_VERSION
+                  value: v0.17.0
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  case "$(uname -m)" in
+                    x86_64)        ARCH=amd64 ;;
+                    aarch64|arm64) ARCH=arm64 ;;
+                    *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+                  esac
+                  curl -fsSL --retry 5 -o /plugins/gatewayapi-plugin \
+                    "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/${PLUGIN_VERSION}/gatewayapi-plugin-linux-${ARCH}"
+                  chmod 0755 /plugins/gatewayapi-plugin
+              volumeMounts:
+                - name: gatewayapi-plugin
+                  mountPath: /plugins
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 200m
+                  memory: 64Mi
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+          volumes:
+            - name: gatewayapi-plugin
+              emptyDir: {}
+          volumeMounts:
+            - name: gatewayapi-plugin
+              mountPath: /plugins
+        # Grants the controller get/list/watch/update/patch on
+        # gateway.networking.k8s.io HTTPRoutes (default true; pinned explicitly
+        # because the canary depends on it).
+        providerRBAC:
+          enabled: true
+          providers:
+            gatewayAPI: true
         dashboard:
           enabled: true
   destination:

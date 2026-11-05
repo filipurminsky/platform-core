@@ -38,7 +38,7 @@ spec:
       source:
         repoURL: https://nvidia.github.io/dcgm-exporter/helm-charts
         chart: dcgm-exporter
-        targetRevision: "4.8.2"
+        targetRevision: "4.8.4"
         helm:
           values: |
             # Only schedule on the Karpenter GPU NodePool.

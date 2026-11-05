@@ -38,7 +38,11 @@ spec:
         # enableOCI=true (helm OCI registry).
         repoURL: public.ecr.aws/karpenter
         chart: karpenter
-        targetRevision: "1.0.8" # Karpenter v1 (karpenter.sh/v1)
+        # Karpenter v1.15 (karpenter.sh/v1, karpenter.k8s.aws/v1). Upgraded from
+        # 1.0.8: v1.1+ dropped the v1beta1 APIs and the conversion webhook (our
+        # CRs were already v1), and AL2 AMIs are not published for EKS 1.33+ —
+        # the EC2NodeClass now uses the AL2023 alias.
+        targetRevision: "1.15.1"
         helm:
           values: |
             settings:
@@ -57,8 +61,12 @@ spec:
                   memory: 256Mi
                 limits:
                   memory: 512Mi
-            # Run the controller on the static baseline node group, never on a
-            # node it manages itself.
+            # Run the controller on the static ON_DEMAND system node group
+            # (role=platform, spread over 3 AZs in private subnets), never on a
+            # node it manages itself (the chart also adds a required
+            # karpenter.sh/nodepool DoesNotExist affinity). The chart runs 2
+            # replicas with required hostname anti-affinity, so the platform
+            # node group needs >= 2 nodes.
             nodeSelector:
               role: platform
       destination:

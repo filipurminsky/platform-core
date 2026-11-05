@@ -1,3 +1,8 @@
+# Strimzi Cluster Operator (+ CRDs). Strimzi 1.x serves only the
+# `kafka.strimzi.io/v1` API and supports Kubernetes >= 1.32 (we target 1.35).
+# Upgrading from an older Strimzi is NOT a single bump — follow the hop-by-hop
+# path in docs/adr/adr-021-strimzi-1x-kafka-4-upgrade.md (operator first, then
+# Kafka `version`, then `metadataVersion`; v1 CR conversion at 0.49–0.51).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -13,18 +18,26 @@ spec:
   source:
     repoURL: https://strimzi.io/charts/
     chart: strimzi-kafka-operator
-    targetRevision: 0.40.0
+    # Keep in sync with STRIMZI_VERSION in .github/workflows/ci.yaml (CRD schemas).
+    targetRevision: 1.3.1
     helm:
       values: |
         watchAnyNamespace: false
         # Watch `apps` in addition to the install namespace (platform). The Kafka
-        # CR's User Operator runs with watchedNamespace=apps so the worker-service
-        # KafkaUser secret is created where the worker + KEDA TriggerAuthentication
-        # consume it (the secret-ownership split). Without this the chart grants
+        # CR's User Operator runs with watchedNamespace=apps so the KafkaUser
+        # secrets are created where the workers + KEDA TriggerAuthentications
+        # consume them (the secret-ownership split). Without this the chart grants
         # the operator no RBAC in `apps`, so it 403s creating the entity-operator
         # Role there and the Kafka cluster never goes Ready.
         watchNamespaces:
           - apps
+        extraEnvs:
+          # Since Strimzi 1.0.1 an Entity Operator watchedNamespace that differs
+          # from the Kafka namespace is opt-in (disabled by default; CVE fix).
+          # Without it the User Operator ignores `apps` and no KafkaUser Secrets
+          # are created → every prod SASL client and KEDA trigger fails.
+          - name: STRIMZI_ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED
+            value: "true"
         resources:
           requests:
             cpu: 100m
@@ -38,4 +51,5 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      # Strimzi CRDs exceed the client-side-apply annotation size limit.
       - ServerSideApply=true

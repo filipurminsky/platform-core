@@ -35,7 +35,7 @@ tenant's namespace, quota, limits, network policies and RBAC.
 | **Isolation** | Dedicated `Namespace` with Pod Security Admission labels |
 | **Resource caps** | `ResourceQuota` (cpu/mem/pods/pvc/gpu) from the chosen tier |
 | **Sane defaults** | `LimitRange` injects default requests/limits + min/max bounds |
-| **Network** | `default-deny-all` + explicit allows (DNS, intra-ns, ingress, monitoring, platform) |
+| **Network** | `default-deny-all` + explicit allows (DNS, intra-ns, Envoy Gateway, monitoring, platform) |
 | **Access** | `tenant-admin` (workloads, not guardrails) and `tenant-viewer` (read-only, no secrets) Roles, bound to OIDC groups |
 
 ## Onboard a new team

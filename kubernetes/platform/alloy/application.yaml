@@ -1,0 +1,143 @@
+# Grafana Alloy — node-level log collector (DaemonSet). Replaces Promtail, which
+# reached end-of-life in early 2026 (it shipped inside the deprecated loki-stack
+# chart). Tails every pod's container log file from /var/log/pods on its node,
+# parses the CRI wrapper, and pushes to the single-binary Loki
+# (kubernetes/platform/loki) at loki.monitoring:3100.
+#
+# JSON logs: app workloads emit structlog JSON with trace_id/span_id. The raw
+# line is kept as-is (the Grafana Loki datasource's derived field regex-matches
+# `"trace_id": "<hex>"` in the line to link to Tempo); in addition `trace_id`
+# is attached as Loki structured metadata (queryable via `| trace_id="..."`,
+# without creating a high-cardinality label) and `level` is promoted to a label.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Same wave as Loki — Alloy retries pushes until Loki is ready.
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.15.0          # Alloy v1.21.3
+    helm:
+      values: |
+        fullnameOverride: alloy
+        controller:
+          type: daemonset
+        alloy:
+          # Read pod log files from the node's /var/log (hostPath, read-only).
+          mounts:
+            varlog: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi
+          configMap:
+            create: true
+            content: |
+              // Pods scheduled on THIS node only (DaemonSet — avoid duplicates).
+              discovery.kubernetes "pods" {
+                role = "pod"
+                selectors {
+                  role  = "pod"
+                  field = "spec.nodeName=" + coalesce(sys.env("HOSTNAME"), constants.hostname)
+                }
+              }
+
+              discovery.relabel "pods" {
+                targets = discovery.kubernetes.pods.targets
+
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label  = "container"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
+                  separator     = ""
+                  target_label  = "app"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_node_name"]
+                  target_label  = "node"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+                  separator     = "/"
+                  target_label  = "job"
+                }
+                // /var/log/pods/<ns>_<pod>_<uid>/<container>/*.log
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+                  separator     = "/"
+                  target_label  = "__path__"
+                  replacement   = "/var/log/pods/*$1/*.log"
+                }
+              }
+
+              local.file_match "pods" {
+                path_targets = discovery.relabel.pods.output
+              }
+
+              loki.source.file "pods" {
+                targets    = local.file_match.pods.targets
+                forward_to = [loki.process.pods.receiver]
+              }
+
+              loki.process "pods" {
+                // Strip the CRI "<ts> <stream> <flag> " prefix.
+                stage.cri {}
+
+                // Parse structlog JSON (non-JSON lines pass through untouched).
+                stage.json {
+                  expressions = {
+                    level    = "level",
+                    trace_id = "trace_id",
+                    span_id  = "span_id",
+                  }
+                }
+
+                stage.labels {
+                  values = { level = "" }
+                }
+
+                // High-cardinality IDs go to structured metadata, not labels.
+                stage.structured_metadata {
+                  values = { trace_id = "", span_id = "" }
+                }
+
+                forward_to = [loki.write.default.receiver]
+              }
+
+              loki.write "default" {
+                endpoint {
+                  url = "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+                }
+              }
+        serviceMonitor:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

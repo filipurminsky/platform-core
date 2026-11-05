@@ -1,0 +1,64 @@
+# kind: expose the Gateway on the host's :80/:443 WITHOUT changing kind-config.
+#
+# terraform/modules/kind/kind-config.yaml maps host :80/:443 → containerPort
+# 80/443 of the control-plane node container, which is labelled
+# ingress-ready=true. So the Envoy pod must (a) run on that node and (b) bind
+# hostPort 80/443 there.
+#
+# Envoy Gateway runs Envoy as non-root and shifts privileged listener ports by
+# +10000 (listener :80 → container :10080), so the hostPort maps host 80 → pod
+# 10080 (and 443 → 10443 for a future HTTPS listener). hostPort on Cilium needs
+# the portmap CNI chaining that scripts/bootstrap.sh enables
+# (cni.chainingMode=portmap).
+- op: replace
+  path: /spec/provider/kubernetes/envoyService
+  value:
+    name: envoy-platform
+    type: ClusterIP           # no cloud LB on kind; hostPort is the entrypoint
+- op: add
+  path: /spec/provider/kubernetes/envoyDeployment/replicas
+  value: 1
+# A single node can bind a hostPort only once: RollingUpdate would schedule the
+# surge pod onto the same node and leave it Pending forever. Recreate trades a
+# few seconds of local downtime for a rollout that can actually complete.
+- op: add
+  path: /spec/provider/kubernetes/envoyDeployment/strategy
+  value:
+    type: Recreate
+- op: add
+  path: /spec/provider/kubernetes/envoyDeployment/pod
+  value:
+    nodeSelector:
+      ingress-ready: "true"
+    tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+- op: add
+  path: /spec/provider/kubernetes/envoyDeployment/patch
+  value:
+    type: StrategicMerge
+    value:
+      spec:
+        template:
+          spec:
+            containers:
+              - name: envoy
+                ports:
+                  - name: host-http
+                    containerPort: 10080
+                    hostPort: 80
+                    protocol: TCP
+                  - name: host-https
+                    containerPort: 10443
+                    hostPort: 443
+                    protocol: TCP
+- op: replace
+  path: /spec/provider/kubernetes/envoyDeployment/container/resources
+  value:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

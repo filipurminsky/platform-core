@@ -20,9 +20,11 @@ spec:
         - key: kubernetes.io/os
           operator: In
           values: ["linux"]
+        # Both allowed: Karpenter prefers Spot (price-capacity-optimized) and
+        # falls back to on-demand when Spot capacity is unavailable.
         - key: karpenter.sh/capacity-type
           operator: In
-          values: ["spot"]
+          values: ["spot", "on-demand"]
         - key: karpenter.k8s.aws/instance-category
           operator: In
           values: ["c", "m", "r"]

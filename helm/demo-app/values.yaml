@@ -10,11 +10,17 @@ service:
   port: 80
   targetPort: 8080
 
-ingress:
+# Gateway API HTTPRoute (Envoy Gateway). Off by default — a generic chart has
+# no hostname to claim; set hostnames per service when enabling. parentRefs
+# default to the shared platform Gateway (the platform-wide contract).
+httpRoute:
   enabled: false
-  className: nginx
-  host: ""
-  tls: []
+  parentRefs:
+    - name: platform
+      namespace: envoy-gateway-system
+  hostnames: []
+  path: /
+  annotations: {}
 
 resources:
   requests:
@@ -36,7 +42,9 @@ pdb:
 
 networkPolicy:
   enabled: true
-  # By default: deny all ingress except from ingress-nginx and monitoring namespaces
+  # Deny all ingress except from the Gateway data plane and monitoring.
+  # Envoy Gateway runs its Envoy proxy pods in the controller namespace by default.
+  gatewayNamespace: envoy-gateway-system
 
 livenessProbe:
   httpGet:

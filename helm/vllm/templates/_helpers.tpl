@@ -31,3 +31,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{ toYaml .Values.resources }}
 {{- end }}
 {{- end }}
+
+{{/* Resolve the container image — devMode uses the CPU build of vLLM */}}
+{{- define "vllm.image" -}}
+{{- if .Values.devMode.enabled -}}
+{{ .Values.devMode.image.repository }}:{{ .Values.devMode.image.tag | default (printf "v%s" .Chart.AppVersion) }}
+{{- else -}}
+{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "v%s-cu129" .Chart.AppVersion) }}
+{{- end }}
+{{- end }}

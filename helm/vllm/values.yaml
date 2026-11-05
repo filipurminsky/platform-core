@@ -1,9 +1,18 @@
+# vLLM OpenAI-compatible server (V1 engine). Image entrypoint is `vllm serve`.
+image:
+  repository: vllm/vllm-openai
+  # Empty = v<appVersion>-cu129. CUDA 12.9 build rather than the default CUDA
+  # 13.0 tag, which needs NVIDIA driver >= 580 (not on the AL2 GPU AMI).
+  tag: ""
+  pullPolicy: IfNotPresent
+
 model:
   name: "mistralai/Mistral-7B-Instruct-v0.2"
   revision: main
   huggingfaceToken: ""     # set via External Secrets / env var HF_TOKEN
   dtype: auto              # auto | float16 | bfloat16
   maxModelLen: 4096
+  gpuMemoryUtilization: "0.90"   # fraction of GPU memory for weights + KV cache
 
 gpu:
   enabled: true
@@ -20,17 +29,24 @@ resources:
     memory: 16Gi
     nvidia.com/gpu: 1
 
-# Overrides for dev / CPU mode (set gpu.enabled=false, model.name=TinyLlama/...)
+# Dev / CPU mode. The CUDA image cannot run on CPU and `--device cpu` no longer
+# exists (platform is auto-detected), so devMode switches to the dedicated CPU
+# image and drops GPU scheduling.
 devMode:
   enabled: false
   model: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+  image:
+    repository: vllm/vllm-openai-cpu
+    tag: ""                # empty = v<appVersion>
+  dtype: bfloat16          # fp32 TinyLlama (~4.4 GiB) would not fit the limit below
+  kvCacheSpaceGiB: "1"     # VLLM_CPU_KVCACHE_SPACE
   resources:
     requests:
       cpu: "1"
-      memory: 2Gi
+      memory: 3Gi
     limits:
       cpu: "2"
-      memory: 4Gi
+      memory: 5Gi
 
 persistence:
   enabled: true
@@ -51,25 +67,31 @@ tolerations:
     value: "true"
     effect: "NoSchedule"
 
-# Probes — vLLM takes time to load; don't mark ready until model is loaded
+# Probes — vLLM only listens once the model is loaded; the startupProbe budgets
+# 10 min for download + load so liveness/readiness can stay tight.
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 10
+  failureThreshold: 60
+
 readinessProbe:
   httpGet:
     path: /health
-    port: 8000
-  initialDelaySeconds: 60
+    port: http
   periodSeconds: 10
-  failureThreshold: 30     # allow up to 5 min for model load
+  failureThreshold: 3
 
 livenessProbe:
   httpGet:
-    path: /health
-    port: 8000
-  initialDelaySeconds: 120
+    path: /health          # 503 once the engine core is dead
+    port: http
   periodSeconds: 30
   failureThreshold: 5
 
+# CUDA_VISIBLE_DEVICES is intentionally not set: the NVIDIA device plugin
+# injects the allocated GPU(s); hard-coding "0" breaks multi-GPU requests.
 extraEnv:
   - name: VLLM_WORKER_MULTIPROC_METHOD
     value: spawn
-  - name: CUDA_VISIBLE_DEVICES
-    value: "0"

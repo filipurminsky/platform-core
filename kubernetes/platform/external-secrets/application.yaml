@@ -10,7 +10,10 @@ spec:
   source:
     repoURL: https://charts.external-secrets.io
     chart: external-secrets
-    targetRevision: 0.9.18
+    # v2.x (upgraded from 0.9.18). external-secrets.io/v1 is the storage
+    # version; v1beta1 is still served but deprecated — all CRs in this repo
+    # use v1. v2.0 only removed the Alibaba/Device42 providers (unused here).
+    targetRevision: 2.14.0
     helm:
       values: |
         installCRDs: true

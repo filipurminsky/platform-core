@@ -1,15 +1,21 @@
 # Shared EC2NodeClass — how Karpenter launches EC2 instances. Subnets and the
 # node security group are discovered via the karpenter.sh/discovery tag stamped
-# by Terraform (networking + eks modules). AL2 resolves to the GPU-optimized AMI
-# automatically for GPU instance types, so one node class serves both NodePools.
+# by Terraform (networking + eks modules) — on the PRIVATE subnets, so Karpenter
+# nodes get no public IPs.
+#
+# AMI: AL2023 (AL2 EKS AMIs are not published for Kubernetes 1.33+; the cluster
+# runs 1.35). The `al2023@latest` alias implies amiFamily AL2023 and resolves to
+# the NVIDIA-accelerated AL2023 variant automatically for GPU instance types
+# (g4dn/g5), so one node class serves both the default and gpu NodePools.
+# For prod change control, consider pinning the alias to a specific AMI release
+# (e.g. al2023@v2026xxxx) instead of @latest so AMI rolls are deliberate drifts.
 apiVersion: karpenter.k8s.aws/v1
 kind: EC2NodeClass
 metadata:
   name: default
 spec:
-  amiFamily: AL2
   amiSelectorTerms:
-    - alias: al2@latest
+    - alias: al2023@latest
   # `terraform output karpenter_node_iam_role_name`
   role: <KARPENTER_NODE_IAM_ROLE>
   subnetSelectorTerms:
@@ -18,6 +24,13 @@ spec:
   securityGroupSelectorTerms:
     - tags:
         karpenter.sh/discovery: platform-core-prod
+  # IMDSv2 only, hop limit 1 so pods can't reach the node's instance role
+  # (they use IRSA instead).
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 1
+    httpTokens: required
   tags:
     karpenter.sh/discovery: platform-core-prod
     ManagedBy: karpenter

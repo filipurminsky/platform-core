@@ -1,0 +1,24 @@
+# Prod Kafka hardening + rack awareness.
+#
+# 1. Remove the plaintext `plain` listener (:9092). In prod every client uses
+#    SASL_SSL (SCRAM-SHA-512 over TLS) on the `tls` listener :9093 — SCRAM over
+#    plaintext would expose the handshake and all payloads on the wire. The
+#    `test` op makes the build FAIL (instead of silently removing the TLS
+#    listener) if the base listener order ever changes.
+- op: test
+  path: /spec/kafka/listeners/0/name
+  value: plain
+- op: remove
+  path: /spec/kafka/listeners/0
+
+# 2. Rack awareness: each broker's `broker.rack` = its node's AZ, so Kafka places
+#    the 3 replicas of every partition in 3 different zones. With
+#    replication.factor 3 / min.insync.replicas 2 (base) the cluster keeps
+#    accepting acks=all writes with one whole AZ down. Strimzi (>= 0.49) no
+#    longer adds zone anti-affinity itself — the spreading lives in
+#    patch-nodepool-prod.yaml.
+- op: add
+  path: /spec/kafka/rack
+  value:
+    type: topology-label
+    topologyKey: topology.kubernetes.io/zone

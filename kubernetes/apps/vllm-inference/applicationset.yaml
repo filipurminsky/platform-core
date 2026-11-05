@@ -1,6 +1,8 @@
 # Environment-selected via the cluster generator (see echo-service for details):
 # the destination cluster's `environment` label drives the overlay path. The dev
-# overlay swaps the GPU vLLM model for a CPU TinyLlama; prod keeps the GPU model.
+# overlay swaps the GPU vLLM model for a CPU TinyLlama on the vllm-openai-cpu
+# image and pauses the KEDA ScaledObject at 0 (dev's llm-gateway targets
+# vllm-mock); prod keeps the GPU model.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:

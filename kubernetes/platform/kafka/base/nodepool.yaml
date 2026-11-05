@@ -1,19 +1,29 @@
-# KafkaNodePool — defines the node count, roles, and storage for the KRaft
-# cluster. A single combined controller+broker pool keeps the footprint small
-# (N pods total) versus the old ZooKeeper topology (N brokers + M ZK nodes).
-# The dev overlay patches replicas → 1 and storage class → standard.
-apiVersion: kafka.strimzi.io/v1beta2
+# KafkaNodePool — defines the node count, roles, storage and broker resources
+# for the KRaft cluster. A single combined controller+broker pool keeps the
+# footprint small (N pods total) versus the old ZooKeeper topology.
+# The dev overlay patches replicas → 1 and storage class → standard; the prod
+# overlay adds zone spreading (rack awareness, patch-nodepool-prod.yaml).
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
   name: kafka
   namespace: platform
   labels:
-    strimzi.io/cluster: platform-kafka   # binds this pool to the Kafka CR above
+    strimzi.io/cluster: platform-kafka   # binds this pool to the Kafka CR
 spec:
   replicas: 3                            # patched to 1 in dev overlay
   roles:
     - controller                         # KRaft metadata quorum
     - broker
+  # Broker CPU/memory. In the v1 API these can only be set on the node pool
+  # (`Kafka.spec.kafka.resources` was removed).
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
   storage:
     type: jbod
     volumes:
@@ -22,3 +32,4 @@ spec:
         size: 20Gi
         class: gp3                       # patched to "standard" in dev overlay
         deleteClaim: false
+        kraftMetadata: shared            # KRaft metadata log lives on this volume

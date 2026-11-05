@@ -1,0 +1,21 @@
+# The shared north-south Gateway. FIXED CONTRACT — HTTPRoutes everywhere attach
+# with parentRefs: [{name: platform, namespace: envoy-gateway-system}].
+#
+# allowedRoutes.from: All lets app/tenant namespaces attach their own HTTPRoutes
+# (self-service, like the old shared IngressClass). Hostname scoping to
+# *.platform-core.local keeps a route from claiming arbitrary hosts.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: platform
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: envoy
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: "*.platform-core.local"
+      allowedRoutes:
+        namespaces:
+          from: All

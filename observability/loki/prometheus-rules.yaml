@@ -18,11 +18,14 @@ spec:
           annotations:
             summary: "Loki high error rate"
             description: "Loki is returning 5xx errors for > 10% of requests."
-        - alert: PromtailRequestErrors
-          expr: rate(promtail_request_errors_total[5m]) > 0
+        # Promtail was replaced by Grafana Alloy (kubernetes/platform/alloy).
+        # loki.write exposes loki_write_* client metrics; dropped entries mean
+        # logs never reached Loki (retries exhausted / 4xx).
+        - alert: AlloyLogsDropped
+          expr: sum by (pod) (rate(loki_write_dropped_entries_total[5m])) > 0
           for: 10m
           labels:
             severity: warning
           annotations:
-            summary: "Promtail failing to ship logs"
-            description: "Promtail is encountering errors when sending logs to Loki."
+            summary: "Alloy dropping logs bound for Loki"
+            description: "Alloy pod {{ $labels.pod }} is dropping log entries when sending to Loki."

@@ -10,10 +10,17 @@ spec:
   source:
     repoURL: https://charts.jetstack.io
     chart: cert-manager
-    targetRevision: v1.14.5
+    # v1.21.x — upgraded from v1.14.5. `installCRDs` is deprecated (and fails
+    # if combined with its replacement); CRDs are now managed via crds.enabled.
+    # crds.keep adds helm.sh/resource-policy: keep so pruning the app never
+    # cascades into deleting every Certificate/Issuer. Note v1.18+ defaults
+    # Certificate.spec.privateKey.rotationPolicy to Always.
+    targetRevision: v1.21.3
     helm:
       values: |
-        installCRDs: true
+        crds:
+          enabled: true
+          keep: true
         global:
           leaderElection:
             namespace: cert-manager

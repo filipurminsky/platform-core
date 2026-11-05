@@ -37,7 +37,12 @@ spec:
         chart: crossplane
         # Pin to a tested release; bump deliberately (verify provider/function
         # compatibility against the Crossplane version before upgrading).
-        targetRevision: 1.17.3
+        # Crossplane v2 (upgraded from 1.17.3): namespaced XRs replace claims,
+        # namespaced *.m.* managed resources, no native XR connection secrets,
+        # Pipeline-only compositions. Upstream requires an existing v1 install
+        # to step through the latest 1.20.x before 2.x — see docs/crossplane.md.
+        # The default ManagedResourceActivationPolicy activates all MRDs ("*").
+        targetRevision: 2.4.3
         helm:
           values: |
             resourcesCrossplane:
@@ -58,7 +63,8 @@ spec:
           - ServerSideApply=true
 ---
 # Crossplane configuration: the AWS S3 provider, the patch-and-transform
-# function, the platform S3 API (XRD) and its Composition. Synced after the
+# function, the platform S3 API (v2 namespaced XRD) and its Composition, plus
+# the audio-pipeline ObjectStorageBucket XR (namespace apps). Synced after the
 # core app (wave -2) installs the pkg.crossplane.io CRDs.
 #
 # Package installs (Provider/Function) and the AWS CRDs they register are
