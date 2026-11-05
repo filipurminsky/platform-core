@@ -6,51 +6,92 @@ on:
   push:
     branches: [main]
 
+# Least privilege: read-only by default; jobs add only what they need.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
-  STRIMZI_VERSION: "0.40.0"
-  KEDA_VERSION: "2.13.0"
+  # ── Manifest validation targets — bump here ───────────────────────────────
+  # Kubernetes version every kubeconform run validates against (fleet target).
+  KUBERNETES_VERSION: "1.35.0"
+  # CRD bundles converted into local kubeconform schemas
+  # (.github/actions/setup-kubeconform). Keep in lock-step with the platform
+  # charts in kubernetes/platform/*.
+  STRIMZI_VERSION: "1.3.1"             # kafka.strimzi.io/v1 (no leading v)
+  KEDA_VERSION: "2.21.0"               # keda.sh (no leading v)
+  GATEWAY_API_VERSION: "v1.6.1"        # gateway.networking.k8s.io (standard channel; matches Envoy Gateway v1.9)
+  ENVOY_GATEWAY_VERSION: "v1.9.3"      # gateway.envoyproxy.io (EnvoyProxy, policies)
+  EXTERNAL_SECRETS_VERSION: "v2.14.0"  # external-secrets.io/v1
+  ROLLOUTS_VERSION: "v1.10.2"          # argoproj.io Rollout/AnalysisTemplate (chart argo-rollouts 2.43.9); also the e2e controller
+  # ── Tool versions (sha256 from each release's published checksums) ────────
+  HELM_VERSION: "v4.3.1"
+  HELM_SHA256: 0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b
+  KUSTOMIZE_VERSION: "5.8.3"
+  KUSTOMIZE_SHA256: cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61
+  CONFTEST_VERSION: "0.71.1"
+  CONFTEST_SHA256: c3f6b2a753bd56e377a1e51a95ae3e057f926f2e9139f7d5b5dfbbaf810f7985
+  KUBE_LINTER_VERSION: "v0.8.3"
+  # kube-linter publishes no checksums file; this is the GitHub release-asset
+  # digest of kube-linter-linux.tar.gz (also sigstore-signed upstream).
+  KUBE_LINTER_SHA256: 1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df
+  TERRAFORM_VERSION: "1.17.1"          # >= 1.10 required (S3-native state locking, use_lockfile)
+  CHECKOV_VERSION: "3.4.3"
 
 jobs:
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read # list the PR's commits to scan
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history so gitleaks scans every commit on a PR, not just the tip.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Findings fail the job; PR comments would need pull-requests: write.
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
   helm-lint:
     name: Helm lint + validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          version: "3.14.0"
+          persist-credentials: false
 
-      - name: Set up kubeconform
+      # Helm 4: Helm 3's security-fix support ends Nov 2026, and `helm lint`,
+      # `helm template` and `helm repo add` used here are unchanged in v4.
+      # Installed directly (checksum-verified) rather than via azure/setup-helm.
+      - name: Set up Helm
         run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
-          # Verify integrity before trusting the binary that gates manifests.
-          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
-          tar -xzf kubeconform.tar.gz && sudo mv kubeconform /usr/local/bin/
+          set -euo pipefail
+          curl -sSfL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tar.gz
+          echo "${HELM_SHA256}  /tmp/helm.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/helm.tar.gz -C /tmp linux-amd64/helm
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          helm version
 
-      - name: Download Strimzi + KEDA CRD schemas
-        run: |
-          mkdir -p /tmp/crd-schemas/strimzi /tmp/crd-schemas/keda
-          # Strimzi CRDs → kubeconform schema format
-          curl -sSL "https://github.com/strimzi/strimzi-kafka-operator/releases/download/${STRIMZI_VERSION}/strimzi-crds-${STRIMZI_VERSION}.yaml" \
-            -o /tmp/crd-schemas/strimzi/crds.yaml
-          curl -sSL "https://github.com/kedacore/keda/releases/download/v${KEDA_VERSION}/keda-${KEDA_VERSION}-crds.yaml" \
-            -o /tmp/crd-schemas/keda/crds.yaml
+      - name: Set up kubeconform + CRD schemas
+        uses: ./.github/actions/setup-kubeconform
+        with:
+          kubernetes-version: ${{ env.KUBERNETES_VERSION }}
+          strimzi-version: ${{ env.STRIMZI_VERSION }}
+          keda-version: ${{ env.KEDA_VERSION }}
+          gateway-api-version: ${{ env.GATEWAY_API_VERSION }}
+          envoy-gateway-version: ${{ env.ENVOY_GATEWAY_VERSION }}
+          external-secrets-version: ${{ env.EXTERNAL_SECRETS_VERSION }}
+          argo-rollouts-version: ${{ env.ROLLOUTS_VERSION }}
 
       - name: Helm lint all charts
         run: |
@@ -65,26 +106,20 @@ jobs:
           # placeholder so the render validates. tag defaults to appVersion.
           helm template demo helm/demo-app \
             --set image.repository=registry.example.com/demo-app \
-            | kubeconform -strict -summary \
-              -schema-location default \
-              -schema-location '/tmp/crd-schemas/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-              -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            | kubeconform-k8s
 
       - name: Helm template + kubeconform (vllm)
-        run: |
-          helm template vllm helm/vllm \
-            | kubeconform -strict -summary \
-              -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-              -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+        run: helm template vllm helm/vllm | kubeconform-k8s
+
+      - name: Helm template + kubeconform (backstage — deployed by kubernetes/platform/backstage)
+        run: helm template backstage helm/backstage -f helm/backstage/values.yaml | kubeconform-k8s
 
       - name: Helm template + kubeconform (akhq — dev-only platform service)
         # AKHQ is a platform ApplicationSet pointing at an upstream Helm chart, so
         # the kubeconform sweep over kubernetes/ skips it (ApplicationSet). Render
-        # it here to validate the pinned chart version + the inline values (incl.
-        # the version-sensitive `ingress` schema). Values are read straight from
-        # the ApplicationSet so this never drifts from what ArgoCD deploys.
+        # it here to validate the pinned chart version + the inline values.
+        # Values are read straight from the ApplicationSet so this never drifts
+        # from what ArgoCD deploys.
         run: |
           APP=kubernetes/platform/akhq/applicationset.yaml
           # GitHub runners ship mikefarah yq (raw scalar output by default).
@@ -95,119 +130,114 @@ jobs:
           helm repo add akhq "$REPO"
           helm repo update akhq
           helm template akhq "akhq/${CHART}" --version "$VERSION" -f /tmp/akhq-values.yaml \
-            | kubeconform -strict -summary \
-              -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-              -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            | kubeconform-k8s
 
   kustomize-validate:
     name: Kustomize build + validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up kustomize
-        # Pinned direct download — the upstream install_kustomize.sh script breaks
-        # intermittently (its release-asset glob fails to find the tarball).
-        env:
-          KUSTOMIZE_VERSION: "5.4.3"
+        # Pinned direct download, checksum-verified (bumping KUSTOMIZE_VERSION
+        # fails here until KUSTOMIZE_SHA256 is updated — which is the point).
         run: |
-          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
-          # Pinned to KUSTOMIZE_VERSION=5.4.3; bumping the version fails this check
-          # until the sum is updated (which is the point).
-          echo "3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7  /tmp/kustomize.tar.gz" | sha256sum -c -
-          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize && sudo mv /tmp/kustomize /usr/local/bin/
+          set -euo pipefail
+          curl -sSfL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+          echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" | sha256sum -c -
+          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize
+          sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
 
-      - name: Set up kubeconform
-        run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
-          # Verify integrity before trusting the binary that gates manifests.
-          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
-          tar -xzf kubeconform.tar.gz && sudo mv kubeconform /usr/local/bin/
+      - name: Set up kubeconform + CRD schemas
+        uses: ./.github/actions/setup-kubeconform
+        with:
+          kubernetes-version: ${{ env.KUBERNETES_VERSION }}
+          strimzi-version: ${{ env.STRIMZI_VERSION }}
+          keda-version: ${{ env.KEDA_VERSION }}
+          gateway-api-version: ${{ env.GATEWAY_API_VERSION }}
+          envoy-gateway-version: ${{ env.ENVOY_GATEWAY_VERSION }}
+          external-secrets-version: ${{ env.EXTERNAL_SECRETS_VERSION }}
+          argo-rollouts-version: ${{ env.ROLLOUTS_VERSION }}
 
       - name: Build + validate dev overlay
-        run: |
-          kustomize build kustomize/validation/dev \
-            | kubeconform -strict -summary -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-              -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+        run: kustomize build kustomize/validation/dev | kubeconform-k8s
 
       - name: Build + validate dev app overlays
         run: |
+          set -euo pipefail
           for overlay in services/*/k8s/overlays/dev/; do
-            kustomize build "$overlay" \
-              | kubeconform -strict -summary -schema-location default \
-                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-                -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            echo "==> $overlay"
+            kustomize build "$overlay" | kubeconform-k8s
           done
 
       - name: Build + validate prod overlay
-        run: |
-          kustomize build kustomize/validation/prod \
-            | kubeconform -strict -summary -schema-location default \
-              -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-              -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+        run: kustomize build kustomize/validation/prod | kubeconform-k8s
 
       - name: Build + validate prod app overlays
         run: |
+          set -euo pipefail
           for overlay in services/*/k8s/overlays/prod/; do
-            kustomize build "$overlay" \
-              | kubeconform -strict -summary -schema-location default \
-                -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-                -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+            echo "==> $overlay"
+            kustomize build "$overlay" | kubeconform-k8s
+          done
+
+      - name: Build + validate Kafka overlays
+        run: |
+          set -euo pipefail
+          for env in dev prod; do
+            echo "==> kafka/$env"
+            kustomize build "kubernetes/platform/kafka/overlays/$env" | kubeconform-k8s
           done
 
   kube-linter:
     name: kube-linter best-practice checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installed directly with a pinned digest instead of
+      # stackrox/kube-linter-action, which fetches the binary unverified. Pin the
+      # version — `latest` renames/adds checks and breaks the config.
+      - name: Set up kube-linter
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/stackrox/kube-linter/releases/download/${KUBE_LINTER_VERSION}/kube-linter-linux.tar.gz" -o /tmp/kube-linter.tar.gz
+          echo "${KUBE_LINTER_SHA256}  /tmp/kube-linter.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/kube-linter.tar.gz -C /tmp kube-linter
+          sudo install -m 0755 /tmp/kube-linter /usr/local/bin/kube-linter
 
       - name: Run kube-linter on kubernetes/
-        uses: stackrox/kube-linter-action@v1
-        with:
-          directory: kubernetes/
-          config: .kube-linter.yaml
-          # Pin the binary — `latest` renames/adds checks and breaks the config.
-          version: v0.8.3
+        run: kube-linter lint kubernetes/ --config .kube-linter.yaml
 
       # PDB best-practice checks over the WHOLE repo (kubernetes/, services/, helm/).
       # PDBs are identical across base and overlay, so unlike the workload checks
       # above they can be enforced everywhere — see .kube-linter-pdb.yaml.
       - name: Run kube-linter PDB checks on all manifests
-        uses: stackrox/kube-linter-action@v1
-        with:
-          directory: .
-          config: .kube-linter-pdb.yaml
-          version: v0.8.3
+        run: kube-linter lint . --config .kube-linter-pdb.yaml
 
   opa-policies:
     name: OPA / conftest policy checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up conftest
+      - name: Set up conftest + kustomize (checksum-verified)
         run: |
-          # conftest release assets embed the version in the filename
-          # (conftest_<ver>_Linux_x86_64.tar.gz), so the version-less
-          # /latest/download/ URL 404s. Pin an explicit version instead.
-          CONFTEST_VERSION=0.56.0
-          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o conftest.tar.gz
-          echo "620f41640d63bbde1646a108ce2816ba54c980466ceebb7e754dda2d508e8cd5  conftest.tar.gz" | sha256sum -c -
-          tar -xzf conftest.tar.gz && sudo mv conftest /usr/local/bin/
-
-      - name: Set up kustomize
-        # Pinned direct download — the upstream install_kustomize.sh script breaks
-        # intermittently (its release-asset glob fails to find the tarball).
-        env:
-          KUSTOMIZE_VERSION: "5.4.3"
-        run: |
-          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
-          # Pinned to KUSTOMIZE_VERSION=5.4.3; bumping the version fails this check
-          # until the sum is updated (which is the point).
-          echo "3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7  /tmp/kustomize.tar.gz" | sha256sum -c -
-          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize && sudo mv /tmp/kustomize /usr/local/bin/
+          set -euo pipefail
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o /tmp/conftest.tar.gz
+          echo "${CONFTEST_SHA256}  /tmp/conftest.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/conftest.tar.gz -C /tmp conftest
+          sudo install -m 0755 /tmp/conftest /usr/local/bin/conftest
+          curl -sSfL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+          echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" | sha256sum -c -
+          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize
+          sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
 
       # --combine evaluates the whole rendered overlay as one set, so policies can
       # check RELATIONSHIPS (e.g. does a NetworkPolicy actually select each
@@ -226,12 +256,14 @@ jobs:
     name: Terraform fmt + validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
-          terraform_version: "1.7.0"
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
 
       - name: Terraform fmt check
         run: terraform fmt -check -recursive terraform/
@@ -252,19 +284,21 @@ jobs:
     name: Python lint (apps)
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
+        app: [platform-common, echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
 
       # ruff is a static analyzer — no need to install the app's deps to lint.
-      # Config is the repo-root pyproject.toml ([tool.ruff]). Lints the whole
-      # app dir (main.py + the app/ package + tests); ruff excludes .venv etc.
+      # Config is the repo-root pyproject.toml ([tool.ruff]).
       - name: Ruff lint
         run: uvx ruff check services/${{ matrix.app }}
 
@@ -273,71 +307,79 @@ jobs:
 
   app-test:
     name: Python tests
+    permissions:
+      contents: read
     uses: ./.github/workflows/test-apps.yaml
 
   app-build:
     name: Docker build (apps)
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, tts-worker, llm-worker]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # Context is services/ so Dockerfiles can COPY the shared platform-common
+      # package. amd64 only here (fast PR feedback); docker-build.yaml builds the
+      # multi-arch (amd64+arm64) release images.
       - name: Build image (no push)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: services/${{ matrix.app }}
+          context: services
+          file: services/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
           push: false
           tags: platform-core/${{ matrix.app }}:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
   checkov:
     name: Checkov security scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Both scans use the pinned Checkov CLI (one version, no third-party action).
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
 
       # Gate on our own Terraform (resources + IAM policies authored in-repo).
       # External modules are NOT resolved here, so this is fast and deterministic.
+      # CKV_TF_1 wants module sources pinned to a git commit hash. Our modules
+      # come from the Terraform Registry pinned with semver; commit-hash pinning
+      # is not applicable to registry sources, and CKV_TF_2 (version present)
+      # already passes. Skip only this one check.
       - name: Run Checkov on Terraform (gating — our code)
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          directory: terraform/
-          framework: terraform
-          soft_fail: false
-          output_format: cli
-          # CKV_TF_1 wants module sources pinned to a git commit hash. Our modules
-          # come from the Terraform Registry pinned with semver (~> X.0); commit-hash
-          # pinning is not applicable to registry sources, and CKV_TF_2 (version tag
-          # present) already passes. Skip only this one check.
-          skip_check: CKV_TF_1
+        run: |
+          uvx --python 3.12 "checkov==${CHECKOV_VERSION}" \
+            --directory terraform/ \
+            --framework terraform \
+            --skip-check CKV_TF_1 \
+            --compact --quiet
 
       # Informational scan that DOES resolve the registry modules, so the actual
       # EKS/VPC/subnet resource config is evaluated (closes the "registry-module
-      # blind spot": without this, how we configure terraform-aws-modules/eks and
-      # /vpc is never scanned). soft_fail so it reports rather than gates —
-      # upstream modules emit many IAM-policy findings we don't own, and the
-      # public-subnet/public-endpoint posture (CKV_AWS_130 etc.) is a documented,
-      # accepted design choice for this showcase, not a regression to block on.
-      # Run via the Checkov CLI rather than bridgecrewio/checkov-action: with
-      # external modules resolved the result set is huge (1200+ checks), and the
-      # action's entrypoint tries to base64-encode all of it into $GITHUB_ENV
-      # ("Argument list too long" → empty heredoc delimiter → the step errors out
-      # despite soft_fail). The CLI does no result-encoding, so --soft-fail alone
-      # keeps this informational. Pinned for determinism (matches the local toolset).
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      # blind spot"). soft_fail so it reports rather than gates: upstream modules
+      # emit many IAM-policy findings we don't own. (Our own network posture —
+      # private nodes, private-only prod API endpoint, CIDR-restricted dev
+      # endpoint — is enforced by the gating scan above, not exempted here.)
+      # The CLI is used rather than bridgecrewio/checkov-action: with external
+      # modules resolved the result set is huge (1200+ checks), and the action's
+      # entrypoint tries to base64-encode all of it into $GITHUB_ENV ("Argument
+      # list too long").
       - name: Run Checkov with external modules (informational)
         run: |
-          pip install "checkov==3.2.520"
-          checkov --directory terraform/ \
+          uvx --python 3.12 "checkov==${CHECKOV_VERSION}" \
+            --directory terraform/ \
             --framework terraform \
             --download-external-modules true \
             --skip-check CKV_TF_1 \
@@ -348,51 +390,55 @@ jobs:
     name: Trivy IaC + Dockerfile misconfig scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Checksum-verified binary, NOT aquasecurity/trivy-action (its tags were
+      # hijacked in the March 2026 supply-chain attack) — see the action.
+      - name: Install Trivy
+        uses: ./.github/actions/setup-trivy
 
       # Catches misconfigurations across Terraform, Kubernetes manifests and
-      # Dockerfiles (privileged pods, missing securityContext, broad IAM, etc.)
+      # Dockerfiles (privileged pods, missing securityContext, broad IAM, etc.).
+      # Reviewed, path-scoped exceptions live in .trivyignore.yaml (the .yaml
+      # extension selects Trivy's structured ignore parser).
       - name: Trivy config scan
-        uses: aquasecurity/trivy-action@v0.20.0
-        # Reviewed, justified exceptions (third-party module / false positive /
-        # intentional design) live in .trivyignore.yaml. We point Trivy at it via
-        # TRIVY_IGNOREFILE rather than the action's `trivyignores` input: that
-        # input cats the file into an extension-less `./trivyignores`, which Trivy
-        # then parses with the *plain* (one-id-per-line) parser, silently dropping
-        # the YAML structure and all path scoping. The env var preserves the .yaml
-        # extension so the structured, path-scoped parser is used.
-        env:
-          TRIVY_IGNOREFILE: .trivyignore.yaml
-        with:
-          scan-type: config
-          scan-ref: .
-          exit-code: "1"
-          severity: HIGH,CRITICAL
-          skip-dirs: ".github"
+        run: |
+          trivy config --exit-code 1 --severity HIGH,CRITICAL \
+            --ignorefile .trivyignore.yaml \
+            --skip-dirs .github \
+            .
 
   kubernetes-validate:
     name: Validate Kubernetes manifests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up kubeconform
-        run: |
-          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
-          # Verify integrity before trusting the binary that gates manifests.
-          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  kubeconform.tar.gz" | sha256sum -c -
-          tar -xzf kubeconform.tar.gz && sudo mv kubeconform /usr/local/bin/
+      - name: Set up kubeconform + CRD schemas
+        uses: ./.github/actions/setup-kubeconform
+        with:
+          kubernetes-version: ${{ env.KUBERNETES_VERSION }}
+          strimzi-version: ${{ env.STRIMZI_VERSION }}
+          keda-version: ${{ env.KEDA_VERSION }}
+          gateway-api-version: ${{ env.GATEWAY_API_VERSION }}
+          envoy-gateway-version: ${{ env.ENVOY_GATEWAY_VERSION }}
+          external-secrets-version: ${{ env.EXTERNAL_SECRETS_VERSION }}
+          argo-rollouts-version: ${{ env.ROLLOUTS_VERSION }}
 
+      # Strimzi/KEDA/Gateway API/Envoy Gateway/ESO/Argo Rollouts kinds are now
+      # validated against the converted CRD schemas. What remains skipped has no
+      # schema source here (Kustomize/ArgoCD wrappers, Crossplane, Karpenter).
       - name: Validate all manifests in kubernetes/
         run: |
-          kubeconform -strict -summary \
+          kubeconform-k8s \
             -ignore-filename-pattern 'kustomization.yaml' \
             -ignore-filename-pattern 'values.yaml' \
             -ignore-filename-pattern 'patch-.*.yaml' \
-            -skip Kustomization,Component,Application,ApplicationSet,AppProject,ServiceMonitor,PrometheusRule,ScaledObject,AnalysisTemplate,AnalysisRun,Kafka,KafkaNodePool,KafkaTopic,KafkaUser,Provider,Function,DeploymentRuntimeConfig,ProviderConfig,CompositeResourceDefinition,Composition,ObjectStorageBucket,EC2NodeClass,NodePool \
-            -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-            -schema-location 'https://kubernetes-schemas.pages.dev/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            -skip Kustomization,Component,Application,ApplicationSet,AppProject,ServiceMonitor,PrometheusRule,Provider,Function,DeploymentRuntimeConfig,CompositeResourceDefinition,Composition,ObjectStorageBucket,EC2NodeClass,NodePool \
             kubernetes/
 
   e2e-smoke:
@@ -400,33 +446,84 @@ jobs:
     runs-on: ubuntu-latest
     # Real-cluster smoke: build the image, load it into kind, apply the actual
     # dev overlay, and prove echo-service rolls out and serves traffic. Catches
-    # the API-server/CRD-schema and rollout issues that static validation
-    # (kubeconform skips CRDs) can't.
+    # the API-server/CRD-schema and rollout issues that static validation can't.
     env:
       KIND_CLUSTER: e2e
-      ROLLOUTS_VERSION: v1.7.2
       PROM_OPERATOR_VERSION: v0.76.0
+      # kubectl-argo-rollouts-linux-amd64 sha256, from argo-rollouts-checksums.txt
+      ROLLOUTS_PLUGIN_SHA256: 355d62379d787a778f92903ce0b2fc1c1f4999d790d829370b6f1854a55f1cf9
+      # argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi — keep in sync
+      # with kubernetes/platform/argo-rollouts (PLUGIN_VERSION).
+      GATEWAYAPI_PLUGIN_VERSION: v0.17.0
+      GATEWAYAPI_PLUGIN_SHA256: 1904ca787d33107c140521899d61fff030ee75d99908bd175fca5a4647759061 # gitleaks:allow (release-asset sha256, not a secret)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Create kind cluster
-        uses: helm/kind-action@v1
+        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
         with:
-          version: v0.23.0
-          node_image: kindest/node:v1.30.0
+          version: v0.33.0
+          node_image: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
           cluster_name: e2e
 
-      - name: Install Argo Rollouts (controller + CRDs)
+      # echo-service ships an HTTPRoute and its Rollout routes canary traffic via
+      # the Gateway API plugin, so the cluster needs the Gateway API CRDs.
+      - name: Install Gateway API CRDs
+        run: |
+          kubectl apply --server-side \
+            -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+
+      - name: Install Argo Rollouts (controller + CRDs + gatewayAPI plugin)
         run: |
           kubectl create namespace argo-rollouts
           kubectl apply -n argo-rollouts \
             -f "https://github.com/argoproj/argo-rollouts/releases/download/${ROLLOUTS_VERSION}/install.yaml"
-          # Give the controller image pull headroom on cold runners (it pulls
-          # right after the kind node image). Surface pod state if it stalls.
+          # Register the traffic-router plugin (sha256-verified by the
+          # controller on download) and let the controller manage HTTPRoutes —
+          # mirrors the platform argo-rollouts Helm values.
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: argo-rollouts-config
+            namespace: argo-rollouts
+          data:
+            trafficRouterPlugins: |
+              - name: argoproj-labs/gatewayAPI
+                location: https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/${GATEWAYAPI_PLUGIN_VERSION}/gatewayapi-plugin-linux-amd64
+                sha256: ${GATEWAYAPI_PLUGIN_SHA256}
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: argo-rollouts-gatewayapi
+          rules:
+            - apiGroups: [gateway.networking.k8s.io]
+              resources: [httproutes, grpcroutes, tcproutes]
+              verbs: [get, list, watch, update, patch]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: argo-rollouts-gatewayapi
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: argo-rollouts-gatewayapi
+          subjects:
+            - kind: ServiceAccount
+              name: argo-rollouts
+              namespace: argo-rollouts
+          EOF
+          kubectl -n argo-rollouts rollout restart deploy/argo-rollouts
+          # Give the controller image pull headroom on cold runners.
           kubectl -n argo-rollouts rollout status deploy/argo-rollouts --timeout=300s || {
             echo "::group::argo-rollouts diagnostics"
             kubectl -n argo-rollouts get pods -o wide
             kubectl -n argo-rollouts describe deploy/argo-rollouts
+            kubectl -n argo-rollouts logs deploy/argo-rollouts --tail=60 || true
             kubectl -n argo-rollouts get events --sort-by=.lastTimestamp | tail -30
             echo "::endgroup::"
             exit 1
@@ -438,7 +535,8 @@ jobs:
 
       - name: Build + load echo-service image
         run: |
-          docker build -t echo-service:latest services/echo-service
+          # Build context is services/ (shared platform code is copied from there).
+          docker build -t echo-service:latest -f services/echo-service/Dockerfile services
           kind load docker-image echo-service:latest --name "${KIND_CLUSTER}"
 
       - name: Deploy echo-service (dev overlay)
@@ -446,11 +544,13 @@ jobs:
           kubectl create namespace apps
           kubectl apply -k services/echo-service/k8s/overlays/dev
 
-      - name: Install kubectl-argo-rollouts plugin
+      - name: Install kubectl-argo-rollouts plugin (checksum-verified)
         run: |
-          curl -sSL -o kubectl-argo-rollouts \
+          set -euo pipefail
+          curl -sSfL -o /tmp/kubectl-argo-rollouts \
             "https://github.com/argoproj/argo-rollouts/releases/download/${ROLLOUTS_VERSION}/kubectl-argo-rollouts-linux-amd64"
-          chmod +x kubectl-argo-rollouts && sudo mv kubectl-argo-rollouts /usr/local/bin/
+          echo "${ROLLOUTS_PLUGIN_SHA256}  /tmp/kubectl-argo-rollouts" | sha256sum -c -
+          sudo install -m 0755 /tmp/kubectl-argo-rollouts /usr/local/bin/kubectl-argo-rollouts
 
       - name: Wait for the rollout to be healthy
         run: kubectl argo rollouts status echo-service -n apps --timeout 240s
@@ -473,4 +573,5 @@ jobs:
           kubectl get pods -A || true
           kubectl describe rollout echo-service -n apps || true
           kubectl logs -n apps -l app=echo-service --tail=80 || true
+          kubectl logs -n argo-rollouts deploy/argo-rollouts --tail=80 || true
           kubectl get events -n apps --sort-by=.lastTimestamp | tail -40 || true

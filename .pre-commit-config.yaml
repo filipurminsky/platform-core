@@ -33,13 +33,13 @@ repos:
   # Blocks commits that introduce credentials, keys or tokens. Scans only the
   # staged diff on commit (fast); CI re-runs gitleaks over full history.
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.2
+    rev: v8.30.1
     hooks:
       - id: gitleaks
 
   # ── Python: ruff lint + format (config in repo-root pyproject.toml) ─────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.15
+    rev: v0.17.3
     hooks:
       - id: ruff
         args: [--fix]
@@ -47,7 +47,7 @@ repos:
 
   # ── Terraform formatting ──────────────────────────────────────────────────
   - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.106.0
+    rev: v1.109.4
     hooks:
       - id: terraform_fmt
 
@@ -56,14 +56,14 @@ repos:
     hooks:
       - id: uv-lock-check
         name: uv.lock in sync with pyproject.toml
-        entry: bash -c 'for a in services/echo-service services/worker-service services/llm-gateway services/audio-api services/stt-worker services/llm-worker services/tts-worker; do (cd "$a" && uv lock --check) || exit 1; done'
+        entry: bash -c 'for a in services/platform-common services/echo-service services/worker-service services/llm-gateway services/audio-api services/stt-worker services/llm-worker services/tts-worker; do (cd "$a" && uv lock --check) || exit 1; done'
         language: system
         files: ^services/.*/(pyproject\.toml|uv\.lock)$
         pass_filenames: false
 
       - id: pytest
         name: app unit tests (uv run pytest)
-        entry: bash -c 'for a in services/echo-service services/worker-service services/llm-gateway services/audio-api services/stt-worker services/llm-worker services/tts-worker; do echo "== $a =="; (cd "$a" && uv run --frozen pytest -q) || exit 1; done'
+        entry: bash -c 'for a in services/platform-common services/echo-service services/worker-service services/llm-gateway services/audio-api services/stt-worker services/llm-worker services/tts-worker; do echo "== $a =="; (cd "$a" && uv run --frozen pytest -q) || exit 1; done'
         language: system
         files: ^services/
         pass_filenames: false
@@ -90,12 +90,12 @@ repos:
         pass_filenames: false
 
       # ── Trivy IaC/misconfig scan (mirrors the trivy-iac CI job) ─────────────
-      # Pinned to the SAME image CI's trivy-action@v0.20.0 runs
-      # (ghcr.io/aquasecurity/trivy:0.51.1) so verdicts match exactly — a locally
-      # installed trivy is a different version and flags manifests CI accepts.
-      # Requires Docker running (and signed in). Flags mirror the CI job:
-      #   --ignorefile .trivyignore.yaml  == CI's TRIVY_IGNOREFILE env var
-      #   --skip-dirs .github             == CI's skip-dirs
+      # Pinned (tag + digest) to the SAME Trivy version CI installs
+      # (.github/actions/setup-trivy, 0.76.1) so verdicts match exactly — a
+      # locally installed trivy of another version flags different things.
+      # Bump both together. Requires Docker running. Flags mirror the CI job:
+      #   --ignorefile .trivyignore.yaml  == CI's --ignorefile
+      #   --skip-dirs .github             == CI's --skip-dirs
       # The remaining skips are local-only paths a fresh CI checkout never has, so
       # skipping them keeps the verdict matched to CI:
       #   --skip-dirs **/.terraform/**    == terraform-init vendored modules
@@ -103,9 +103,9 @@ repos:
       #                                      (e.g. helm-validator's insecure test
       #                                      fixture chart under .agents/skills/).
       - id: trivy-config
-        name: trivy IaC + manifest misconfig scan (pinned 0.51.1)
+        name: trivy IaC + manifest misconfig scan (pinned 0.76.1)
         entry: >-
-          ghcr.io/aquasecurity/trivy:0.51.1
+          ghcr.io/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
           --cache-dir /tmp/trivy-cache
           config --severity HIGH,CRITICAL --exit-code 1
           --ignorefile .trivyignore.yaml

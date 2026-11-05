@@ -1,45 +1,78 @@
 {
   // Renovate keeps the pinned dependencies in this repo current via PRs.
-  // Enable by installing the Mend Renovate GitHub App on the repo (it reads
-  // this file automatically). Every update lands as a PR that must pass CI
-  // (.github/workflows/ci.yaml) before merge — nothing here auto-merges.
   //
-  // What it covers (the things that were pinned with no update path):
-  //   - GitHub Actions  (uses: …@vN)            built-in github-actions manager
-  //   - Python deps     (apps/*/pyproject.toml) built-in pep621 manager (uv.lock kept in sync)
-  //   - App base images (apps/*/Dockerfile)     built-in dockerfile manager (incl. the uv tag)
-  //   - Helm charts     (ArgoCD Applications)   argocd manager (opt-in below)
-  //   - Crossplane providers/functions          custom regex (xpkg OCI packages)
-  //   - kindest/node    (kind + CI)             custom regex
+  // ENABLE IT: install the Mend Renovate GitHub App (https://github.com/apps/renovate)
+  // on this repository (Settings → GitHub Apps; "Only select repositories").
+  // It reads this file automatically, opens an onboarding PR if none was merged,
+  // and maintains a "Dependency Dashboard" issue listing every pending/blocked
+  // update. If the dashboard issue doesn't exist, the app isn't running.
+  // Every update lands as a PR that must pass CI (.github/workflows/ci.yaml)
+  // before merge — nothing here auto-merges.
+  //
+  // What it covers:
+  //   - GitHub Actions  (uses: …@<sha> # vX.Y.Z)  github-actions manager, digest-pinned
+  //   - Python deps     (services/*/pyproject.toml) pep621 manager (uv.lock kept in sync)
+  //   - Base images     (services/*/Dockerfile)    dockerfile manager, tag+digest
+  //   - Helm charts     (ArgoCD Application/ApplicationSet incl. OCI repoURLs
+  //                      like registry-1.docker.io/envoyproxy → gateway-helm /
+  //                      gateway-crds-helm)          argocd manager (opt-in below)
+  //   - Raw manifest images (image: …)             kubernetes manager (opt-in below)
+  //   - Kustomize images/helmCharts (non-prod)    kustomize manager
+  //   - pre-commit hook revs                       pre-commit manager
+  //   - Crossplane xpkgs, kindest/node, Trivy pre-commit image  custom regex
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  extends: ["config:recommended"],
+  extends: [
+    "config:recommended",
+    ":dependencyDashboard",
+    // Rewrite `uses: owner/repo@vX` to `@<40-char sha> # vX.Y.Z` and keep both
+    // current — tags are mutable (cf. the March 2026 trivy-action tag hijack).
+    "helpers:pinGitHubActionDigests",
+  ],
+
+  // Supply-chain safety: don't propose a release until it has been public for
+  // 3 days (most malicious/compromised releases are yanked within hours).
+  // "strict" holds the PR back (shown as pending on the dashboard) instead of
+  // opening it early.
+  minimumReleaseAge: "3 days",
+  internalChecksFilter: "strict",
 
   // The pre-commit manager is opt-in — enable it so .pre-commit-config.yaml hook
-  // revs (ruff, terraform, pre-commit-hooks) are kept current too.
+  // revs (gitleaks, ruff, terraform, pre-commit-hooks) are kept current too.
   "pre-commit": { enabled: true },
 
-  // Keep the noise down: one batch, start of the week, surfaced on the
-  // dependency dashboard issue (enabled by config:recommended).
   timezone: "Europe/London",
   schedule: ["before 9am on monday"],
   labels: ["dependencies"],
-  prConcurrentLimit: 5,
-  prHourlyLimit: 2,
+  prConcurrentLimit: 10,
+  prHourlyLimit: 4,
 
-  // The argocd manager is not enabled by default — point it at the platform
-  // Applications/ApplicationSets so chart targetRevisions get tracked.
-  // Self-referencing git sources (targetRevision: main/HEAD to this repo) have
-  // no datasource and are correctly ignored; only the Helm chart repos
-  // (cert-manager, keda, kube-prometheus-stack, ingress-nginx, loki,
-  // external-secrets, argo-rollouts, kyverno, crossplane) produce updates.
+  // argocd is not enabled by default. Its extractor understands both
+  // Application.spec.source(s) and ApplicationSet.spec.template.spec.source(s),
+  // and treats a scheme-less repoURL with `chart:` as an OCI registry — so the
+  // Envoy Gateway OCI charts are tracked without a custom manager. Self-
+  // referencing git sources (this repo @ main/HEAD) are disabled below.
   argocd: {
-    managerFilePatterns: ["/^kubernetes/platform/.+\\.ya?ml$/"],
+    managerFilePatterns: ["/^kubernetes/(platform|apps)/.+\\.ya?ml$/"],
   },
 
-  // The kustomize prod overlay pins private-ECR images to :latest; those tags
-  // are owned by the GitOps image-promotion flow in docker-build.yaml, and
-  // Renovate cannot auth to private ECR. Disable rather than let it warn.
-  kustomize: { enabled: false },
+  // Raw-manifest image references (vLLM, init containers, k6, curl, …).
+  kubernetes: {
+    managerFilePatterns: [
+      "/^kubernetes/.+\\.ya?ml$/",
+      "/^services/[^/]+/k8s/.+\\.ya?ml$/",
+      "/^tests/.+\\.ya?ml$/",
+    ],
+  },
+
+  // Kustomize `images:` / helmCharts. The per-app prod overlays are owned by
+  // the CI digest-promotion flow (docker-build.yaml) and point at private ECR,
+  // so they are excluded; our own app images are disabled in packageRules.
+  ignorePaths: [
+    "**/node_modules/**",
+    "**/.terraform/**",
+    "services/*/k8s/overlays/prod/**",
+    "kustomize/validation/**",
+  ],
 
   // Refresh transitive deps in the committed uv.lock files on a schedule, even
   // when no direct dependency in pyproject.toml changed.
@@ -50,9 +83,43 @@
 
   packageRules: [
     {
-      description: "Batch GitHub Actions minor/patch bumps into one PR",
+      description: "Our own app images are built + promoted by CI, never by Renovate",
+      matchDatasources: ["docker"],
+      matchPackageNames: [
+        "echo-service",
+        "worker-service",
+        "llm-gateway",
+        "audio-api",
+        "stt-worker",
+        "llm-worker",
+        "tts-worker",
+        "vllm-mock",
+        "/\\.dkr\\.ecr\\..+/platform-core//",
+      ],
+      enabled: false,
+    },
+    {
+      description: "Self-referencing GitOps sources (this repo @ main/HEAD) are not versioned deps",
+      matchManagers: ["argocd"],
+      matchDatasources: ["git-tags"],
+      matchPackageNames: ["/filipurminsky/platform-core/"],
+      enabled: false,
+    },
+    {
+      description: "Pin Dockerfile base/build images to tag+digest (reproducible, tamper-evident)",
+      matchManagers: ["dockerfile"],
+      pinDigests: true,
+    },
+    {
+      description: "Pin third-party images in raw manifests to digests too",
+      matchManagers: ["kubernetes"],
+      matchDatasources: ["docker"],
+      pinDigests: true,
+    },
+    {
+      description: "Batch GitHub Actions minor/patch/digest bumps into one PR",
       matchManagers: ["github-actions"],
-      matchUpdateTypes: ["minor", "patch", "digest"],
+      matchUpdateTypes: ["minor", "patch", "digest", "pinDigest"],
       groupName: "github-actions",
     },
     {
@@ -63,7 +130,7 @@
     },
     {
       description: "Flag major platform/chart upgrades for manual review",
-      matchManagers: ["argocd", "custom.regex"],
+      matchManagers: ["argocd", "kubernetes", "custom.regex"],
       matchUpdateTypes: ["major"],
       addLabels: ["needs-review"],
     },
@@ -75,19 +142,30 @@
       description: "Crossplane providers & functions (xpkg.upbound.io OCI packages)",
       managerFilePatterns: ["/^kubernetes/platform/crossplane/config/.+\\.ya?ml$/"],
       matchStrings: [
-        "package:\\s*(?<depName>xpkg\\.upbound\\.io/[^:\\s]+):(?<currentValue>v[0-9][^\\s]*)",
+        "package:\\s*(?<depName>xpkg\\.upbound\\.io/[^:\\s]+):(?<currentValue>v[0-9][^\\s@]*)(@(?<currentDigest>sha256:[a-f0-9]+))?",
       ],
       datasourceTemplate: "docker",
     },
     {
       customType: "regex",
-      description: "kindest/node image (terraform kind module + CI kind cluster)",
+      description: "kindest/node image, optionally digest-pinned (terraform kind module + CI kind cluster)",
       managerFilePatterns: [
         "/^terraform/modules/kind/kind-config\\.yaml$/",
         "/^\\.github/workflows/ci\\.yaml$/",
       ],
-      matchStrings: ["kindest/node:(?<currentValue>v[0-9][^\\s\"']*)"],
+      matchStrings: [
+        "kindest/node:(?<currentValue>v[0-9][^\\s\"'@]*)(@(?<currentDigest>sha256:[a-f0-9]+))?",
+      ],
       depNameTemplate: "kindest/node",
+      datasourceTemplate: "docker",
+    },
+    {
+      customType: "regex",
+      description: "Trivy docker_image hook in .pre-commit-config.yaml (pre-commit manager ignores docker_image entries)",
+      managerFilePatterns: ["/^\\.pre-commit-config\\.yaml$/"],
+      matchStrings: [
+        "(?<depName>ghcr\\.io/aquasecurity/trivy):(?<currentValue>[0-9][^\\s@]*)(@(?<currentDigest>sha256:[a-f0-9]+))?",
+      ],
       datasourceTemplate: "docker",
     },
   ],
