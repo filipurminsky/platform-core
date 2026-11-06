@@ -17,8 +17,14 @@ jobs:
   plan:
     name: Terraform Plan (${{ matrix.env }})
     runs-on: ubuntu-latest
-    # Fork PRs get no OIDC token / repo variables — skip rather than fail.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Skip (not fail) when a plan can't run: fork PRs get no OIDC token / repo
+    # variables, and until terraform/modules/github-oidc is applied and the repo
+    # variable AWS_OIDC_ROLE_ARN is set there is no AWS identity to plan with.
+    # Same convention as docker-build.yaml. Static Terraform checks (fmt,
+    # validate, Checkov, Trivy) still run in ci.yaml on every PR.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.AWS_OIDC_ROLE_ARN != ''
     permissions:
       contents: read
       id-token: write # OIDC → AWS (read-only plan role)
@@ -42,20 +48,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify OIDC + required variables are configured
+      - name: Verify required variables are configured
         shell: bash
         env:
-          ROLE_ARN: ${{ vars.AWS_OIDC_ROLE_ARN }}
           TF_ENV: ${{ matrix.env }}
         run: |
-          if [[ -z "$ROLE_ARN" ]]; then
-            echo "::error title=Missing OIDC Configuration::AWS_OIDC_ROLE_ARN repo variable is not set."
-            echo "Terraform plan requires AWS credentials via GitHub OIDC."
-            echo "  1. Apply terraform/modules/github-oidc to create the IAM role."
-            echo "  2. Copy the role ARN from terraform output."
-            echo "  3. Settings → Secrets and variables → Actions → Variables → AWS_OIDC_ROLE_ARN"
-            exit 1
-          fi
           if [[ "$TF_ENV" == "dev" && -z "${TF_VAR_api_allowed_cidrs}" ]]; then
             echo "::error title=Missing TF_API_ALLOWED_CIDRS::Set repo variable TF_API_ALLOWED_CIDRS to an HCL list such as [\"203.0.113.10/32\"] (dev api_allowed_cidrs has no default)."
             exit 1

@@ -478,8 +478,12 @@ jobs:
       - name: Install Argo Rollouts (controller + CRDs + gatewayAPI plugin)
         run: |
           kubectl create namespace argo-rollouts
-          kubectl apply -n argo-rollouts \
+          # Server-side apply: the v1.10 Rollout/AnalysisRun CRDs exceed the
+          # 256 KiB last-applied-configuration annotation client-side apply adds.
+          kubectl apply --server-side -n argo-rollouts \
             -f "https://github.com/argoproj/argo-rollouts/releases/download/${ROLLOUTS_VERSION}/install.yaml"
+          kubectl wait --for=condition=Established --timeout=60s \
+            crd/rollouts.argoproj.io crd/analysistemplates.argoproj.io crd/analysisruns.argoproj.io
           # Register the traffic-router plugin (sha256-verified by the
           # controller on download) and let the controller manage HTTPRoutes —
           # mirrors the platform argo-rollouts Helm values.
