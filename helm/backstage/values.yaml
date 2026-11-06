@@ -2,7 +2,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/backstage/backstage
-  tag: "1.45.2"
+  tag: "1.55.2"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -17,8 +17,23 @@ service:
   port: 7007
   targetPort: http
 
-ingress:
+# Gateway API HTTPRoute (Envoy Gateway) — the default exposure path. Attaches
+# to the shared platform Gateway; that Gateway's listener must allow routes
+# from this release's namespace.
+httpRoute:
   enabled: true
+  parentRefs:
+    - name: platform
+      namespace: envoy-gateway-system
+  hostnames:
+    - backstage.platform-core.local
+  annotations: {}
+
+# Legacy networking.k8s.io Ingress — off by default (ingress-nginx is being
+# replaced by Envoy Gateway). Kept only for clusters still on an Ingress
+# controller; don't enable alongside httpRoute unless migrating.
+ingress:
+  enabled: false
   className: nginx
   host: backstage.platform-core.local
   annotations: {}

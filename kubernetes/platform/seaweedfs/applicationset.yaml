@@ -1,0 +1,120 @@
+# SeaweedFS — dev-only S3-compatible object storage standing in for prod S3.
+# Replaces MinIO: the MinIO community edition stopped publishing images and the
+# Helm chart reliably, so it is no longer a dependable dev dependency.
+#
+# In dev (kind), the audio pipeline (bucket: audio-pipeline) uses this as its
+# S3 endpoint. Prod uses a real S3 bucket provisioned via Crossplane (see
+# kubernetes/platform/crossplane/config/). Scoped to dev only (cluster
+# generator environment=dev) — each environment gets exactly one object store.
+#
+# Contract kept from MinIO (services are unchanged):
+#   - endpoint  http://minio.platform.svc.cluster.local:9000 — a compat Service
+#               `minio` (manifests/) selects the SeaweedFS pod, whose S3 gateway
+#               listens on 9000 so the services' NetworkPolicy egress rule
+#               (platform ns, TCP 9000) still matches;
+#   - creds     the bootstrap-created `minio-credentials` Secret (keys rootUser /
+#               rootPassword, scripts/bootstrap.sh) is injected as
+#               AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY: SeaweedFS registers
+#               them as a static admin identity and turns S3 auth on (anonymous
+#               requests get 403);
+#   - bucket    `audio-pipeline` is created by the chart's bucket hook Job (Helm
+#               post-install/upgrade hook → ArgoCD PostSync hook, idempotent);
+#   - path-style addressing (boto3 with S3_ENDPOINT_URL) works unchanged.
+#
+# Single all-in-one pod (master + volume + filer + S3 in one process), PVC-backed.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: seaweedfs
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: ["dev"]
+  template:
+    metadata:
+      name: seaweedfs
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      sources:
+        - repoURL: https://seaweedfs.github.io/seaweedfs/helm
+          chart: seaweedfs
+          targetRevision: "4.52.0"     # SeaweedFS 4.52
+          helm:
+            releaseName: seaweedfs
+            values: |
+              # Only the all-in-one server; the distributed components are off.
+              master:
+                enabled: false
+              volume:
+                enabled: false
+              filer:
+                enabled: false
+              s3:
+                enabled: false
+              allInOne:
+                enabled: true
+                replicas: 1
+                s3:
+                  enabled: true
+                  port: 9000            # keep the MinIO port (see header)
+                  # Auth is enabled by the env-var identity below, not by the
+                  # chart's generated s3 config secret.
+                  enableAuth: false
+                  createBuckets:
+                    - name: audio-pipeline
+                secretExtraEnvironmentVars:
+                  AWS_ACCESS_KEY_ID:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: rootUser
+                  AWS_SECRET_ACCESS_KEY:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: rootPassword
+                data:
+                  type: persistentVolumeClaim   # cluster default SC (kind: standard)
+                  size: 5Gi
+                podSecurityContext:
+                  enabled: true
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  runAsGroup: 1000
+                  fsGroup: 1000
+                  seccompProfile:
+                    type: RuntimeDefault
+                # Verified locally: weed server runs fine as uid 1000 with a
+                # read-only root fs (the chart mounts an emptyDir at /tmp for
+                # the master gRPC socket when readOnlyRootFilesystem is set).
+                containerSecurityContext:
+                  enabled: true
+                  readOnlyRootFilesystem: true
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: [ALL]
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+                  limits:
+                    memory: 512Mi
+        - repoURL: https://github.com/filipurminsky/platform-core.git
+          targetRevision: main
+          path: kubernetes/platform/seaweedfs/manifests
+      destination:
+        server: "{{.server}}"
+        namespace: platform
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

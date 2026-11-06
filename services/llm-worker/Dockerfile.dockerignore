@@ -1,0 +1,10 @@
+# BuildKit uses <Dockerfile>.dockerignore for this Dockerfile (context: services/).
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.pyc
+**/k8s
+**/test_*.py
+**/conftest.py
+**/tests

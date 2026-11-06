@@ -1,10 +1,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# Cluster-scoped admission policies. verify-image-signatures and
-# require-pod-standards are Enforce in every environment. disallow-latest-tag is
-# Audit here (so locally-built :latest images still run on kind) and is patched
-# to Enforce by the prod overlay.
+# Cluster-scoped admission policies (Kyverno CEL policy types,
+# policies.kyverno.io/v1). verify-image-signatures (ImageValidatingPolicy) and
+# require-pod-standards (ValidatingPolicy) are Deny in every environment.
+# disallow-latest-tag is Audit here (so locally-built :latest images still run
+# on kind) and is patched to Deny by the prod overlay.
 resources:
   - verify-image-signatures.yaml
   - require-pod-standards.yaml

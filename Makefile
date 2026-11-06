@@ -4,6 +4,9 @@
 # means "green in CI".
 
 APPS        := echo-service worker-service llm-gateway audio-api stt-worker tts-worker llm-worker
+# Shared Python library used by the Kafka workers (tested/linted, no image).
+LIBS        := platform-common
+PYPROJECTS  := $(LIBS) $(APPS)
 DEV_OVERLAY := kustomize/validation/dev
 PROD_OVERLAY:= kustomize/validation/prod
 
@@ -21,32 +24,32 @@ hooks: ## Install git pre-commit + pre-push hooks (.pre-commit-config.yaml)
 
 # ── Apps (Python) ───────────────────────────────────────────────────────────────
 .PHONY: deps
-deps: ## Sync each app's locked dependencies into its uv venv (.venv)
-	@for app in $(APPS); do \
+deps: ## Sync each app's (and shared lib's) locked dependencies into its uv venv (.venv)
+	@for app in $(PYPROJECTS); do \
 	  echo "== $$app =="; ( cd services/$$app && uv sync --frozen ) || exit 1; \
 	done
 
 .PHONY: test
-test: ## Run unit tests for all apps (uv run pytest)
-	@for app in $(APPS); do \
+test: ## Run unit tests for all apps + shared libs (uv run pytest)
+	@for app in $(PYPROJECTS); do \
 	  echo "== $$app =="; ( cd services/$$app && uv run --frozen pytest -q ) || exit 1; \
 	done
 
 .PHONY: lint
-lint: ## Lint + format-check the apps (ruff via uvx, config in root pyproject.toml)
-	@for app in $(APPS); do \
+lint: ## Lint + format-check the apps + shared libs (ruff via uvx, root pyproject.toml config)
+	@for app in $(PYPROJECTS); do \
 	  echo "== $$app =="; \
 	  uvx ruff check services/$$app && uvx ruff format --check services/$$app || exit 1; \
 	done
 
 .PHONY: fmt
 fmt: ## Auto-format the apps (ruff format)
-	@for app in $(APPS); do uvx ruff format services/$$app; done
+	@for app in $(PYPROJECTS); do uvx ruff format services/$$app; done
 
 .PHONY: images
-images: ## Build all app container images locally (no push)
+images: ## Build all app container images locally (no push; context = services/, like CI)
 	@for app in $(APPS); do \
-	  echo "== $$app =="; docker build -t platform-core/$$app:dev services/$$app || exit 1; \
+	  echo "== $$app =="; DOCKER_BUILDKIT=1 docker build -f services/$$app/Dockerfile -t platform-core/$$app:dev services || exit 1; \
 	done
 
 # ── Kubernetes manifests ────────────────────────────────────────────────────────

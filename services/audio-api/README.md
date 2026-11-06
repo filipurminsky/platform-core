@@ -13,7 +13,7 @@ FastAPI service that accepts audio uploads, stores them in S3 (or MinIO), and pr
 
 ## Technology Stack
 
-- **Framework**: FastAPI (Python 3.12)
+- **Framework**: FastAPI (Python 3.13 in the container image; 3.12+ locally)
 - **Package Manager**: [uv](https://github.com/astral-sh/uv)
 - **Storage**: `boto3` (S3/MinIO), `redis`
 - **Messaging**: `confluent-kafka`
@@ -26,7 +26,7 @@ FastAPI service that accepts audio uploads, stores them in S3 (or MinIO), and pr
 | `POST` | `/v1/audio/jobs` | Upload audio file and start a processing job |
 | `GET`  | `/jobs/{job_id}` | Retrieve the current status and artifact keys from Redis |
 | `GET`  | `/healthz` | Liveness probe |
-| `GET`  | `/readyz` | Readiness probe (checks Redis connectivity) |
+| `GET`  | `/readyz` | Readiness probe (503 only if Redis ping fails; Kafka reported, not gated) |
 | `GET`  | `/metrics` | Prometheus metrics |
 
 ## Kafka Interaction
@@ -66,3 +66,14 @@ uv run pytest
 # Run locally
 uv run uvicorn main:app --host 0.0.0.0 --port 8080
 ```
+
+## Container image
+
+The build context is `services/` (shared by all services):
+
+```bash
+docker build -f services/audio-api/Dockerfile services/
+```
+
+Multi-stage: `uv` resolves `uv.lock` into a venv in the builder stage only; the
+runtime stage is `python:3.13-slim` (pinned by digest) running as UID 10001.

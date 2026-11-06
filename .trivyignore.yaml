@@ -1,9 +1,10 @@
 # Trivy misconfiguration ignore list.
 #
 # Every entry below is a deliberate, reviewed exception — not a blanket mute.
-# Wired into CI via the TRIVY_IGNOREFILE env var on the trivy-iac job in
-# .github/workflows/ci.yaml (Trivy 0.50 does not auto-load *.yaml ignore files,
-# and the action's `trivyignores` input mangles the .yaml extension).
+# Wired into CI via `--ignorefile .trivyignore.yaml` on the trivy-iac job in
+# .github/workflows/ci.yaml (the .yaml extension selects Trivy's structured,
+# path-scoped parser). Trivy >= 0.6x reports IDs as e.g. KSV-0014; the legacy
+# AVD-KSV-0014 form used below is still matched as an alias.
 # Findings that CAN be fixed in-repo are fixed in the manifests, not listed here.
 
 misconfigurations:
@@ -98,3 +99,25 @@ misconfigurations:
   - id: AVD-AWS-0057
     paths:
       - "**/modules/karpenter/policy.tf"
+
+  # KSV-0118 (default security context) — fires on kustomize strategic-merge
+  # PATCH fragments under services/*/k8s/overlays/*/patch-*.yaml. A patch is a
+  # partial Deployment (env/volume tweaks) that intentionally omits the pod
+  # securityContext; the full hardened securityContext lives in each service's
+  # k8s/base manifest, which is scanned (and passes) on its own. Scoped to
+  # patch files only — base manifests, Helm templates and Jobs are NOT exempt.
+  - id: AVD-KSV-0118
+    paths:
+      - "services/*/k8s/overlays/*/patch-*.yaml"
+
+  # AWS-0040 (EKS public endpoint enabled) — the DEV cluster deliberately keeps
+  # a public API endpoint so a laptop can reach it without a VPN/bastion; it is
+  # CIDR-restricted via the required, default-less `api_allowed_cidrs` variable
+  # (terraform/environments/dev). Prod defaults to a private-only endpoint
+  # (api_public_access = false). The finding is reported inside the upstream
+  # terraform-aws-modules/eks module, so it can only be scoped to that file.
+  # AWS-0041 (public endpoint open to 0.0.0.0/0) stays ENFORCED, which is the
+  # check that catches the dangerous case for either environment.
+  - id: AVD-AWS-0040
+    paths:
+      - "**/terraform-aws-modules/eks/aws/main.tf"

@@ -1,10 +1,22 @@
 Backstage is available inside the cluster at:
 
   http://{{ include "backstage.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- $host := "" }}
+{{- if and .Values.httpRoute.enabled .Values.httpRoute.hostnames }}
+{{- $host = first .Values.httpRoute.hostnames }}
 
-For local kind ingress, add this host entry:
+Exposed through the Gateway API (HTTPRoute -> {{ (first .Values.httpRoute.parentRefs).namespace | default .Release.Namespace }}/{{ (first .Values.httpRoute.parentRefs).name }}).
+{{- else if .Values.ingress.enabled }}
+{{- $host = .Values.ingress.host }}
 
-  127.0.0.1 {{ .Values.ingress.host }}
+Exposed through Ingress (class {{ .Values.ingress.className }}).
+{{- end }}
+{{- if $host }}
+
+For a local kind cluster, add this host entry:
+
+  127.0.0.1 {{ $host }}
+{{- end }}
 
 Then open:
 

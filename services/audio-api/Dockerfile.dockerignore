@@ -1,0 +1,8 @@
+# BuildKit uses <Dockerfile>.dockerignore (paths relative to the build context,
+# which is services/). Keep local venvs, caches and other services out of it.
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/k8s

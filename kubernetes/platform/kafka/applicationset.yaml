@@ -1,7 +1,8 @@
 # Kafka is environment-selected via the cluster generator: the destination
 # cluster's `environment` label (set by bootstrap.sh — dev for kind, prod for
-# EKS) drives the overlay path. dev = 1 broker/1 ZK, no SCRAM auth, standard
-# storage; prod = HA brokers, SCRAM auth, gp3. Switching never edits this file.
+# EKS) drives the overlay path. dev = 1 KRaft node, no SCRAM auth, plaintext
+# :9092 listener, standard storage; prod = 3 KRaft nodes spread over 3 AZs
+# (rack-aware), SCRAM over TLS :9093 only, gp3. Switching never edits this file.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:

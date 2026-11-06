@@ -18,7 +18,7 @@
 ```bash
 # Check vLLM metrics
 kubectl port-forward -n apps svc/vllm-inference 8000:8000 &
-curl http://localhost:8000/metrics | grep -E "vllm_(e2e|num_requests|gpu_cache)"
+curl http://localhost:8000/metrics | grep -E "vllm:(e2e|num_requests|kv_cache)"
 
 # Check GPU utilisation on the node
 kubectl exec -n apps deploy/vllm-inference -- nvidia-smi
@@ -33,7 +33,7 @@ curl http://localhost:8000/metrics | grep vllm_num_requests
 
 ### Cause 1: GPU KV cache saturated
 
-**Signal:** `vllm:gpu_cache_usage_perc` > 90%
+**Signal:** `vllm:kv_cache_usage_perc` > 0.9 (alert `VllmKvCacheNearFull`)
 
 Too many concurrent requests; KV cache evictions are causing latency spikes.
 

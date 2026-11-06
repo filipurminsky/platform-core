@@ -6,12 +6,15 @@
                     extra Dockerfile layer.
 
 Each backend returns WAV bytes. The active backend is selected by
-`synthesize()` in main.py from TTS_BACKEND.
+`synthesize()` in main.py from TTS_BACKEND (validated as a Literal at startup).
 """
 
 import io
 import struct
+import threading
 import wave
+
+from platform_common.retry import PermanentError
 
 
 def _synthesize_stub(text: str) -> bytes:
@@ -43,36 +46,45 @@ def _synthesize_stub(text: str) -> bytes:
     return buf.getvalue()
 
 
-def _synthesize_kokoro(text: str) -> bytes:
+_kokoro_pipelines: dict = {}  # lang_code -> KPipeline, built once per process
+_kokoro_lock = threading.Lock()
+
+
+def _get_kokoro_pipeline(lang_code: str):
+    """Build (once) and cache the Kokoro pipeline — model load is the expensive part."""
+    with _kokoro_lock:
+        pipeline = _kokoro_pipelines.get(lang_code)
+        if pipeline is None:
+            try:
+                import kokoro  # type: ignore[import-not-found]  # baked into the kokoro image
+            except ImportError as exc:
+                raise PermanentError(
+                    "kokoro is not installed. The kokoro image bakes the model + voice "
+                    "packs. Use TTS_BACKEND=stub for dev/test."
+                ) from exc
+            pipeline = kokoro.KPipeline(lang_code=lang_code)
+            _kokoro_pipelines[lang_code] = pipeline
+    return pipeline
+
+
+def _synthesize_kokoro(text: str, *, lang_code: str = "a", voice: str = "af_heart") -> bytes:
     """Synthesize speech using the Kokoro TTS library (CPU).
 
-    The prod CPU image bakes Kokoro model + voice packs via an extra Dockerfile
-    layer / build arg. kokoro and torch are NOT in pyproject.toml so the test
-    suite stays offline and the lockfile stays light.
-
-    Import is lazy so the stub path (dev/test) never touches this code path.
+    kokoro and torch are NOT in pyproject.toml so the test suite stays offline
+    and the lockfile light; the import is lazy and the pipeline is cached at
+    module level (like the nemo model in stt-worker).
     """
-    # lazy import — only when TTS_BACKEND=kokoro and the prod image is used
-    try:
-        import kokoro  # type: ignore[import-not-found]  # prod image bakes this
-    except ImportError as exc:
-        raise RuntimeError(
-            "kokoro is not installed. The prod CPU image bakes Kokoro model + "
-            "voice packs. Use TTS_BACKEND=stub for dev/test."
-        ) from exc
-
-    # Kokoro API: pipeline returns list of (graphemes, phonemes, audio_array)
-    pipeline = kokoro.KPipeline(lang_code="en-us")
-    audio_chunks = []
-    for _, _, audio in pipeline(text, voice="af_heart"):
-        audio_chunks.append(audio)
+    pipeline = _get_kokoro_pipeline(lang_code)
+    # Kokoro yields (graphemes, phonemes, audio) per sentence-ish segment.
+    audio_chunks = [audio for _, _, audio in pipeline(text, voice=voice)]
+    if not audio_chunks:
+        raise PermanentError("kokoro produced no audio for the given text")
 
     import numpy as np  # type: ignore[import-not-found]  # part of kokoro's deps
 
-    audio_np = np.concatenate(audio_chunks)
+    audio_np = np.concatenate([np.asarray(chunk) for chunk in audio_chunks])
     sample_rate = 24000  # Kokoro default
 
-    # Encode to WAV bytes
     buf = io.BytesIO()
     audio_int16 = (audio_np * 32767).clip(-32768, 32767).astype("int16")
     with wave.open(buf, "wb") as wf:

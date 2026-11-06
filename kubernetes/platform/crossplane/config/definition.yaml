@@ -1,26 +1,27 @@
 # Platform S3 API. This XRD is the self-service contract: app teams create a
-# namespaced `ObjectStorageBucket` claim (see ../examples/bucket-claim.yaml) and
-# the platform-owned Composition turns it into a secure S3 bucket. Teams never
-# touch raw AWS resources or IAM.
-apiVersion: apiextensions.crossplane.io/v1
+# namespaced `ObjectStorageBucket` (see ../examples/bucket-claim.yaml) and the
+# platform-owned Composition turns it into a secure S3 bucket. Teams never touch
+# raw AWS resources or IAM.
+#
+# Crossplane v2 model: claims are deprecated, so the composite resource (XR)
+# itself is namespaced (`scope: Namespaced`) — there is no separate
+# XObjectStorageBucket + claim pair any more. The XR composes namespaced managed
+# resources (s3.aws.m.upbound.io) in its own namespace. XRs no longer get native
+# connection secrets; function-patch-and-transform composes one (name taken
+# from spec.writeConnectionSecretToRef.name, keys `bucket` and `region`) in the
+# XR's namespace.
+apiVersion: apiextensions.crossplane.io/v2
 kind: CompositeResourceDefinition
 metadata:
-  name: xobjectstoragebuckets.platform.io
+  name: objectstoragebuckets.platform.io
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 spec:
   group: platform.io
+  scope: Namespaced
   names:
-    kind: XObjectStorageBucket
-    plural: xobjectstoragebuckets
-  claimNames:
     kind: ObjectStorageBucket
     plural: objectstoragebuckets
-  # Keys copied from the composite's connection secret down to the claim's
-  # secret in the app namespace.
-  connectionSecretKeys:
-    - bucket
-    - region
   defaultCompositionRef:
     name: objectstoragebucket.aws
   versions:
@@ -34,6 +35,17 @@ spec:
             spec:
               type: object
               properties:
+                # v2 XRs have no built-in connection-secret field; declared here
+                # so function-patch-and-transform writes the composed Secret
+                # (keys: bucket, region) under this name in the XR's namespace.
+                writeConnectionSecretToRef:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      description: Name of the Secret (in this namespace) that receives bucket + region.
+                  required:
+                    - name
                 parameters:
                   type: object
                   properties:

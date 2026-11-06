@@ -1,22 +1,30 @@
-# Strimzi Kafka cluster — KRaft mode (ZooKeeper-less).
-# Node count and storage live in the KafkaNodePool (nodepool.yaml); this resource
-# carries cluster-wide config (listeners, replication, operators). Kustomize
-# overlays (dev/prod) patch replica counts, storage class, and auth settings.
-apiVersion: kafka.strimzi.io/v1beta2
+# Strimzi Kafka cluster — KRaft (ZooKeeper-less), node-pool based.
+# Node count, roles, storage and broker resources live in the KafkaNodePool
+# (nodepool.yaml); this resource carries cluster-wide config (listeners,
+# replication, CA secret template, operators). Kustomize overlays patch replica
+# counts, storage class, listeners/auth and rack awareness per environment.
+#
+# API: Strimzi 1.x serves ONLY `kafka.strimzi.io/v1` (v1beta2 was removed in
+# 1.0.0). KRaft + node pools are the only mode since Strimzi 0.48, so the old
+# `strimzi.io/kraft` / `strimzi.io/node-pools` annotations are gone (ignored).
+# In-place upgrade path from Strimzi 0.40 / Kafka 3.7: see
+# docs/adr/adr-021-strimzi-1x-kafka-4-upgrade.md.
+apiVersion: kafka.strimzi.io/v1
 kind: Kafka
 metadata:
   name: platform-kafka
   namespace: platform
-  annotations:
-    strimzi.io/node-pools: enabled   # broker/controller topology defined by KafkaNodePool CRs
-    strimzi.io/kraft: enabled        # no ZooKeeper — Raft-based metadata quorum
 spec:
   kafka:
-    version: "3.7.0"
-    metadataVersion: "3.7-IV4"       # KRaft metadata version (tracks Kafka version)
-    # replicas + storage are intentionally omitted: in node-pool mode they are
-    # defined per-pool in nodepool.yaml, not here.
+    # Bump order on upgrade: operator first, then `version` (rolls brokers),
+    # then `metadataVersion` once the cluster is healthy on the new version.
+    # metadataVersion is effectively one-way (no downgrade past it).
+    version: "4.3.2"
+    metadataVersion: "4.3-IV0"
     listeners:
+      # Plaintext listener. Only DEV clients use it (no auth, PLAINTEXT on
+      # :9092); the PROD overlay removes it entirely (patch-kafka-prod.yaml), so
+      # prod is reachable only via SCRAM-SHA-512 over TLS on :9093.
       - name: plain
         port: 9092
         type: internal
@@ -32,26 +40,43 @@ spec:
     config:
       default.replication.factor: "3"    # patched to "1" in dev overlay
       min.insync.replicas: "2"           # patched to "1" in dev overlay
+      offsets.topic.replication.factor: "3"            # patched to "1" in dev
+      transaction.state.log.replication.factor: "3"    # patched to "1" in dev
+      transaction.state.log.min.isr: "2"               # patched to "1" in dev
       log.retention.hours: "168"
       log.segment.bytes: "1073741824"
       auto.create.topics.enable: "false" # all topics managed via KafkaTopic CRs
-    resources:
-      requests:
-        cpu: 500m
-        memory: 1Gi
-      limits:
-        cpu: "2"
-        memory: 4Gi
     readinessProbe:
       initialDelaySeconds: 15
       timeoutSeconds: 5
     livenessProbe:
       initialDelaySeconds: 15
       timeoutSeconds: 5
+    template:
+      # The cluster CA public cert Secret (`platform-kafka-cluster-ca-cert`) is
+      # created by Strimzi ONLY in this namespace (platform), but every Kafka
+      # client in `apps` (audio-api + the workers, and their KEDA
+      # TriggerAuthentications) mounts/reads it from `apps` under the same name.
+      # These annotations make kubernetes-reflector (platform app `reflector`)
+      # auto-mirror it into `apps` — and only `apps` — and keep the mirror in
+      # sync on every change, so CA renewal propagates without manual copies.
+      # Strimzi owns the source Secret and re-applies these annotations on each
+      # reconcile. See docs/adr/adr-022-replicate-kafka-cluster-ca-with-reflector.md.
+      clusterCaCert:
+        metadata:
+          annotations:
+            reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+            reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: "apps"
+            reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+            reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: "apps"
   entityOperator:
     topicOperator: {}                    # watches KafkaTopic CRs
     userOperator:
-      watchedNamespace: apps             # creates KafkaUser Secrets where apps/KEDA consume them
+      # Creates KafkaUser Secrets where apps/KEDA consume them. Since Strimzi
+      # 1.0.1 a watchedNamespace different from the cluster namespace also
+      # requires STRIMZI_ENTITY_OPERATOR_WATCHED_NAMESPACE_ENABLED=true on the
+      # Cluster Operator (set in kubernetes/platform/strimzi/application.yaml).
+      watchedNamespace: apps
   kafkaExporter:                         # exposes consumer group lag to Prometheus
     topicRegex: ".*"
     groupRegex: ".*"

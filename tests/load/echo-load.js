@@ -7,13 +7,18 @@
 //      practice you trigger failure by deploying a bad image); the canary's
 //      success-rate query drops below 99% and Argo Rollouts auto-rolls-back.
 //
-// Run in-cluster:  kubectl apply -k tests/load
-// Run locally:     TARGET=http://echo.platform-core.local k6 run tests/load/echo-load.js
+// Run in-cluster:  kubectl apply -k tests/load   (targets the Envoy Gateway
+//                  Service with Host: echo.platform-core.local)
+// Run locally:     TARGET=http://localhost HOST=echo.platform-core.local k6 run tests/load/echo-load.js
+//                  (kind maps host :80 to the Envoy Gateway proxy)
 
 import http from "k6/http";
 import { check, sleep } from "k6";
 
 const BASE = __ENV.TARGET || "http://echo.platform-core.local";
+// Optional Host override: the Gateway routes by hostname, so when TARGET is the
+// gateway address (not the route's DNS name) send the route hostname explicitly.
+const PARAMS = __ENV.HOST ? { headers: { Host: __ENV.HOST } } : {};
 
 export const options = {
   scenarios: {
@@ -34,7 +39,7 @@ export const options = {
 };
 
 export default function () {
-  const res = http.get(`${BASE}/`);
+  const res = http.get(`${BASE}/`, PARAMS);
   check(res, { "status is 200": (r) => r.status === 200 });
   sleep(0.2);
 }

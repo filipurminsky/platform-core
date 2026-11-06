@@ -12,10 +12,6 @@
   value: scram_sha512
 
 - op: add
-  path: /spec/triggers/0/metadata/username
-  value: worker-service
-
-- op: add
   path: /spec/triggers/0/authenticationRef
   value:
     name: kafka-trigger-auth

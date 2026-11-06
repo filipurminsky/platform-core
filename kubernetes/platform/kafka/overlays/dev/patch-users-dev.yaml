@@ -1,34 +1,34 @@
 # Dev uses the unauthenticated internal listener, so drop the SCRAM KafkaUsers.
 $patch: delete
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: worker-service
   namespace: apps
 ---
 $patch: delete
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: audio-api
   namespace: apps
 ---
 $patch: delete
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: stt-worker
   namespace: apps
 ---
 $patch: delete
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: llm-worker
   namespace: apps
 ---
 $patch: delete
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: tts-worker

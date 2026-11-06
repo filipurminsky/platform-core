@@ -39,9 +39,16 @@ spec:
         runAsNonRoot: true
         runAsUser: 999          # `redis` user in the official image
         fsGroup: 999            # make the /data PVC group-writable
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: redis
-          image: redis:7.4-alpine
+          # Pinned to the latest 7.4 patch (was the floating `7.4-alpine`).
+          # Deliberately staying on 7.4 rather than 8.x: same AOF/RDB format and
+          # uid, zero functional change. Licence note: Redis >= 7.4 is
+          # RSALv2/SSPLv1 (Redis 8 adds AGPLv3) — fine for unmodified internal use;
+          # Valkey (BSD, protocol-compatible) is the drop-in if that ever matters.
+          image: redis:7.4.12-alpine
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           # AOF on (durable), RDB snapshot as a periodic backstop. requirepass is

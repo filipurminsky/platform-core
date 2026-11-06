@@ -7,4 +7,5 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
-  package: xpkg.upbound.io/crossplane-contrib/function-patch-and-transform:v0.8.2
+  # v0.9+ composes the XR connection Secret itself for Crossplane v2 XRs.
+  package: xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.11.2

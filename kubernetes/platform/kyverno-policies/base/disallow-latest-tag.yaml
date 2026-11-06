@@ -1,10 +1,14 @@
 # Audit by default so local/dev :latest images still run (kind runs
 # locally-built images), but every use is reported in a PolicyReport. The prod
 # overlay (overlays/prod/patch-disallow-latest-enforce.yaml) flips this to
-# Enforce — prod images are promoted by immutable digest via docker-build.yaml,
+# Deny — prod images are promoted by immutable digest via docker-build.yaml,
 # so :latest there is a hard admission failure, not just a report.
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+#
+# Migrated from a kyverno.io/v1 ClusterPolicy (deprecated since Kyverno 1.17,
+# removal planned for 1.20) to the CEL-based ValidatingPolicy:
+#   validationFailureAction: Audit|Enforce → validationActions: [Audit]|[Deny]
+apiVersion: policies.kyverno.io/v1
+kind: ValidatingPolicy
 metadata:
   name: disallow-latest-tag
   annotations:
@@ -12,31 +16,33 @@ metadata:
     policies.kyverno.io/category: Supply Chain Security
     policies.kyverno.io/severity: medium
 spec:
-  validationFailureAction: Audit
-  background: true
-  rules:
-    - name: require-immutable-tag
-      match:
-        any:
-          - resources:
-              kinds: [Pod]
-      exclude:
-        any:
-          - resources:
-              namespaces:
-                - kube-system
-                - kyverno
-                - argocd
-                - argo-rollouts
-                - platform
-                - monitoring
-                - cert-manager
-                - ingress-nginx
-                - external-secrets
-                - keda
-      validate:
-        message: "Using ':latest' is not allowed; pin an immutable tag or digest."
-        pattern:
-          spec:
-            containers:
-              - image: "!*:latest"
+  validationActions: [Audit]
+  evaluation:
+    background:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - kyverno
+            - argocd
+            - argo-rollouts
+            - platform
+            - monitoring
+            - cert-manager
+            - envoy-gateway-system
+            - external-secrets
+            - keda
+  validations:
+    - expression: >-
+        object.spec.containers.all(c, !c.image.endsWith(':latest')) &&
+        object.spec.?initContainers.orValue([]).all(c, !c.image.endsWith(':latest'))
+      message: "Using ':latest' is not allowed; pin an immutable tag or digest."

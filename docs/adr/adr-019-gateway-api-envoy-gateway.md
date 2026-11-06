@@ -1,0 +1,16 @@
+# ADR-019: Gateway API on Envoy Gateway over ingress-nginx
+
+**Decision:** Serve all north-south HTTP traffic through the Kubernetes **Gateway API**, implemented by **Envoy Gateway** (`kubernetes/platform/envoy-gateway/`). One shared `Gateway` named `platform` in `envoy-gateway-system` (GatewayClass `envoy`, listener `http` :80, hostname `*.platform-core.local`, routes allowed from all namespaces). Services attach `HTTPRoute`s with `parentRefs: [{name: platform, namespace: envoy-gateway-system}]`. ingress-nginx and every `Ingress` object are removed.
+
+**Reasoning:**
+- **Security / lifecycle.** The pinned ingress-nginx chart (4.10.1) was exposed to IngressNightmare (CVE-2025-1974 and related admission-controller CVEs: unauthenticated config injection → RCE → cluster-wide Secret read). The ingress-nginx project was retired in March 2026, so there is no long-term patch stream to upgrade onto.
+- **Portable, typed API.** Gateway API is the upstream successor to Ingress: role-oriented (platform owns `GatewayClass`/`Gateway`, teams own `HTTPRoute`s), with weighted `backendRefs`, header matching and cross-namespace attachment as first-class fields instead of controller-specific annotations. We install only the **standard channel** CRDs.
+- **Canary routing without annotations.** Argo Rollouts drives the echo-service canary through the `argoproj-labs/gatewayAPI` traffic-router plugin, which rewrites the stable/canary `backendRef` weights on the `echo-service` HTTPRoute (previously: the nginx canary-Ingress clone + annotations). The SLO analysis is unchanged — it still scopes PromQL by `rollouts-pod-template-hash`.
+- **Envoy Gateway** is a CNCF Envoy project, conformant for the standard channel, ships CRDs and controller as versioned OCI Helm charts, and exposes the data plane via an `EnvoyProxy` resource, which lets dev and prod differ only in a kustomize overlay.
+
+**How it's exposed:**
+- **dev (kind):** the `EnvoyProxy` pins the Envoy pod to the `ingress-ready=true` control-plane node and binds **hostPort 80/443** (→ Envoy's shifted container ports 10080/10443), matching kind's existing host-port mapping. Cilium is installed with `cni.chainingMode=portmap` so hostPort works without kube-proxy replacement. Single replica with `Recreate` strategy (a node can bind a hostPort only once).
+- **prod (EKS):** Envoy Service type `LoadBalancer` with in-tree NLB annotations, `externalTrafficPolicy: Local`, 2 replicas + PDB.
+- **llm-gateway is internal-only in prod** (no HTTPRoute; bearer-key auth for in-cluster callers). audio-api's route is also removed in prod until a real DNS name + TLS listener exist.
+
+**Trade-offs:** Three ArgoCD apps (CRDs, controller, config) instead of one chart; CRD upgrades must track the Envoy Gateway release (v1.9.x bundles Gateway API v1.6.1). The Argo Rollouts plugin is downloaded at controller start (init container, per-arch binary) — a GitHub outage delays controller restarts. ArgoCD must ignore the HTTPRoute weight fields on echo-service (they are owned by Argo Rollouts at runtime), mirroring the existing Service-selector ignore. No TLS listener yet — adding HTTPS means a cert-manager `Certificate` + an `https` listener on the same Gateway.

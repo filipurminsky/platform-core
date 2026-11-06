@@ -9,5 +9,5 @@ resources:
 patches:
   - path: patch-disallow-latest-enforce.yaml
     target:
-      kind: ClusterPolicy
+      kind: ValidatingPolicy
       name: disallow-latest-tag

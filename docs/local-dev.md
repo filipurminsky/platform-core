@@ -7,7 +7,7 @@ Two ways to run platform-core locally, depending on what you're working on.
 ## Option A — App dev loop (fastest, no cluster)
 
 For iterating on the three services (`echo-service`, `worker-service`, `llm-gateway`).
-Uses Docker Compose: Kafka (KRaft), the apps, and a vLLM mock.
+Uses Docker Compose: Kafka (KRaft), Redis, SeaweedFS (S3, kept under the `minio` service name), the apps, and a vLLM mock. llm-gateway requires `GATEWAY_API_KEYS`; compose sets a dev key that llm-worker presents.
 
 ```bash
 cd services
@@ -15,7 +15,7 @@ docker compose up -d
 docker compose logs -f worker-service
 
 # produce a job and watch the worker process it
-docker compose exec kafka kafka-console-producer.sh \
+docker compose exec kafka kafka-console-producer \
   --bootstrap-server localhost:9092 --topic jobs <<< \
   '{"id":"test-1","type":"data-transform","payload":{"input":"hello","operation":"uppercase"}}'
 
@@ -30,12 +30,12 @@ No Kubernetes needed. This is the right loop for editing `services/*/main.py`.
 ## Option B — Full platform on kind (the real thing)
 
 Brings up the whole GitOps platform on a local kind cluster: ArgoCD, Argo Rollouts,
-KEDA, Kyverno, Strimzi+Kafka, kube-prometheus-stack, ingress-nginx, and the demo apps.
+KEDA, Kyverno, Strimzi+Kafka, kube-prometheus-stack, Envoy Gateway (Gateway API), and the demo apps.
 
 ### Prerequisites
 
 ```bash
-# macOS (brew)
+# macOS (brew) — needs kind ≥ v0.33.0 (kindest/node v1.35.8 image)
 brew install kind helm kubectl
 # Argo Rollouts kubectl plugin (for the canary demo)
 brew install argoproj/tap/kubectl-argo-rollouts
@@ -52,7 +52,8 @@ is heavy. If constrained, see "Trimming the stack" below.
 
 This:
 1. Creates the kind cluster (`terraform/modules/kind/kind-config.yaml`, with host
-   ports 80/443 for ingress).
+   ports 80/443 for the Envoy Gateway), then installs Cilium with portmap
+   chaining so the Envoy proxy's hostPort 80/443 works.
 2. Installs ArgoCD via Helm (`kubernetes/bootstrap/argocd/values.yaml`).
 3. Applies the `platform-apps` AppProject and the root **app-of-apps**, which then
    syncs every platform service and the demo apps from Git.
@@ -72,15 +73,25 @@ kubectl port-forward svc/grafana       -n monitoring 3000:80    # http://localho
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
 ```
 
-Apps are served through ingress-nginx on `http://localhost`. Add to `/etc/hosts`:
+Apps are served through the **Envoy Gateway** (Gateway API — Gateway `platform`
+in `envoy-gateway-system`; each app attaches an `HTTPRoute`) on `http://localhost`.
+Add to `/etc/hosts`:
 
 ```
 127.0.0.1  echo.platform-core.local
+127.0.0.1  llm-gateway.platform-core.local
+127.0.0.1  audio-api.platform-core.local
 127.0.0.1  backstage.platform-core.local
 ```
 ```bash
+kubectl get gateway platform -n envoy-gateway-system   # PROGRAMMED=True once Envoy is up
+kubectl get httproute -A                               # routes + their Accepted status
 curl -H 'Host: echo.platform-core.local' http://localhost/
 open http://backstage.platform-core.local
+
+# llm-gateway requires a bearer key on /v1/* (Secret created by bootstrap.sh)
+KEY=$(kubectl get secret llm-gateway-api-keys -n apps -o jsonpath='{.data.llm-worker}' | base64 -d)
+curl -H 'Host: llm-gateway.platform-core.local' -H "Authorization: Bearer $KEY" http://localhost/v1/models
 ```
 
 ### Demos
@@ -93,7 +104,7 @@ kubectl argo rollouts get rollout echo-service -n apps --watch
 
 # Kafka consumer-lag scale-to-zero (worker-service 0 → N → 0)
 kubectl -n platform run kafka-producer --rm -it --restart=Never \
-  --image=quay.io/strimzi/kafka:0.40.0-kafka-3.7.0 -- \
+  --image=quay.io/strimzi/kafka:1.3.1-kafka-4.3.2 -- \
   bin/kafka-console-producer.sh --bootstrap-server platform-kafka-kafka-bootstrap:9092 \
   --topic jobs
 kubectl get scaledobject,deploy/worker-service -n apps -w
@@ -129,9 +140,14 @@ kubectl delete application vllm-inference -n argocd           # model download i
   dev) — the first inference is slow and memory-hungry.
 - **kafka** runs the dev overlay (1 broker, 1 ZK, no TLS). It still needs the
   Strimzi operator (synced as `strimzi-operator`) to come up first.
-- The canary's traffic split needs ingress-nginx healthy on kind; if the host
-  ports aren't reachable, you can still watch the rollout progress via the
-  `kubectl argo rollouts` plugin (analysis runs against in-cluster Prometheus).
+- The canary's traffic split needs the Envoy Gateway healthy on kind (the k6 job
+  sends traffic through `envoy-platform.envoy-gateway-system` so the HTTPRoute
+  weights reach the canary). If host :80 isn't reachable, check the Envoy pod is
+  Running on the control-plane node and Cilium has `cni.chainingMode=portmap`;
+  you can still watch the rollout via the `kubectl argo rollouts` plugin.
+- Local Secrets created by `bootstrap.sh --mode=local`: `redis-auth`,
+  `minio-credentials` (platform + apps) and `llm-gateway-api-keys` (apps, keys
+  `api-keys` and `llm-worker`). Prod gets all of these from ESO / IRSA.
 - `dev`/`prod` overlay selection is driven by the `environment` label on the
   `in-cluster` ArgoCD cluster secret (set by `bootstrap.sh`: `dev` for `--mode=local`,
   `prod` for `--mode=aws`). The app/kafka ApplicationSets template the overlay path

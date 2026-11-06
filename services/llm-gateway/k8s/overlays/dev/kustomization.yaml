@@ -6,6 +6,7 @@ namespace: apps
 resources:
   - ../../base
   - mock-vllm.yaml
+  - httproute.yaml
 
 labels:
   - pairs:
@@ -21,6 +22,14 @@ patches:
   - path: patch-upstream.yaml
     target:
       kind: Deployment
+      name: llm-gateway
+  - path: patch-dev-env.yaml
+    target:
+      kind: Deployment
+      name: llm-gateway
+  - path: patch-netpol-gateway.yaml
+    target:
+      kind: NetworkPolicy
       name: llm-gateway
 
 replicas:

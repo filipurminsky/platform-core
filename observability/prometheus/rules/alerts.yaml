@@ -126,16 +126,29 @@ spec:
     - name: vllm
       rules:
         - alert: VllmLatencyBreach
+          # Aggregated p90 across pods (recording rule in slo/recording-rules.yaml).
           expr: |
-            histogram_quantile(0.90,
-              rate(vllm:e2e_request_latency_seconds_bucket[5m])
-            ) > 5
+            vllm:e2e_request_latency_seconds:p90_rate5m > 5
           for: 5m
           labels:
             severity: critical
           annotations:
             summary: "vLLM p90 latency > 5 seconds"
             description: "vLLM p90 request latency is {{ $value | humanizeDuration }}, breaching the 5 s SLO."
+            runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/vllm-inference-latency.md"
+
+        - alert: VllmKvCacheNearFull
+          # vllm:kv_cache_usage_perc is the V1-engine name (the V0
+          # vllm:gpu_cache_usage_perc gauge no longer exists). Range 0–1.
+          # A KV cache pinned near full forces preemptions and drives TTFT up.
+          expr: |
+            max by (pod) (vllm:kv_cache_usage_perc) > 0.90
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "vLLM KV cache > 90% on {{ $labels.pod }}"
+            description: "KV-cache usage is {{ $value | humanizePercentage }}; expect preemptions and rising latency. Scale out or lower --max-model-len."
             runbook_url: "https://github.com/filipurminsky/platform-core/blob/main/docs/runbooks/vllm-inference-latency.md"
 
         - alert: GpuNodeUnavailable

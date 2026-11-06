@@ -76,7 +76,12 @@ class Settings(BaseSettings):
 try:
     settings = Settings()
 except ValidationError as exc:  # pragma: no cover - fail fast at startup
-    print(f"Configuration error:\n{exc}", file=sys.stderr)
+    # Print field + message only: str(exc) would echo `input_value`, which for a
+    # model-level error is the whole env-derived input (passwords included).
+    print("Configuration error:", file=sys.stderr)
+    for err in exc.errors(include_url=False, include_input=False):
+        loc = ".".join(str(part) for part in err["loc"]) or "settings"
+        print(f"  {loc}: {err['msg']}", file=sys.stderr)
     sys.exit(1)
 
 

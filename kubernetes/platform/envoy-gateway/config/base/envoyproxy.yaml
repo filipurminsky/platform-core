@@ -1,0 +1,27 @@
+# Data-plane settings for the Envoy proxy fleet Envoy Gateway provisions for
+# the `platform` Gateway. Env-specific exposure (hostPort on kind vs NLB on EKS)
+# is patched in by the overlays.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: platform-proxy
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      # Stable, predictable Service name (default is a hashed
+      # envoy-<ns>-<gateway>-<hash>), so in-cluster clients like the k6 load
+      # job (tests/load) can target the gateway directly.
+      envoyService:
+        name: envoy-platform
+      envoyDeployment:
+        name: envoy-platform
+        container:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

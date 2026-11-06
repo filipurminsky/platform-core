@@ -4,7 +4,6 @@ resources:
   - serviceaccount.yaml
   - deployment.yaml
   - service.yaml
-  - ingress.yaml
   - networkpolicy.yaml
   - pdb.yaml
   - servicemonitor.yaml

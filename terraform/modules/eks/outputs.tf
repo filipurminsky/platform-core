@@ -20,8 +20,8 @@ output "cluster_oidc_issuer_url" {
 }
 
 output "oidc_provider_arn" {
-  description = "ARN of the OIDC provider"
-  value       = data.aws_iam_openid_connect_provider.eks.arn
+  description = "ARN of the cluster's IAM OIDC provider (IRSA)"
+  value       = module.eks.oidc_provider_arn
 }
 
 # ─── Karpenter (null unless enable_karpenter = true) ─────────────────────────

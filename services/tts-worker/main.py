@@ -1,96 +1,140 @@
 """
 tts-worker — terminal pipeline stage.
 
-Processing contract (audio-pipeline-contract.md §1-9):
-  - Consumes from `audio.summaries` (group `tts-worker`)
-  - Reads summary JSON from S3 summaries/<job_id>
-  - Synthesizes spoken audio via pluggable backend (TTS_BACKEND=stub|kokoro)
-  - Writes WAV to S3 speech/<job_id>
-  - Sets Redis job-state: status=done, stage=tts, keys.speech set  (TERMINAL)
-  - Produces `audio.results` {job_id, speech_key, status:"done", created_at}
-  - On repeated failure → `audio.tts-dlq` + Redis failed error.{stage:tts,...}
-  - Manual commit only after output or DLQ is produced
-  - Drains gracefully on SIGTERM
-
-This module is the thin orchestration layer: backend dispatch, per-job
-processing, and the consume loop. Supporting concerns live in the `app`
-package (config, observability, metrics, kafka_io, storage, job_state,
-backends).
+Processing contract (docs/audio-pipeline-contract.md):
+  - Consume `audio.summaries` (group `tts-worker`); validate the event —
+    invalid messages go to `audio.tts-dlq` with the reason, then commit
+  - Atomic Redis dedup claim (`dedup:tts:<job_id>`)
+  - Read the summary JSON from S3 `summaries/<job_id>`
+  - Synthesize speech via pluggable TTS_BACKEND (stub | kokoro)
+  - Write WAV to S3 `speech/<job_id>`
+  - Merge Redis job-state: status=done, keys.speech (TERMINAL)
+  - Produce `audio.results` {job_id, speech_key, status:"done", created_at}
+  - Permanent errors → DLQ immediately; transient → back-off + jitter, then DLQ
+  - Commit only after the output event (or DLQ) is confirmed
 
 As the TERMINAL stage this worker increments:
   pipeline_jobs_completed_total
-  pipeline_end_to_end_duration_seconds  (now - created_at from original envelope)
+  pipeline_end_to_end_duration_seconds  (now - created_at from the original envelope)
   pipeline_jobs_failed_total{stage="tts"}   (on DLQ)
-
-Metrics exposed on :9090/metrics:
-  tts_jobs_total{status}                Counter
-  tts_generation_duration_seconds       Histogram
-  pipeline_jobs_completed_total         Counter
-  pipeline_end_to_end_duration_seconds  Histogram
-  pipeline_jobs_failed_total{stage}     Counter
 """
 
-from __future__ import annotations
-
 import json
-import signal
-import threading
 import time
-from datetime import UTC, datetime
 
+from app import config
 from app.backends import _synthesize_kokoro, _synthesize_stub
-from app.config import (
-    BOOTSTRAP_SERVERS,
-    CONSUMER_GROUP,
-    JOB_STATE_TTL_SECONDS,
-    MAX_RETRIES,
-    S3_BUCKET,
-    TOPIC_DLQ,
-    TOPIC_IN,
-    TOPIC_OUT,
-    TTS_BACKEND,
-)
-from app.job_state import make_redis_client, now_iso, set_done, set_failed, set_synthesizing
-from app.kafka_io import (
-    kafka_header_getter,
-    kafka_header_setter,
-    make_consumer,
-    make_producer,
-    produce_confirmed,
-)
+from app.config import SERVICE_NAME, STAGE, STALE_SECONDS, settings
 from app.metrics import (
     PIPELINE_COMPLETED,
     PIPELINE_E2E_DURATION,
-    PIPELINE_FAILED,
-    PIPELINE_QUEUE_WAIT,
+    PIPELINE_FAILED,  # noqa: F401  (re-exported for tests/operators)
+    PIPELINE_QUEUE_WAIT,  # noqa: F401
     TTS_GENERATION_DURATION,
     TTS_JOBS,
 )
-from app.metrics_server import start_metrics_server
-from app.metrics_server import touch as _heartbeat
-from app.observability import log, tracer
-from app.storage import make_s3_client
-from confluent_kafka import KafkaError, KafkaException
-from opentelemetry import propagate
+from platform_common.consumer_loop import (
+    Outcome,
+    install_signal_handlers,
+    run_consumer_loop,
+)
+from platform_common.events import ResultEvent, SummaryEvent
+from platform_common.health import start_metrics_server
+from platform_common.job_state import make_redis_client
+from platform_common.kafka_io import make_consumer, make_producer
+from platform_common.observability import setup
+from platform_common.pipeline_metrics import parse_created_at
+from platform_common.retry import PermanentError, RetryPolicy
+from platform_common.stage import StageConfig, StageResult, StageSpec, process_stage_message
+from platform_common.storage import make_s3_client
+
+log, tracer = setup(SERVICE_NAME)
+
+# Module-level so tests/operators can inspect or monkeypatch them.
+TOPIC_IN = config.TOPIC_IN
+TOPIC_OUT = config.TOPIC_OUT
+TOPIC_DLQ = config.TOPIC_DLQ
+MAX_RETRIES = config.MAX_RETRIES
+S3_BUCKET = config.S3_BUCKET
+TTS_BACKEND = config.TTS_BACKEND
+
+SPEC = StageSpec(
+    name=STAGE,
+    service=SERVICE_NAME,
+    input_model=SummaryEvent,
+    in_progress_status="synthesizing",
+    jobs_total=TTS_JOBS,
+)
 
 
 def synthesize(text: str) -> bytes:
     """Dispatch to the configured TTS backend."""
     if TTS_BACKEND == "kokoro":
-        return _synthesize_kokoro(text)
-    # default: stub
+        return _synthesize_kokoro(
+            text, lang_code=settings.kokoro_lang_code, voice=settings.kokoro_voice
+        )
     return _synthesize_stub(text)
 
 
-def _parse_created_at(created_at: str) -> float | None:
-    """Return a UTC timestamp float from an ISO-8601 string, or None on parse error."""
-    try:
-        dt = datetime.fromisoformat(created_at)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return dt.timestamp()
-    except (ValueError, TypeError):
-        return None
+def stage_config() -> StageConfig:
+    return StageConfig(
+        topic_in=TOPIC_IN,
+        topic_out=TOPIC_OUT,
+        topic_dlq=TOPIC_DLQ,
+        job_state_ttl_seconds=settings.job_state_ttl_seconds,
+        dedup_lease_seconds=settings.effective_dedup_lease_seconds,
+        policy=RetryPolicy.from_settings(settings, max_attempts=MAX_RETRIES),
+    )
+
+
+def _text_to_speak(summary_data) -> str:
+    if not isinstance(summary_data, dict):
+        raise PermanentError("summary document is not a JSON object")
+    text = summary_data.get("summary")
+    if not isinstance(text, str) or not text.strip():
+        items = summary_data.get("action_items") or []
+        text = " ".join(str(i) for i in items) or "No summary available."
+    return text
+
+
+def make_handler(s3_client):
+    def handle(event: SummaryEvent) -> StageResult:
+        resp = s3_client.get_object(Bucket=S3_BUCKET, Key=event.summary_key)
+        text = _text_to_speak(json.loads(resp["Body"].read().decode("utf-8")))
+
+        tts_start = time.perf_counter()
+        audio_bytes = synthesize(text)
+        tts_elapsed = time.perf_counter() - tts_start
+        TTS_GENERATION_DURATION.observe(tts_elapsed)
+
+        speech_key = f"speech/{event.job_id}"
+        s3_client.put_object(
+            Bucket=S3_BUCKET, Key=speech_key, Body=audio_bytes, ContentType="audio/wav"
+        )
+        return StageResult(
+            out_event=ResultEvent(
+                job_id=event.job_id, speech_key=speech_key, created_at=event.created_at
+            ),
+            state_update={
+                "status": "done",
+                "stage": STAGE,
+                "keys": {"summary": event.summary_key, "speech": speech_key},
+            },
+            log_fields={
+                "speech_key": speech_key,
+                "tts_duration_ms": round(tts_elapsed * 1000, 2),
+            },
+        )
+
+    return handle
+
+
+def _on_success(event: SummaryEvent, _result: StageResult) -> None:
+    """Terminal-stage pipeline metrics."""
+    PIPELINE_COMPLETED.inc()
+    ts = parse_created_at(event.created_at)
+    if ts is not None:
+        PIPELINE_E2E_DURATION.observe(max(0.0, time.time() - ts))
 
 
 def process_message(
@@ -99,229 +143,42 @@ def process_message(
     s3_client,
     redis_client,
     headers: list[tuple[str, bytes]] | None = None,
-) -> None:
-    """Deserialise → deduplicate → synthesize → S3 → Redis → produce → DLQ on failure."""
-    context = propagate.extract(headers or [], getter=kafka_header_getter)
-
-    try:
-        event = json.loads(raw_value)
-    except json.JSONDecodeError as exc:
-        log.error("bad_json", error=str(exc), raw=raw_value[:200])
-        TTS_JOBS.labels(status="error").inc()
-        return  # malformed — commit and move on
-
-    job_id = event.get("job_id", "")
-    summary_key = event.get("summary_key", f"summaries/{job_id}")
-    created_at: str = event.get("created_at", "")
-
-    # Deduplication — Redis-based (survives restarts/rebalances).
-    if job_id:
-        try:
-            if redis_client.get(f"dedup:tts:{job_id}"):
-                log.info("duplicate_skipped", job_id=job_id)
-                return
-        except Exception as exc:
-            log.warning("dedup_check_failed", job_id=job_id, error=str(exc))
-
-    # Queue wait — how long the job sat between creation and this stage starting (§7).
-    _qw_ts = _parse_created_at(created_at)
-    if _qw_ts is not None:
-        PIPELINE_QUEUE_WAIT.labels(stage="tts").observe(max(0.0, time.time() - _qw_ts))
-
-    speech_key = f"speech/{job_id}"
-
-    with tracer.start_as_current_span(
-        "tts-worker.process",
-        context=context,
-        attributes={
-            "messaging.system": "kafka",
-            "messaging.destination.name": TOPIC_IN,
-            "job.id": job_id,
-        },
-    ) as span:
-        last_exc: Exception | None = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                # Mark job as synthesizing in Redis
-                set_synthesizing(redis_client, job_id, summary_key)
-
-                # Read summary JSON from S3
-                log.info("reading_summary", job_id=job_id, key=summary_key, attempt=attempt)
-                resp = s3_client.get_object(Bucket=S3_BUCKET, Key=summary_key)
-                summary_json = resp["Body"].read().decode()
-                summary_data = json.loads(summary_json)
-
-                # Extract text to synthesize (executive_summary or action_items fallback)
-                text = summary_data.get(
-                    "summary",
-                    " ".join(summary_data.get("action_items", ["No summary available."])),
-                )
-
-                # Synthesize
-                tts_start = time.perf_counter()
-                audio_bytes = synthesize(text)
-                tts_elapsed = time.perf_counter() - tts_start
-                TTS_GENERATION_DURATION.observe(tts_elapsed)
-
-                # Write speech to S3
-                log.info("writing_speech", job_id=job_id, key=speech_key)
-                s3_client.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=speech_key,
-                    Body=audio_bytes,
-                    ContentType="audio/wav",
-                )
-
-                # Set terminal Redis state: status=done
-                set_done(redis_client, job_id, summary_key, speech_key)
-
-                # Produce audio.results
-                out_event = {
-                    "job_id": job_id,
-                    "speech_key": speech_key,
-                    "status": "done",
-                    "created_at": created_at,
-                }
-                out_headers: list[tuple[str, bytes]] = []
-                propagate.inject(out_headers, setter=kafka_header_setter)
-                # Delivery-confirmed: raises (→ retry/DLQ) if the broker did not
-                # ack, so the offset commit below never outruns the output event.
-                produce_confirmed(
-                    producer,
-                    TOPIC_OUT,
-                    value=json.dumps(out_event).encode(),
-                    key=job_id.encode() if job_id else None,
-                    headers=out_headers,
-                )
-
-                # Pipeline terminal metrics
-                TTS_JOBS.labels(status="success").inc()
-                PIPELINE_COMPLETED.inc()
-
-                ts = _parse_created_at(created_at)
-                if ts is not None:
-                    e2e = time.time() - ts
-                    PIPELINE_E2E_DURATION.observe(e2e)
-
-                log.info(
-                    "tts_job_done",
-                    job_id=job_id,
-                    speech_key=speech_key,
-                    tts_duration_ms=round(tts_elapsed * 1000, 2),
-                    attempt=attempt,
-                )
-                span.set_attribute("speech.key", speech_key)
-                if job_id:
-                    try:
-                        redis_client.setex(f"dedup:tts:{job_id}", JOB_STATE_TTL_SECONDS, "1")
-                    except Exception as exc:
-                        log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
-                return
-
-            except Exception as exc:
-                last_exc = exc
-                span.record_exception(exc)
-                log.warning(
-                    "tts_attempt_failed",
-                    job_id=job_id,
-                    attempt=attempt,
-                    error=str(exc),
-                )
-                if attempt < MAX_RETRIES:
-                    time.sleep(0.1 * (2 ** (attempt - 1)))  # 100ms, 200ms
-
-        # All retries exhausted → DLQ
-        failed_at = now_iso()
-        dlq_payload = json.dumps(
-            {
-                **event,
-                "error": str(last_exc),
-                "stage": "tts",
-                "failed_at": failed_at,
-                "attempts": MAX_RETRIES,
-            }
-        ).encode()
-        dlq_headers: list[tuple[str, bytes]] = []
-        propagate.inject(dlq_headers, setter=kafka_header_setter)
-        # Delivery-confirmed: if the DLQ publish itself fails, this raises out of
-        # process_message — the run loop exits without committing, the pod
-        # restarts, and the message is redelivered rather than silently dropped.
-        produce_confirmed(
-            producer,
-            TOPIC_DLQ,
-            value=dlq_payload,
-            key=job_id.encode() if job_id else None,
-            headers=dlq_headers,
-        )
-
-        # Redis: mark failed
-        set_failed(redis_client, job_id, str(last_exc))
-
-        TTS_JOBS.labels(status="dlq").inc()
-        PIPELINE_FAILED.labels(stage="tts").inc()
-        log.error(
-            "tts_job_dlq",
-            job_id=job_id,
-            error=str(last_exc),
-            dlq_topic=TOPIC_DLQ,
-        )
-        if job_id:
-            try:
-                redis_client.setex(f"dedup:tts:{job_id}", 86400, "1")
-            except Exception as exc:
-                log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
+    key: bytes | None = None,
+) -> Outcome:
+    return process_stage_message(
+        SPEC,
+        stage_config(),
+        raw_value=raw_value,
+        producer=producer,
+        redis_client=redis_client,
+        handler=make_handler(s3_client),
+        headers=headers,
+        key=key,
+        on_success=_on_success,
+    )
 
 
 def run() -> None:
     log.info(
         "tts_worker_starting",
-        bootstrap=BOOTSTRAP_SERVERS,
+        bootstrap=settings.bootstrap_servers,
         topic_in=TOPIC_IN,
         topic_out=TOPIC_OUT,
-        group=CONSUMER_GROUP,
         backend=TTS_BACKEND,
     )
-
-    start_metrics_server()
-    consumer = make_consumer()
-    producer = make_producer()
-    s3_client = make_s3_client()
-    redis_client = make_redis_client()
-    shutdown = threading.Event()
-
-    def _handle_signal(sig, frame):
-        log.info("shutdown_signal_received", signal=sig)
-        shutdown.set()
-
-    signal.signal(signal.SIGTERM, _handle_signal)
-    signal.signal(signal.SIGINT, _handle_signal)
-
+    start_metrics_server(settings.metrics_port, STALE_SECONDS)
+    consumer = make_consumer(settings, SERVICE_NAME, [TOPIC_IN])
+    producer = make_producer(settings, SERVICE_NAME)
+    s3_client = make_s3_client(region=settings.s3_region, endpoint_url=settings.s3_endpoint_url)
+    redis_client = make_redis_client(settings.redis_url, settings.redis_password.get_secret_value())
+    install_signal_handlers()  # SIGTERM → SHUTDOWN: finish/abort in-flight work, exit
     try:
-        while not shutdown.is_set():
-            msg = consumer.poll(timeout=1.0)
-            _heartbeat()
-
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                raise KafkaException(msg.error())
-
-            process_message(
-                msg.value(),
-                producer,
-                s3_client,
-                redis_client,
-                headers=msg.headers(),
-            )
-
-            # Manual commit — only after output or DLQ produced
-            try:
-                consumer.commit(message=msg, asynchronous=False)
-            except KafkaException as exc:
-                log.warning("offset_commit_failed", error=str(exc))
-
+        run_consumer_loop(
+            consumer,
+            lambda msg: process_message(
+                msg.value(), producer, s3_client, redis_client, headers=msg.headers(), key=msg.key()
+            ),
+        )
     finally:
         log.info("tts_worker_shutting_down")
         consumer.close()

@@ -1,7 +1,17 @@
-# Composition for the platform S3 API (XObjectStorageBucket). Pipeline mode with
-# function-patch-and-transform (the current Crossplane pattern; native inline
-# patch-and-transform is deprecated). Renders one secure bucket: encrypted at
-# rest, all public access blocked, versioning controlled by the claim.
+# Composition for the platform S3 API (namespaced ObjectStorageBucket XR,
+# Crossplane v2). Pipeline mode with function-patch-and-transform (the only
+# composition mode in v2). Renders one secure bucket: encrypted at rest, all
+# public access blocked, versioning controlled by the XR.
+#
+# v2 changes vs the v1/claim version:
+#   - composed MRs are the NAMESPACED variants (s3.aws.m.upbound.io), created in
+#     the XR's namespace, authenticated via the cluster-wide
+#     ClusterProviderConfig `default` (providerconfig.yaml);
+#   - single-element "blocks" are objects in the .m APIs
+#     (versioningConfiguration, applyServerSideEncryptionByDefault);
+#   - no writeConnectionSecretsToNamespace — function-patch-and-transform
+#     composes the connection Secret (bucket, region) itself, named by the XR's
+#     spec.writeConnectionSecretToRef.name, in the XR's namespace.
 apiVersion: apiextensions.crossplane.io/v1
 kind: Composition
 metadata:
@@ -11,8 +21,7 @@ metadata:
 spec:
   compositeTypeRef:
     apiVersion: platform.io/v1alpha1
-    kind: XObjectStorageBucket
-  writeConnectionSecretsToNamespace: crossplane-system
+    kind: ObjectStorageBucket
   mode: Pipeline
   pipeline:
     - step: patch-and-transform
@@ -24,12 +33,13 @@ spec:
         resources:
           - name: bucket
             base:
-              apiVersion: s3.aws.upbound.io/v1beta1
+              apiVersion: s3.aws.m.upbound.io/v1beta1
               kind: Bucket
               spec:
                 forProvider:
                   region: eu-west-1
                 providerConfigRef:
+                  kind: ClusterProviderConfig
                   name: default
             connectionDetails:
               - name: bucket
@@ -39,6 +49,23 @@ spec:
                 type: FromFieldPath
                 fromFieldPath: spec.forProvider.region
             patches:
+              # Deterministic AWS bucket name under the project/env prefix the
+              # Crossplane + audio-pipeline IRSA policies are scoped to
+              # (terraform/modules/iam: arn:aws:s3:::platform-core-prod-*).
+              # Without this the bucket would be named after the generated MR
+              # name (e.g. audio-pipeline-x7k2q) and every S3 call would be
+              # denied. Composition is prod-only, so the env is fixed.
+              # e.g. apps/audio-pipeline → platform-core-prod-apps-audio-pipeline
+              # (keep namespace+name <= 44 chars: S3 names max out at 63).
+              - type: CombineFromComposite
+                combine:
+                  variables:
+                    - fromFieldPath: metadata.namespace
+                    - fromFieldPath: metadata.name
+                  strategy: string
+                  string:
+                    fmt: "platform-core-prod-%s-%s"
+                toFieldPath: metadata.annotations[crossplane.io/external-name]
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.region
                 toFieldPath: spec.forProvider.region
@@ -48,7 +75,7 @@ spec:
 
           - name: encryption
             base:
-              apiVersion: s3.aws.upbound.io/v1beta1
+              apiVersion: s3.aws.m.upbound.io/v1beta1
               kind: BucketServerSideEncryptionConfiguration
               spec:
                 forProvider:
@@ -57,8 +84,9 @@ spec:
                     matchControllerRef: true
                   rule:
                     - applyServerSideEncryptionByDefault:
-                        - sseAlgorithm: AES256
+                        sseAlgorithm: AES256
                 providerConfigRef:
+                  kind: ClusterProviderConfig
                   name: default
             patches:
               - type: FromCompositeFieldPath
@@ -67,7 +95,7 @@ spec:
 
           - name: public-access-block
             base:
-              apiVersion: s3.aws.upbound.io/v1beta1
+              apiVersion: s3.aws.m.upbound.io/v1beta1
               kind: BucketPublicAccessBlock
               spec:
                 forProvider:
@@ -79,6 +107,7 @@ spec:
                   ignorePublicAcls: true
                   restrictPublicBuckets: true
                 providerConfigRef:
+                  kind: ClusterProviderConfig
                   name: default
             patches:
               - type: FromCompositeFieldPath
@@ -87,7 +116,7 @@ spec:
 
           - name: versioning
             base:
-              apiVersion: s3.aws.upbound.io/v1beta1
+              apiVersion: s3.aws.m.upbound.io/v1beta1
               kind: BucketVersioning
               spec:
                 forProvider:
@@ -95,8 +124,9 @@ spec:
                   bucketSelector:
                     matchControllerRef: true
                   versioningConfiguration:
-                    - status: Enabled
+                    status: Enabled
                 providerConfigRef:
+                  kind: ClusterProviderConfig
                   name: default
             patches:
               - type: FromCompositeFieldPath
@@ -104,7 +134,7 @@ spec:
                 toFieldPath: spec.forProvider.region
               - type: FromCompositeFieldPath
                 fromFieldPath: spec.parameters.versioning
-                toFieldPath: spec.forProvider.versioningConfiguration[0].status
+                toFieldPath: spec.forProvider.versioningConfiguration.status
                 transforms:
                   - type: convert
                     convert:
@@ -121,7 +151,7 @@ spec:
           # only their noncurrent versions are bounded.
           - name: lifecycle
             base:
-              apiVersion: s3.aws.upbound.io/v1beta1
+              apiVersion: s3.aws.m.upbound.io/v1beta1
               kind: BucketLifecycleConfiguration
               spec:
                 forProvider:
@@ -158,6 +188,7 @@ spec:
                       abortIncompleteMultipartUpload:
                         - daysAfterInitiation: 7
                 providerConfigRef:
+                  kind: ClusterProviderConfig
                   name: default
             patches:
               - type: FromCompositeFieldPath

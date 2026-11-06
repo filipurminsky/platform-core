@@ -28,7 +28,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "decimals": 3, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 0.99 }] } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "vllm:request_success_ratio:rate5m" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "1 - vllm:request_error_ratio:rate5m" }]
     },
     {
       "id": 2,
@@ -37,7 +37,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 5 }] } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "vllm:request_latency:p90_5m" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "vllm:e2e_request_latency_seconds:p90_rate5m" }]
     },
     {
       "id": 3,
@@ -85,11 +85,12 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "GPU KV-Cache Utilisation %",
+      "title": "KV-Cache Utilisation %",
+      "description": "vllm:kv_cache_usage_perc (V1 engine; replaces the removed vllm:gpu_cache_usage_perc). 1.0 = cache full; sustained values near 1 cause preemptions.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(vllm:gpu_cache_usage_perc)", "legendFormat": "kv-cache" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(vllm:kv_cache_usage_perc)", "legendFormat": "kv-cache" }]
     },
     {
       "id": 8,
@@ -101,6 +102,58 @@
       "targets": [
         { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(kube_deployment_status_replicas{deployment=\"vllm-inference\"})", "legendFormat": "replicas" },
         { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(vllm:num_requests_waiting)", "legendFormat": "waiting" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Time to First Token / Inter-Token Latency p95 (s)",
+      "description": "vllm:time_to_first_token_seconds and vllm:inter_token_latency_seconds (V1 name; replaces vllm:time_per_output_token_seconds).",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "fieldConfig": {"defaults": {"unit": "s", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket[5m])) by (le))", "legendFormat": "TTFT p95"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "histogram_quantile(0.95, sum(rate(vllm:inter_token_latency_seconds_bucket[5m])) by (le))", "legendFormat": "ITL p95"}
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Token Throughput (tokens/s)",
+      "description": "Prompt vs generated tokens per second (V1 counters; the old avg_*_throughput_toks_per_s gauges were removed).",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(rate(vllm:prompt_tokens_total[5m]))", "legendFormat": "prompt"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(rate(vllm:generation_tokens_total[5m]))", "legendFormat": "generation"}
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Finished Requests by Reason (req/s)",
+      "description": "vllm:request_success_total by finished_reason. `error` feeds the vLLM error-ratio SLO; `abort` = client went away.",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
+      "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (finished_reason) (rate(vllm:request_success_total[5m]))", "legendFormat": "{{finished_reason}}"}
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "llm-gateway Responses by Status (req/s)",
+      "description": "Status-code agnostic: an unreachable vLLM (e.g. scaled to zero) shows as 503 with Retry-After (formerly 502), timeouts as 504. gateway_upstream_errors_total counts both and also drives the KEDA 0→1 activation trigger.",
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
+      "fieldConfig": {"defaults": {"unit": "reqps", "custom": {"drawStyle": "line", "fillOpacity": 10}}, "overrides": []},
+      "targets": [
+        {"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum by (status) (rate(gateway_requests_total[5m]))", "legendFormat": "{{status}}"},
+        {"refId": "B", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(rate(gateway_upstream_errors_total[5m]))", "legendFormat": "upstream errors"},
+        {"refId": "C", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(rate(gateway_rate_limited_total[5m]))", "legendFormat": "rate limited"}
       ]
     }
   ]

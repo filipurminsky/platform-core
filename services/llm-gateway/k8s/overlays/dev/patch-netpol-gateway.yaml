@@ -1,0 +1,11 @@
+# Dev: admit north-south traffic from the Envoy Gateway proxies (the dev
+# HTTPRoute in this overlay). Prod has no route, so no such rule.
+- op: add
+  path: /spec/ingress/-
+  value:
+    from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: envoy-gateway-system
+    ports:
+      - port: 8080

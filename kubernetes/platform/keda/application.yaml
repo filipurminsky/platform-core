@@ -10,7 +10,9 @@ spec:
   source:
     repoURL: https://kedacore.github.io/charts
     chart: keda
-    targetRevision: 2.14.0
+    # Keep in sync with KEDA_VERSION in .github/workflows/ci.yaml (CRD schemas).
+    # 2.21 is tested on Kubernetes 1.34–1.36.
+    targetRevision: 2.21.0
     helm:
       values: |
         resources:

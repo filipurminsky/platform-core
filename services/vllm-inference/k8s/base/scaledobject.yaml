@@ -19,19 +19,22 @@ spec:
     - type: prometheus
       metadata:
         serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
-        metricName: vllm_num_requests_waiting
-        query: vllm:num_requests_waiting
+        # sum(): KEDA's Prometheus scaler rejects multi-series results, and
+        # every vLLM pod exports its own series. Name/semantics unchanged in
+        # the V1 engine (v0.32); `or vector(0)` keeps the query non-empty at 0.
+        query: sum(vllm:num_requests_waiting) or vector(0)
         threshold: "5"              # scale up when >5 requests queued
         activationThreshold: "1"    # contributes to activation only when vLLM is already up
     # 0→1 activation: demand observed at llm-gateway, which is always running.
-    # gateway_requests_total only counts proxied (answered) requests, so while
-    # vLLM is scaled to zero the gateway increments gateway_upstream_errors_total
-    # instead — sum both to see demand in every state. `or vector(0)` keeps the
-    # query non-empty when one counter has no series yet.
+    # While vLLM is scaled to zero the gateway can't reach it, answers 503 +
+    # Retry-After and increments gateway_upstream_errors_total — sum both
+    # counters so demand is visible in every state (any double count of a
+    # failed request only makes activation more eager, which is harmless).
+    # `or vector(0)` keeps the query non-empty when a counter has no series yet.
+    # (`metricName` is omitted: KEDA ignores it and derives the name itself.)
     - type: prometheus
       metadata:
         serverAddress: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
-        metricName: gateway_demand_rps
         query: |
           (sum(rate(gateway_requests_total[2m])) or vector(0))
           + (sum(rate(gateway_upstream_errors_total[2m])) or vector(0))

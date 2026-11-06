@@ -1,0 +1,26 @@
+# EKS: expose the Gateway through an AWS Network Load Balancer.
+#
+# The cluster runs no AWS Load Balancer Controller, so these are the in-tree
+# cloud-provider annotations (service.beta.kubernetes.io/aws-load-balancer-type:
+# nlb). If the LB controller is adopted later, switch to
+#   aws-load-balancer-type: external + aws-load-balancer-nlb-target-type: ip
+# and set loadBalancerClass: service.k8s.aws/nlb.
+- op: replace
+  path: /spec/provider/kubernetes/envoyService
+  value:
+    name: envoy-platform
+    type: LoadBalancer
+    # Local: preserve the client source IP (no SNAT hop to another node) so
+    # Envoy's X-Forwarded-For is the real client; the NLB health-checks the
+    # node port and only targets nodes running an Envoy pod.
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+- op: add
+  path: /spec/provider/kubernetes/envoyDeployment/replicas
+  value: 2
+- op: add
+  path: /spec/provider/kubernetes/envoyPDB
+  value:
+    minAvailable: 1

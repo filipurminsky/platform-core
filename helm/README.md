@@ -1,13 +1,16 @@
-# Helm charts — packaging examples only
+# Helm charts
 
-These charts are **not deployed by ArgoCD**. The live cluster is driven entirely
-by Kustomize overlays under `services/<svc>/k8s/` and `kubernetes/platform/`.
+`backstage/` **is deployed by ArgoCD** (`kubernetes/platform/backstage/application.yaml`
+points at `helm/backstage`). `demo-app/` and `vllm/` are packaging examples only — the
+live apps are driven by Kustomize overlays under `services/<svc>/k8s/`.
+Charts expose traffic via a Gateway API `HTTPRoute` (parentRef `platform` in
+`envoy-gateway-system`), not an Ingress.
 
 | Chart | Purpose |
 |-------|---------|
 | `demo-app/` | Generic reusable chart for stateless services — reference for teams that prefer Helm over Kustomize |
 | `vllm/` | vLLM packaging example; the kustomize tree at `services/vllm-inference/k8s/` is what actually runs |
-| `backstage/` | Backstage Helm wrapper; ArgoCD deploys the upstream chart directly via `kubernetes/platform/backstage/` |
+| `backstage/` | Backstage chart deployed by ArgoCD via `kubernetes/platform/backstage/` (HTTPRoute `backstage.platform-core.local` on by default) |
 
 CI lints and renders all three charts with `helm lint` + `helm template | kubeconform`
 to catch regressions in the templates, but no chart release or deployment is

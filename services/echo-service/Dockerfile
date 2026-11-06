@@ -1,30 +1,53 @@
-FROM python:3.12-slim AS base
+# syntax=docker/dockerfile:1
+#
+# Build context is services/ (shared with every service):
+#   docker build -f services/echo-service/Dockerfile services/
+#
+# Base image is pinned by digest for reproducible, tamper-evident builds;
+# Renovate (dockerfile manager) bumps tag + digest together.
+ARG PYTHON_IMAGE=python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc
 
-# uv: copy the static binary from the official image (version-pinned; Renovate
-# tracks this tag via the dockerfile manager).
-COPY --from=ghcr.io/astral-sh/uv:0.11.16 /uv /uvx /usr/local/bin/
+# ---------------------------------------------------------------------------
+# Builder: resolve the locked deps into a venv. uv exists only in this stage.
+# ---------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /usr/local/bin/uv
 
 WORKDIR /app
+# Use the image's interpreter (never download one) and copy files out of the
+# cache so the venv is self-contained when copied to the runtime stage.
 ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
 
-# Install runtime deps in a cached layer from the lockfile only (no app code,
-# no dev group). --frozen fails the build if uv.lock is stale vs pyproject.toml.
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# Runtime deps only, from the lockfile only. --frozen fails the build if
+# uv.lock is stale vs pyproject.toml.
+COPY echo-service/pyproject.toml echo-service/uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
 
-# Run from the project venv.
-ENV PATH="/app/.venv/bin:$PATH"
+# ---------------------------------------------------------------------------
+# Runtime: interpreter + venv + app code. No uv, no build tooling.
+# ---------------------------------------------------------------------------
+FROM ${PYTHON_IMAGE} AS runtime
 
-# Copy source
-COPY main.py .
-COPY app ./app
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
-# Non-root user
-RUN useradd --no-create-home --shell /bin/false appuser
-USER appuser
+WORKDIR /app
+
+# Fixed numeric UID so Kubernetes runAsNonRoot can verify it without a lookup.
+RUN useradd --uid 10001 --no-create-home --shell /usr/sbin/nologin appuser
+
+COPY --from=builder /app/.venv /app/.venv
+COPY echo-service/main.py ./
+COPY echo-service/app ./app
+
+USER 10001
 
 EXPOSE 8080
-ENV PORT=8080
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "warning"]

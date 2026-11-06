@@ -2,14 +2,28 @@
 # CI workflow (cosign keyless). Unsigned or tampered images are rejected at
 # admission — the runtime counterpart to signing in docker-build.yaml.
 #
-# This is fail-closed (failurePolicy: Fail, background: false), so Pod admission
-# of our images depends on reachability of public sigstore (Fulcio/Rekor).
-# Kyverno caches verified digests (~60m), so steady state is fine, but cold
-# paths (first rollout, KEDA scale-from-zero, mass reschedule, Kyverno restart)
-# hit sigstore. If a sigstore outage blocks admission, see the break-glass and
-# permanent-mitigation steps in docs/runbooks/image-signature-admission.md.
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
+# Migrated from a kyverno.io/v1 ClusterPolicy `verifyImages` rule to the CEL-based
+# ImageValidatingPolicy (policies.kyverno.io/v1): ClusterPolicy is deprecated
+# since Kyverno 1.17 and scheduled for removal in 1.20. Semantics are unchanged:
+#   validationFailureAction: Enforce  → validationActions: [Deny]
+#   failurePolicy: Fail               → failurePolicy: Fail
+#   webhookTimeoutSeconds: 30         → webhookConfiguration.timeoutSeconds: 30
+#   background: false                 → evaluation.background.enabled: false
+#   imageReferences / required / mutateDigest / verifyDigest
+#                                     → matchImageReferences + validationConfigurations
+# Only images matching matchImageReferences are placed in `images.*`, so upstream
+# platform images (Strimzi, Envoy Gateway, etc.) from other registries are not
+# checked. Init and ephemeral containers are verified too.
+#
+# This is fail-closed (failurePolicy: Fail), so Pod admission of our images
+# depends on reachability of public sigstore (Fulcio/Rekor). Kyverno caches
+# verified digests, so steady state is fine, but cold paths (first rollout, KEDA
+# scale-from-zero, mass reschedule, Kyverno restart) hit sigstore. If a sigstore
+# outage blocks admission, see the break-glass and permanent-mitigation steps in
+# docs/runbooks/image-signature-admission.md (patch target is now
+# `imagevalidatingpolicy verify-image-signatures`).
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
 metadata:
   name: verify-image-signatures
   annotations:
@@ -17,32 +31,41 @@ metadata:
     policies.kyverno.io/category: Supply Chain Security
     policies.kyverno.io/severity: high
 spec:
-  validationFailureAction: Enforce
-  webhookTimeoutSeconds: 30
+  validationActions: [Deny]
   failurePolicy: Fail
-  background: false
-  rules:
-    - name: verify-cosign-keyless
-      match:
-        any:
-          - resources:
-              kinds:
-                - Pod
-      verifyImages:
-        # Only our project images must be signed. Upstream platform images
-        # (Strimzi, ingress-nginx, etc.) come from other registries and are not
-        # matched, so they are unaffected.
-        - imageReferences:
-            - "*.dkr.ecr.*.amazonaws.com/platform-core/*"
-          required: true
-          mutateDigest: true # pin to the verified digest
-          verifyDigest: true
-          attestors:
-            - count: 1
-              entries:
-                - keyless:
-                    # Identity that signed the image == our GitHub Actions workflow
-                    subject: "https://github.com/filipurminsky/platform-core/.github/workflows/docker-build.yaml@refs/heads/main"
-                    issuer: "https://token.actions.githubusercontent.com"
-                    rekor:
-                      url: https://rekor.sigstore.dev
+  webhookConfiguration:
+    timeoutSeconds: 30
+  evaluation:
+    background:
+      enabled: false
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  # Only our project images must be signed.
+  matchImageReferences:
+    - glob: "*.dkr.ecr.*.amazonaws.com/platform-core/*"
+  validationConfigurations:
+    required: true
+    mutateDigest: true # pin to the verified digest
+    verifyDigest: true
+  attestors:
+    - name: ci
+      cosign:
+        keyless:
+          identities:
+            # Identity that signed the image == our GitHub Actions workflow
+            - subject: "https://github.com/filipurminsky/platform-core/.github/workflows/docker-build.yaml@refs/heads/main"
+              issuer: "https://token.actions.githubusercontent.com"
+        ctlog:
+          url: https://rekor.sigstore.dev
+  validations:
+    - expression: >-
+        images.containers.all(image, verifyImageSignatures(image, [attestors.ci]) > 0) &&
+        images.initContainers.all(image, verifyImageSignatures(image, [attestors.ci]) > 0) &&
+        images.ephemeralContainers.all(image, verifyImageSignatures(image, [attestors.ci]) > 0)
+      message: >-
+        platform-core images must be cosign keyless-signed by the docker-build.yaml
+        workflow on refs/heads/main.

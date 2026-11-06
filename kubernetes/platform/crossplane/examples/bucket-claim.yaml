@@ -1,4 +1,7 @@
-# Example self-service claim — what an app team writes to get a bucket.
+# Example self-service bucket — what an app team writes to get one. With
+# Crossplane v2 this is a namespaced composite resource (XR), not a claim; the
+# kind and fields are unchanged from the v1 claim, so existing manifests apply
+# as-is.
 #
 # This file is NOT synced by ArgoCD (it lives outside the crossplane-config sync
 # path and is not an Application). Apply it by hand to drive the demo:
@@ -7,8 +10,9 @@
 #   kubectl -n apps get objectstoragebucket worker-artifacts -w
 #   kubectl -n apps get secret worker-artifacts-conn -o yaml   # bucket, region
 #
-# Crossplane provisions an encrypted, private, versioned S3 bucket and writes its
-# name + region into the connection secret below for the app to consume.
+# Crossplane provisions an encrypted, private, versioned S3 bucket and
+# function-patch-and-transform writes its name + region into the connection
+# Secret below (same namespace) for the app to consume.
 apiVersion: platform.io/v1alpha1
 kind: ObjectStorageBucket
 metadata:

@@ -1,4 +1,30 @@
-name: Docker Build, Scan, Sign & Push
+name: Docker Build, Scan, Sign & Promote
+
+# Flow (per push to main touching services/**):
+#
+#   changes ─▶ test ─▶ build (matrix: changed apps only)              ─▶ promote
+#                       amd64 local build → Trivy gate (no push yet)       environment: production
+#                       multi-arch push (amd64+arm64, SBOM+provenance)     (required reviewers)
+#                       Trivy gate on the pushed arm64 variant              cosign verify → digest pin
+#                       cosign sign (only after BOTH scans pass)            → one commit [skip ci]
+#
+# Scan strategy (multi-arch): the amd64 image is built into the local daemon and
+# scanned BEFORE anything reaches ECR (a docker daemon can't `load` a multi-arch
+# index). The push then rebuilds both platforms from the shared GHA layer cache;
+# the arm64 variant is scanned by digest in ECR before signing. If either scan
+# fails the job stops: the image is never signed, and because Kyverno's
+# verify-image-signatures (Enforce) rejects unsigned platform-core images and the
+# promote job cosign-verifies every digest before pinning it, an unsigned image
+# can neither be admitted nor promoted. (An unscanned-arm64 tag may exist in ECR
+# briefly — it is inert; ECR lifecycle policy reaps untagged/unpromoted images.)
+#
+# Promotion is a separate job bound to the GitHub Environment `production`.
+# Configure in repo Settings → Environments → production:
+#   - Required reviewers: the platform team (someone other than the pusher)
+#   - Deployment branches: `main` only
+# The job pauses for approval, then pins every built app's digest into
+# services/<app>/k8s/overlays/prod in ONE commit. If any build leg fails, nothing
+# is promoted (promote needs the whole build matrix to succeed).
 
 on:
   push:
@@ -6,161 +32,308 @@ on:
     paths:
       - "services/**"
   workflow_dispatch:
+    inputs:
+      force_all:
+        description: Build (and offer for promotion) every service, not just changed ones
+        type: boolean
+        default: false
+
+# Least privilege: nothing at workflow level; each job asks for what it needs.
+# (The reusable test workflow therefore runs with contents: read only.)
+permissions: {}
+
+concurrency:
+  # Serialise runs on main so two promotions never race each other.
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   AWS_REGION: eu-west-1
-
-# No static cloud credentials anywhere. id-token lets us:
-#   - federate into AWS via OIDC (configure-aws-credentials, role-to-assume)
-#   - sign images keyless with cosign (Fulcio/Rekor)
-permissions:
-  id-token: write
-  contents: write # commit the image-tag bump back to the repo
-  packages: read
+  KUSTOMIZE_VERSION: "5.8.3"
+  KUSTOMIZE_SHA256: cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61
 
 jobs:
+  # Work out which images need rebuilding. A service is rebuilt when anything
+  # under services/<app>/ (except its k8s/ manifests) changes; a change to the
+  # shared services/platform-common/ package rebuilds the four Kafka workers.
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      apps: ${{ steps.detect.outputs.apps }}
+      any: ${{ steps.detect.outputs.any }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compute build matrix
+        id: detect
+        env:
+          FORCE_ALL: ${{ github.event_name == 'workflow_dispatch' && inputs.force_all }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ALL="echo-service worker-service llm-gateway audio-api stt-worker llm-worker tts-worker"
+          KAFKA_WORKERS="worker-service stt-worker llm-worker tts-worker"
+          # Build everything on manual force, on a new branch/force-push (no
+          # usable "before" commit), or for a plain workflow_dispatch.
+          if [[ "$FORCE_ALL" == "true" || "${{ github.event_name }}" != "push" \
+                || -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] \
+             || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            selected="$ALL"
+          else
+            changed=$(git diff --name-only "$BEFORE" "$AFTER")
+            selected=""
+            for app in $ALL; do
+              # (no `grep -q` mid-pipeline: an early exit would SIGPIPE under pipefail)
+              hits=$(grep -E "^services/${app}/" <<<"$changed" | grep -vE "^services/${app}/k8s/" || true)
+              if [[ -n "$hits" ]]; then
+                selected+=" $app"
+              fi
+            done
+            if grep -qE '^services/platform-common/' <<<"$changed"; then
+              selected+=" $KAFKA_WORKERS"
+            fi
+          fi
+          apps=$(tr ' ' '\n' <<<"$selected" | sed '/^$/d' | sort -u | jq -R . | jq -sc .)
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "any=$([[ "$apps" != "[]" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "Services to build: $apps" | tee -a "$GITHUB_STEP_SUMMARY"
+
   # Gate: never build, sign, or promote an image whose app tests are failing.
-  # Reuses the shared test workflow to avoid running the 7-app matrix twice when
-  # ci.yaml is also triggered on the same push (ci.yaml runs on every push to main;
-  # docker-build.yaml is additionally triggered when services/** changes).
   test:
     name: Python tests
+    needs: changes
+    if: needs.changes.outputs.any == 'true'
+    permissions:
+      contents: read
     uses: ./.github/workflows/test-apps.yaml
 
   build:
-    name: Build & sign ${{ matrix.app }}
-    needs: test
-    # Build/push/scan/sign/promote all require AWS (ECR + OIDC). Skip the whole
-    # job when AWS_OIDC_ROLE_ARN isn't configured (e.g. forks, or before the
-    # github-oidc Terraform module is applied) so the workflow is green rather
-    # than red-by-default. The `test` gate above always runs. Dockerfiles are
-    # still build-validated on every push by the `app-build` job in ci.yaml.
-    if: ${{ vars.AWS_OIDC_ROLE_ARN != '' }}
+    name: Build, scan & sign ${{ matrix.app }}
+    needs: [changes, test]
+    # Build/push/scan/sign all require AWS (ECR + OIDC). Skip when
+    # AWS_OIDC_ROLE_ARN isn't configured (forks, pre-bootstrap) so the workflow
+    # is green rather than red-by-default; ci.yaml's app-build still
+    # build-validates every Dockerfile.
+    if: ${{ vars.AWS_OIDC_ROLE_ARN != '' && needs.changes.outputs.any == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC → AWS, and keyless cosign (Fulcio/Rekor)
     strategy:
       fail-fast: false
       matrix:
-        app: [echo-service, worker-service, llm-gateway, audio-api, stt-worker, llm-worker, tts-worker]
+        app: ${{ fromJSON(needs.changes.outputs.apps) }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Configure AWS credentials (OIDC, no static keys)
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          # Role ARN is an output of terraform/modules/github-oidc.
-          # Stored as a repo variable, not a secret (it is not sensitive).
+          # Role ARN is an output of terraform/modules/github-oidc (repo variable).
           role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
       - name: Compute image reference
         id: ref
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          APP: ${{ matrix.app }}
         run: |
-          SHA_SHORT=$(git rev-parse --short HEAD)
-          REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          echo "repo=${REGISTRY}/platform-core/${{ matrix.app }}" >> "$GITHUB_OUTPUT"
-          echo "sha=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+          echo "repo=${REGISTRY}/platform-core/${APP}" >> "$GITHUB_OUTPUT"
+          # 12-char sha tag; the promote job derives the same tag from github.sha.
+          echo "sha=${GITHUB_SHA:0:12}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      # Build to the local docker daemon (no push) so we can scan BEFORE anything
-      # reaches ECR. cache-to primes the GHA cache; the later push build reuses
-      # every layer, so this is not a redundant full rebuild.
-      - name: Build image for scanning (local, no push)
-        uses: docker/build-push-action@v5
+      # Build context is services/ (so Dockerfiles can COPY platform-common/).
+      # amd64 only, loaded into the local daemon so it can be scanned before
+      # anything is pushed. cache-to primes the GHA cache for the push build.
+      - name: Build amd64 image for scanning (local, no push)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: services/${{ matrix.app }}
+          context: services
+          file: services/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64
           load: true
           tags: ${{ matrix.app }}:scan
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
 
-      # Vulnerability gate runs on the local image. A HIGH/CRITICAL finding fails
-      # the job here, so the image never gets pushed, signed, or promoted.
-      - name: Scan image for vulnerabilities (fail on HIGH/CRITICAL — gate before push)
-        uses: aquasecurity/trivy-action@v0.20.0
-        with:
-          image-ref: ${{ matrix.app }}:scan
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: HIGH,CRITICAL
+      - name: Install Trivy (checksum-verified)
+        uses: ./.github/actions/setup-trivy
 
-      # Only reached if the scan passed. Rebuilds from cache (fast) and pushes
-      # with SBOM + max-mode SLSA provenance attached to the image index —
-      # verifiable later with `cosign verify-attestation`. No mutable :latest tag.
-      - name: Build & push (with SBOM + SLSA provenance attestations)
+      # Gate #1 — HIGH/CRITICAL in the amd64 image fails the job before push.
+      - name: Scan amd64 image (gate before push)
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL \
+            --format table "${APP}:scan"
+
+      # Multi-arch push with SBOM + max-mode SLSA provenance attached to the
+      # index (verifiable with `cosign verify-attestation` / `docker buildx
+      # imagetools inspect`). Immutable git-sha tag only — no :latest.
+      - name: Build & push multi-arch (SBOM + SLSA provenance)
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
-          context: services/${{ matrix.app }}
+          context: services
+          file: services/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.ref.outputs.repo }}:${{ steps.ref.outputs.sha }}
           sbom: true
           provenance: mode=max
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
+      # Gate #2 — the arm64 variant can't be loaded locally, so scan it by digest
+      # in ECR (trivy reuses the docker credentials written by ecr-login). It is
+      # still unsigned here, so a failure leaves an inert, unpromotable image.
+      - name: Scan pushed arm64 variant (gate before sign)
+        env:
+          IMAGE: ${{ steps.ref.outputs.repo }}@${{ steps.build.outputs.digest }}
+        run: |
+          trivy image --platform linux/arm64 --exit-code 1 --ignore-unfixed \
+            --severity HIGH,CRITICAL --format table "$IMAGE"
+
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2 (cosign v3.0.6)
 
-      - name: Sign image (keyless — identity bound to this workflow)
+      # Keyless; the certificate identity is this workflow on refs/heads/main.
+      # cosign v3 defaults to the new Sigstore-bundle (OCI referrer) format;
+      # we keep the classic .sig-tag format so the Kyverno verifyImages policy
+      # (and older cosign clients) can verify it. Drop both flags once Kyverno is
+      # confirmed to verify cosign v3 bundles.
+      - name: Sign image (keyless, only reached if both scans passed)
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: |
-          cosign sign --yes "${{ steps.ref.outputs.repo }}@${DIGEST}"
+          IMAGE: ${{ steps.ref.outputs.repo }}@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes --new-bundle-format=false --use-signing-config=false "$IMAGE"
 
-      # Promote by pinning the IMMUTABLE DIGEST (not a mutable tag) into the
-      # per-app prod overlay that the ApplicationSet actually deploys
-      # (overlays/prod/<app>, NOT the aggregate overlays/prod). ArgoCD then syncs
-      # the digest. The matrix runs in parallel, but each app edits its own
-      # overlay dir, so a rebase-and-retry resolves the concurrent push race.
-      - name: Promote to prod overlay (pin by immutable digest)
+      - name: Summary
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-          KUSTOMIZE_VERSION: "5.4.3"
+          APP: ${{ matrix.app }}
+          IMAGE: ${{ steps.ref.outputs.repo }}@${{ steps.build.outputs.digest }}
+        run: echo "- \`${APP}\` → \`${IMAGE}\` (signed)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Human-gated promotion. Resolves each app's digest from ECR by the immutable
+  # git-sha tag, re-verifies the cosign signature (identity = this workflow on
+  # main), pins the DIGEST into the per-app prod overlay that the ApplicationSet
+  # deploys (services/<app>/k8s/overlays/prod — NOT kustomize/validation/prod),
+  # and pushes one commit. ArgoCD syncs it.
+  promote:
+    name: Promote to prod (digest pin)
+    needs: [changes, build]
+    if: ${{ vars.AWS_OIDC_ROLE_ARN != '' && needs.changes.outputs.any == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: write # push the promotion commit
+      id-token: write # OIDC → AWS (ECR describe-images, sts account id)
+    steps:
+      # This job pushes, so it keeps the checkout credentials. Fetch main's tip
+      # (not github.sha) so the rebase below starts from the freshest base.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Configure AWS credentials (OIDC, no static keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2 (cosign v3.0.6)
+
+      - name: Install kustomize (checksum-verified)
         run: |
-          # Pinned direct download — the upstream install_kustomize.sh script
-          # breaks intermittently (its release-asset glob fails to find the tarball).
-          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
-          # Verify integrity before this binary edits the prod overlay. Pinned to
-          # KUSTOMIZE_VERSION=5.4.3; a version bump fails here until the sum updates.
-          echo "3669470b454d865c8184d6bce78df05e977c9aea31c30df3c669317d43bcc7a7  /tmp/kustomize.tar.gz" | sha256sum -c -
-          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize && sudo mv /tmp/kustomize /usr/local/bin/
-          KUSTOMIZE="$(command -v kustomize)"
-          ( cd services/${{ matrix.app }}/k8s/overlays/prod \
-            && "$KUSTOMIZE" edit set image "${{ matrix.app }}=${{ steps.ref.outputs.repo }}@${DIGEST}" )
-          # The four audio services also need the account-specific IRSA role ARN.
-          # Resolve it from the same AWS identity used for ECR promotion so the
-          # checked-in placeholder can never reach a promoted prod deployment.
-          case "${{ matrix.app }}" in
-            audio-api|stt-worker|llm-worker|tts-worker)
-              ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-              ROLE_PATCH="services/${{ matrix.app }}/k8s/overlays/prod/patch-serviceaccount-irsa.yaml"
-              sed -i -E "s#arn:aws:iam::[0-9]+:role/platform-core-prod-audio-pipeline#arn:aws:iam::${ACCOUNT_ID}:role/platform-core-prod-audio-pipeline#" "$ROLE_PATCH"
-              ;;
-          esac
+          set -euo pipefail
+          curl -sSfL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+          # Verify before this binary edits the prod overlay; a version bump
+          # fails here until KUSTOMIZE_SHA256 is updated from checksums.txt.
+          echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" | sha256sum -c -
+          tar -xz -C /tmp -f /tmp/kustomize.tar.gz kustomize
+          sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
+
+      - name: Verify signatures + pin digests into prod overlays
+        env:
+          APPS: ${{ needs.changes.outputs.apps }}
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          # The build ran on github.sha; the tag is its 12-char short sha.
+          BUILD_SHA: ${{ github.sha }}
+          CERT_IDENTITY: ${{ github.server_url }}/${{ github.repository }}/.github/workflows/docker-build.yaml@refs/heads/main
+        run: |
+          set -euo pipefail
+          TAG="${BUILD_SHA:0:12}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          summary=""
+          for app in $(jq -r '.[]' <<<"$APPS"); do
+            repo="${REGISTRY}/platform-core/${app}"
+            digest=$(aws ecr describe-images --repository-name "platform-core/${app}" \
+              --image-ids "imageTag=${TAG}" --query 'imageDetails[0].imageDigest' --output text)
+            [[ "$digest" == sha256:* ]] || { echo "::error::no image ${repo}:${TAG}"; exit 1; }
+            # Refuse to promote anything not signed by THIS workflow on main.
+            cosign verify --new-bundle-format=false \
+              --certificate-identity "$CERT_IDENTITY" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${repo}@${digest}" > /dev/null
+            ( cd "services/${app}/k8s/overlays/prod" \
+              && kustomize edit set image "${app}=${repo}@${digest}" )
+            # The four audio services also need the account-specific IRSA role
+            # ARN; resolve it from the same AWS identity so the checked-in
+            # placeholder never reaches a promoted prod deployment.
+            case "$app" in
+              audio-api|stt-worker|llm-worker|tts-worker)
+                sed -i -E "s#arn:aws:iam::[0-9]+:role/platform-core-prod-audio-pipeline#arn:aws:iam::${ACCOUNT_ID}:role/platform-core-prod-audio-pipeline#" \
+                  "services/${app}/k8s/overlays/prod/patch-serviceaccount-irsa.yaml"
+                ;;
+            esac
+            git add "services/${app}/k8s/overlays/prod"
+            summary+="${app}=${digest} "
+            echo "- \`${app}\` → \`${digest}\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add services/${{ matrix.app }}/k8s/overlays/prod
-          # [skip ci] guards against a build→promote→build loop: the promotion
-          # commit touches services/** (this workflow's own trigger path). Today
-          # GitHub also suppresses runs for GITHUB_TOKEN pushes, but that's
-          # implicit — if the push ever uses a PAT/deploy key (e.g. to satisfy
-          # branch protection) the skip phrase still breaks the cycle.
-          git commit -m "chore(${{ matrix.app }}): promote ${{ steps.ref.outputs.sha }} (${DIGEST}) [skip ci]" || exit 0
+          # [skip ci] guards against a build→promote→build loop: the commit
+          # touches services/** (this workflow's trigger path). GitHub also
+          # suppresses runs for GITHUB_TOKEN pushes, but that's implicit — if the
+          # push ever uses a PAT/deploy key the skip phrase still breaks the cycle.
+          git commit -m "chore(release): promote ${TAG} to prod [skip ci]" -m "${summary}" || exit 0
           for attempt in 1 2 3 4 5; do
-            if git pull --rebase --autostash origin main && git push; then
+            if git pull --rebase --autostash origin main && git push origin HEAD:main; then
               exit 0
             fi
+            echo "push attempt ${attempt} failed; retrying"
             sleep $(( (RANDOM % 5) + 1 ))
           done
           echo "::error::failed to push promotion commit after retries" && exit 1

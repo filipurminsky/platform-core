@@ -21,6 +21,7 @@ patches:
     target:
       kind: Deployment
       name: vllm-inference
+  - path: patch-scaledobject-paused.yaml
 
 replicas:
   - name: vllm-inference

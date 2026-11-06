@@ -5,8 +5,9 @@ A generic Kafka consumer template used to demonstrate job processing, deduplicat
 ## Features
 
 - **Handler Registry**: Pluggable architecture for adding new job types via decorators.
-- **Idempotency**: UUID-based deduplication (within a pod's lifetime) to prevent double-processing.
-- **Resilience**: Configurable exponential back-off retries and DLQ fallback.
+- **Dedup (best-effort, in-memory)**: an LRU of the last `DEDUP_CACHE_SIZE` job ids **per pod**. It does *not* survive restarts and is not shared across replicas, so a message redelivered after a crash/rebalance may be processed again — handlers must be idempotent (at-least-once). The audio-pipeline workers use an atomic Redis claim instead; this demo service deliberately has no Redis dependency.
+- **Validation**: messages are validated (`id`, registered `type`, object `payload`); bad JSON / unknown types go to `jobs-dlq` with the reason (`error_type=invalid`) instead of being dropped.
+- **Resilience**: errors are classified — permanent (e.g. `ValueError` for an unknown operation) → DLQ immediately; transient → exponential back-off with jitter bounded by `MAX_RETRIES` and `RETRY_BUDGET_SECONDS`, then DLQ.
 - **Graceful Shutdown**: Handles `SIGTERM` to finish in-flight jobs and commit offsets before exiting.
 - **Autoscaling**: Fully compatible with KEDA scale-to-zero.
 
@@ -19,7 +20,8 @@ A generic Kafka consumer template used to demonstrate job processing, deduplicat
 
 ## Technology Stack
 
-- **Runtime**: Python 3.12
+- **Runtime**: Python 3.13 (multi-stage image, digest-pinned base, non-root)
+- **Shared library**: `platform-common` (Kafka I/O, retry/error classification, health server)
 - **Messaging**: `confluent-kafka`
 - **Observability**: OpenTelemetry (trace extraction/injection), `prometheus-client`.
 - **Package Manager**: [uv](https://github.com/astral-sh/uv)
@@ -30,7 +32,9 @@ A generic Kafka consumer template used to demonstrate job processing, deduplicat
 |----------------------|---------|-------------|
 | `KAFKA_TOPIC` | `jobs` | Input topic. |
 | `KAFKA_DLQ_TOPIC` | `jobs-dlq` | Dead letter topic for failed jobs. |
-| `MAX_RETRIES` | `3` | Retries before moving to DLQ. |
+| `MAX_RETRIES` | `3` | Attempts for transient errors before DLQ. |
+| `RETRY_BUDGET_SECONDS` | `60` | Max time spent retrying one message. |
+| `DEDUP_CACHE_SIZE` | `10000` | In-memory dedup window (per pod). |
 | `KAFKA_CONSUMER_GROUP`| `worker-service` | Kafka consumer group ID. |
 
 ## Operations
@@ -47,7 +51,7 @@ Exposes a Prometheus gauge `worker_consumer_lag` per partition, calculated by co
 
 ```bash
 # Produce a test job via Docker Compose
-docker compose exec kafka kafka-console-producer.sh \
+docker compose exec kafka kafka-console-producer \
   --bootstrap-server localhost:9092 --topic jobs <<< \
   '{"id":"test-001","type":"data-transform","payload":{"input":"hello","operation":"uppercase"}}'
 

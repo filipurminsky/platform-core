@@ -1,12 +1,37 @@
 # IRSA roles — pod-level AWS permissions without static credentials
 # Pattern: each service account gets its own role with least-privilege policy
+#
+# terraform-aws-modules/iam v6: the submodule was renamed
+# iam-role-for-service-accounts-eks → iam-role-for-service-accounts, and
+# role_policy_arns → policies. The role itself keeps its address
+# (aws_iam_role.this[0]), but the policy attachments moved from
+# aws_iam_role_policy_attachment.this["<key>"] to .additional["<key>"].
+# Terraform rejects `moved` blocks that reach into an external (registry)
+# module package ("Cross-package move statement"), so on an EXISTING state run
+# these once, from terraform/environments/<env>, BEFORE the first apply:
+#
+#   for m in "irsa_external_secrets:SecretsManager" "irsa_crossplane_s3:S3" \
+#            "irsa_audio_pipeline:S3Objects"; do
+#     mod=${m%%:*}; key=${m##*:}
+#     terraform state mv \
+#       "module.iam.module.${mod}.aws_iam_role_policy_attachment.this[\"${key}\"]" \
+#       "module.iam.module.${mod}.aws_iam_role_policy_attachment.additional[\"${key}\"]"
+#   done
+#
+# Otherwise Terraform plans a create of .additional and a destroy of .this for
+# the SAME role/policy pair, and the destroy detaches the policy that the
+# create just attached. (The upstream guide's `terraform state rm` of .this also
+# works — the create of .additional then re-attaches idempotently.)
 
 # ─── External Secrets Operator ───────────────────────────────────────────────
 module "irsa_external_secrets" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
+  version = "~> 6.8"
 
-  role_name = "${var.project}-${var.environment}-external-secrets"
+  # v6 defaults to a name *prefix*; keep the exact historical role name so the
+  # ARN (wired into ServiceAccount annotations) doesn't change.
+  use_name_prefix = false
+  name            = "${var.project}-${var.environment}-external-secrets"
 
   oidc_providers = {
     main = {
@@ -15,7 +40,7 @@ module "irsa_external_secrets" {
     }
   }
 
-  role_policy_arns = {
+  policies = {
     SecretsManager = aws_iam_policy.external_secrets.arn
   }
 }
@@ -41,10 +66,13 @@ resource "aws_iam_policy" "external_secrets" {
 # lets Crossplane manage S3 buckets it provisions on behalf of platform users —
 # scoped to the project/env bucket prefix so it can't touch unrelated buckets.
 module "irsa_crossplane_s3" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
+  version = "~> 6.8"
 
-  role_name = "${var.project}-${var.environment}-crossplane-s3"
+  # v6 defaults to a name *prefix*; keep the exact historical role name so the
+  # ARN (wired into ServiceAccount annotations) doesn't change.
+  use_name_prefix = false
+  name            = "${var.project}-${var.environment}-crossplane-s3"
 
   oidc_providers = {
     main = {
@@ -53,7 +81,7 @@ module "irsa_crossplane_s3" {
     }
   }
 
-  role_policy_arns = {
+  policies = {
     S3 = aws_iam_policy.crossplane_s3.arn
   }
 }
@@ -99,10 +127,13 @@ resource "aws_iam_policy" "crossplane_s3" {
 # Each service's prod overlay annotates its ServiceAccount with this role ARN
 # (services/<svc>/k8s/overlays/prod/patch-serviceaccount-irsa.yaml).
 module "irsa_audio_pipeline" {
-  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-  version = "~> 5.0"
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts"
+  version = "~> 6.8"
 
-  role_name = "${var.project}-${var.environment}-audio-pipeline"
+  # v6 defaults to a name *prefix*; keep the exact historical role name so the
+  # ARN (wired into ServiceAccount annotations) doesn't change.
+  use_name_prefix = false
+  name            = "${var.project}-${var.environment}-audio-pipeline"
 
   oidc_providers = {
     main = {
@@ -116,7 +147,7 @@ module "irsa_audio_pipeline" {
     }
   }
 
-  role_policy_arns = {
+  policies = {
     S3Objects = aws_iam_policy.audio_pipeline_s3.arn
   }
 }

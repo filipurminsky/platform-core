@@ -44,18 +44,26 @@ spec:
               sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket[5m]))
             )
 
+        # V1 engine: there is no vllm:request_failure_total. Every finished
+        # request lands in vllm:request_success_total with a `finished_reason`
+        # label (stop | length | abort | error | repetition); `error` is the
+        # server-side failure (always surfaced to the client as a 500).
+        # `abort` (client disconnect) is deliberately not counted as an error.
         - record: vllm:request_error_ratio:rate5m
           expr: |
-            sum(rate(vllm:request_failure_total[5m]))
+            sum(rate(vllm:request_success_total{finished_reason="error"}[5m]))
             /
-            sum(rate(vllm:request_success_total[5m]) + rate(vllm:request_failure_total[5m]))
+            sum(rate(vllm:request_success_total[5m]))
 
         # Error budget remaining (30-day window, 99.0% availability target)
         - record: vllm:error_budget_remaining:ratio
           expr: |
             1 - (
-              (1 - sum(rate(vllm:request_success_total[30d]))
-                   / sum(rate(vllm:request_success_total[30d]) + rate(vllm:request_failure_total[30d])))
+              (
+                sum(rate(vllm:request_success_total{finished_reason="error"}[30d]))
+                /
+                sum(rate(vllm:request_success_total[30d]))
+              )
               /
               (1 - 0.990)
             )

@@ -13,7 +13,19 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    targetRevision: 58.2.1
+    # 92.x (Prometheus Operator v0.94, Prometheus v3, Grafana chart 14 / Grafana 13,
+    # now sourced from grafana-community). Upgraded from 58.2.1. Notes:
+    #   - CRDs: the chart's CRDs are large (>256KiB annotation limit), so they
+    #     MUST be applied server-side — keep ServerSideApply=true below. ArgoCD
+    #     upgrades the CRDs from the chart's crds/ dir on every sync, so the
+    #     manual `kubectl apply --server-side` step in UPGRADE.md is not needed.
+    #   - `*SelectorNilUsesHelmValues` is deprecated (62→63): empty selectors are
+    #     now `<x>Selector.matchLabels: null`.
+    #   - Prometheus v3: PromQL `.` in regexes now matches newlines and range
+    #     selectors are left-open — review recording/alert rules accordingly.
+    #   - Grafana 13 image is distroless with readOnlyRootFilesystem; no
+    #     GF_*__FILE env vars (none used here).
+    targetRevision: 92.20.0
     helm:
       values: |
         fullnameOverride: kube-prometheus-stack
@@ -21,9 +33,12 @@ spec:
           prometheusSpec:
             # Discover ALL ServiceMonitors/PrometheusRules regardless of label,
             # so the repo's existing manifests (mixed labels) are picked up.
-            serviceMonitorSelectorNilUsesHelmValues: false
-            ruleSelectorNilUsesHelmValues: false
-            podMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorSelector:
+              matchLabels: null
+            ruleSelector:
+              matchLabels: null
+            podMonitorSelector:
+              matchLabels: null
             retention: 6h
             resources:
               requests:
@@ -49,8 +64,29 @@ spec:
                 foldersFromFilesStructure: true
             datasources:
               enabled: true
+              # Alertmanager is disabled below — don't provision a dead datasource.
+              alertmanager:
+                enabled: false
+          # No Ingress (ingress-nginx was replaced by Envoy Gateway; the chart's
+          # ingress is disabled by default). Grafana is exposed through a Gateway
+          # API HTTPRoute attached to the shared `platform` Gateway. The
+          # sync-option lets the app sync even if the Gateway API CRDs land
+          # slightly later (the retry in syncPolicy below converges once they exist).
+          route:
+            main:
+              enabled: true
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              annotations:
+                argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+              hostnames:
+                - grafana.platform-core.local
+              parentRefs:
+                - name: platform
+                  namespace: envoy-gateway-system
           # Loki (logs) and Tempo (traces) are deployed by their own Applications
-          # in this namespace; wire both so Grafana covers the full metrics + logs
+          # in this namespace (Loki = grafana-community/loki single-binary, Service
+          # `loki:3100`; logs shipped by Grafana Alloy, see kubernetes/platform/alloy); wire both so Grafana covers the full metrics + logs
           # + traces (Prometheus, Loki, Tempo) story. The Tempo datasource links
           # spans back to Loki logs (tracesToLogsV2) and Prometheus metrics, and a
           # derived field on Loki turns the trace_id JSON log field into a clickable
@@ -65,8 +101,11 @@ spec:
               jsonData:
                 maxLines: 1000
                 derivedFields:
+                  # structlog's JSONRenderer emits `"trace_id": "<hex>"` (json.dumps
+                  # default separators put a space after the colon), so allow
+                  # optional whitespace — the old `"trace_id":"(\w+)"` never matched.
                   - name: trace_id
-                    matcherRegex: '"trace_id":"(\w+)"'
+                    matcherRegex: '"trace_id":\s*"(\w+)"'
                     datasourceUid: tempo
                     url: "$${__value.raw}"
             - name: Tempo
@@ -116,6 +155,14 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    # Retry so a first sync that races the Gateway API CRDs (HTTPRoute) or the
+    # CRD establishment converges without manual intervention.
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

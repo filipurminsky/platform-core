@@ -12,9 +12,16 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://grafana.github.io/helm-charts
+    # The Tempo charts moved to the community-maintained repo (grafana/tempo
+    # is deprecated, last 1.24.4 / Tempo 2.9). Chart 3.x runs Tempo 3.x in
+    # monolithic mode: no ingester/compactor (live-store + backend
+    # scheduler/worker instead); `tempo.retention` now renders into
+    # backend_worker.compaction.block_retention; `reportingEnabled` moved under
+    # `tempo:`. No custom `config`/ingester/metricsGenerator values were set
+    # here, so no further migration is needed.
+    repoURL: https://grafana-community.github.io/helm-charts
     chart: tempo
-    targetRevision: 1.24.4          # Tempo v2.9.0 — single-binary
+    targetRevision: 3.2.1           # Tempo v3.1.1 — monolithic
     helm:
       # Single-binary Tempo for local/dev: ephemeral storage, 24h retention.
       # Receives OTLP from the OpenTelemetry Collector; queried by Grafana over
@@ -22,17 +29,22 @@ spec:
       # Application, so they are not enabled here.
       values: |
         fullnameOverride: tempo
-        reportingEnabled: false
         tempo:
+          reportingEnabled: false
           retention: 24h
           # OTLP receivers — the collector ships spans here over gRPC.
           receivers:
+            # Only OTLP is used. (The chart's default Jaeger receivers stay
+            # enabled — its Service template cannot render with them removed.)
             otlp:
               protocols:
                 grpc:
                   endpoint: "0.0.0.0:4317"
                 http:
                   endpoint: "0.0.0.0:4318"
+          extraVolumeMounts:
+            - name: tempo-data
+              mountPath: /var/tempo
           resources:
             requests:
               cpu: 100m
@@ -41,6 +53,11 @@ spec:
               memory: 512Mi
         persistence:
           enabled: false
+        # Ephemeral data dir (live-store WAL + local trace blocks) as an explicit
+        # emptyDir rather than the container's writable layer.
+        extraVolumes:
+          - name: tempo-data
+            emptyDir: {}
         # Let Prometheus scrape Tempo's own metrics.
         serviceMonitor:
           enabled: true

@@ -8,7 +8,7 @@
 # Client env vars: REDIS_URL plus REDIS_PASSWORD from the redis-auth Secret.
 #
 # Deploys the in-repo manifest under manifests/ (a single-replica upstream
-# redis:7.4-alpine Deployment + Service). We deliberately do NOT use the
+# redis:7.4.x-alpine StatefulSet + Service). We deliberately do NOT use the
 # Bitnami Helm chart: Bitnami removed older image tags from Docker Hub and the
 # chart names its Service `redis-master`, which breaks the contract DNS name.
 # Redis requires authentication. Local bootstrap creates matching Secrets in

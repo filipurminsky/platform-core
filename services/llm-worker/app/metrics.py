@@ -1,11 +1,27 @@
 """Prometheus metric definitions (contract §7), exposed on :9090/metrics."""
 
+from platform_common.pipeline_metrics import PIPELINE_JOBS_FAILED, PIPELINE_QUEUE_WAIT
 from prometheus_client import Counter, Histogram
+
+# Historical alias used by this service.
+PIPELINE_FAILED = PIPELINE_JOBS_FAILED
+
+__all__ = [
+    "LLM_JOBS",
+    "LLM_REQUEST_DURATION",
+    "LLM_SUMMARY_BYTES",
+    "LLM_TOKENS",
+    "LLM_TRANSCRIPT_CHUNKS",
+    "LLM_TRANSCRIPT_TRUNCATED",
+    "PIPELINE_FAILED",
+    "PIPELINE_JOBS_FAILED",
+    "PIPELINE_QUEUE_WAIT",
+]
 
 LLM_JOBS = Counter(
     "llm_jobs_total",
     "LLM summarisation jobs by outcome",
-    ["status"],  # success | error | dlq
+    ["status"],  # success | dlq
 )
 LLM_TOKENS = Counter(
     "llm_tokens_generated_total",
@@ -21,16 +37,13 @@ LLM_SUMMARY_BYTES = Histogram(
     "Size of the summary JSON written to object storage",
     buckets=[256, 1024, 4096, 16384, 65536, 262144],
 )
-PIPELINE_FAILED = Counter(
-    "pipeline_jobs_failed_total",
-    "Jobs dead-lettered by stage",
-    ["stage"],
+# Additive (not in the frozen §7 table): context-window guard visibility.
+LLM_TRANSCRIPT_CHUNKS = Histogram(
+    "llm_transcript_chunks",
+    "Number of map-phase chunks a transcript was split into (1 = single call)",
+    buckets=[1, 2, 3, 4, 6, 8, 12, 16],
 )
-# Shared queue-wait metric — seconds a job waited between creation (audio-api) and
-# this stage starting to process it. Same name/labels in every worker (§7).
-PIPELINE_QUEUE_WAIT = Histogram(
-    "pipeline_queue_wait_seconds",
-    "Seconds a job waited between creation and this stage starting",
-    ["stage"],
-    buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0],
+LLM_TRANSCRIPT_TRUNCATED = Counter(
+    "llm_transcript_truncated_total",
+    "Transcripts truncated because they exceeded LLM_MAX_CHUNKS × LLM_MAX_INPUT_CHARS",
 )

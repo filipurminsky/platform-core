@@ -1,7 +1,7 @@
 # KafkaUser CRs — one per service, minimal ACLs (principle of least privilege)
 # Strimzi generates a Kubernetes Secret per user containing SASL credentials.
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: worker-service
@@ -36,7 +36,7 @@ spec:
 # because dev uses the unauthenticated internal listener.
 # ---------------------------------------------------------------------------
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: audio-api
@@ -55,7 +55,7 @@ spec:
           patternType: literal
         operations: [Write, Describe]
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: stt-worker
@@ -89,7 +89,7 @@ spec:
           patternType: literal
         operations: [Read]
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: llm-worker
@@ -123,7 +123,7 @@ spec:
           patternType: literal
         operations: [Read]
 ---
-apiVersion: kafka.strimzi.io/v1beta2
+apiVersion: kafka.strimzi.io/v1
 kind: KafkaUser
 metadata:
   name: tts-worker

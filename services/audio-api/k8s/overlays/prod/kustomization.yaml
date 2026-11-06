@@ -30,11 +30,11 @@ patches:
     target:
       kind: Deployment
       name: audio-api
-  # No public prod Ingress is shipped until a real DNS name and certificate
+  # No public prod HTTPRoute is shipped until a real DNS name and certificate
   # issuer are configured. The authenticated Service remains cluster-internal.
-  - path: patch-delete-ingress.yaml
+  - path: patch-delete-httproute.yaml
     target:
-      kind: Ingress
+      kind: HTTPRoute
       name: audio-api
 
 replicas:

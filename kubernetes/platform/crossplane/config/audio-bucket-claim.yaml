@@ -1,9 +1,13 @@
-# Audio pipeline S3 bucket claim (prod only).
+# Audio pipeline S3 bucket (prod only) — a namespaced Crossplane v2 composite
+# resource (XR). (Filename kept from the v1 era, when this was a claim.)
 #
-# Crossplane provisions a secure, versioned S3 bucket named `audio-pipeline`
-# in eu-west-1. The connection secret written to `audio-pipeline-conn` in the
-# `apps` namespace exposes `bucket` and `region` keys consumed by the workers
-# (S3_BUCKET env var) via ExternalSecret or direct Secret mount.
+# Crossplane provisions a secure, versioned S3 bucket in eu-west-1. The
+# Composition names it platform-core-prod-<namespace>-<name>
+# (= platform-core-prod-apps-audio-pipeline, inside the IRSA policy prefix);
+# consumers should still read it from the connection Secret, not hardcode it:
+# function-patch-and-transform writes `audio-pipeline-conn` in the `apps`
+# namespace with keys `bucket` and `region`, consumed by the workers (S3_BUCKET
+# env via secretKeyRef). The composed managed resources also live in `apps`.
 #
 # Lifecycle: the Composition attaches a BucketLifecycleConfiguration driven by
 # the parameters below —
@@ -19,6 +23,11 @@ kind: ObjectStorageBucket
 metadata:
   name: audio-pipeline
   namespace: apps
+  annotations:
+    # After the XRD (wave 0) and Composition (wave 1); the XR's CRD is created
+    # asynchronously by Crossplane, so skip the dry-run on first sync.
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   parameters:
     region: eu-west-1

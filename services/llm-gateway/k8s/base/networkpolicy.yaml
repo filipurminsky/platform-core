@@ -8,13 +8,9 @@ spec:
       app: llm-gateway
   policyTypes: [Ingress, Egress]
   ingress:
-    # External traffic via ingress-nginx, and Prometheus scraping /metrics.
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
-      ports:
-        - port: 8080
+    # Prometheus scraping /metrics. North-south traffic from Envoy Gateway is
+    # allowed ONLY in dev (overlays/dev/patch-netpol-gateway.yaml) — prod ships
+    # no HTTPRoute, so the gateway is cluster-internal there.
     - from:
         - namespaceSelector:
             matchLabels:

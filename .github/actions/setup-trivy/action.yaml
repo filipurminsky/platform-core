@@ -1,0 +1,35 @@
+name: Set up Trivy (checksum-verified binary)
+description: >-
+  Installs a pinned Trivy release straight from GitHub Releases and verifies it
+  against the sha256 published in that release's trivy_<ver>_checksums.txt.
+  Used INSTEAD of aquasecurity/trivy-action / setup-trivy: in March 2026 those
+  actions' git tags were hijacked (force-pushed to malicious commits) in a
+  supply-chain attack, so we no longer resolve anything Trivy-related through
+  a mutable ref. Version + hash are both
+  pinned here; bumping the version fails the checksum until the hash is updated
+  from the new release's checksums file (that is the point).
+
+inputs:
+  version:
+    description: Trivy version (no leading v)
+    default: "0.76.1"
+  sha256:
+    description: sha256 of trivy_<version>_Linux-64bit.tar.gz from trivy_<version>_checksums.txt
+    default: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+
+runs:
+  using: composite
+  steps:
+    - name: Install trivy
+      shell: bash
+      env:
+        TRIVY_VERSION: ${{ inputs.version }}
+        TRIVY_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        tmp="$(mktemp -d)"
+        curl -sSfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o "$tmp/trivy.tar.gz"
+        echo "${TRIVY_SHA256}  $tmp/trivy.tar.gz" | sha256sum -c -
+        tar -xzf "$tmp/trivy.tar.gz" -C "$tmp" trivy
+        sudo install -m 0755 "$tmp/trivy" /usr/local/bin/trivy
+        trivy --version

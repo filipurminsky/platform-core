@@ -13,7 +13,9 @@ resource "aws_eks_node_group" "gpu" {
   # LLM requests and leave jobs stuck in Redis with no worker to recover them.
   capacity_type  = "ON_DEMAND"
   instance_types = [var.instance_type] # default: g4dn.xlarge (NVIDIA T4)
-  ami_type       = "AL2_x86_64_GPU"    # Amazon Linux 2 with NVIDIA drivers
+  # AL2023 with NVIDIA drivers. The AL2 GPU AMI (AL2_x86_64_GPU) is not
+  # published for EKS >= 1.33. Changing ami_type replaces the node group.
+  ami_type = "AL2023_x86_64_NVIDIA"
 
   scaling_config {
     desired_size = var.min_size # start at min; Cluster Autoscaler will expand

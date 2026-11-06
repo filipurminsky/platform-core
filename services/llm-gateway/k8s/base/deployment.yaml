@@ -48,6 +48,18 @@ spec:
               value: "60"
             - name: REQUEST_TIMEOUT_SECONDS
               value: "120"
+            # Bearer auth for /v1/*: CSV of accepted API keys. Secret
+            # llm-gateway-api-keys (keys: api-keys = CSV of all accepted keys,
+            # llm-worker = the key llm-worker presents) is created by
+            # scripts/bootstrap.sh in dev and by the ExternalSecret in
+            # overlays/prod from AWS Secrets Manager. Not optional: the app
+            # refuses to start in prod without keys, and a missing Secret should
+            # fail the pod loudly rather than silently run unauthenticated.
+            - name: GATEWAY_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: llm-gateway-api-keys
+                  key: api-keys
             # OpenTelemetry — FastAPI spans + httpx propagation to vLLM, so a
             # request is traced gateway → vLLM. Exported to the collector → Tempo.
             - name: OTEL_SERVICE_NAME

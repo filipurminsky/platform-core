@@ -6,7 +6,8 @@
 #   1. default-deny-all        — drop all ingress + egress
 #   2. allow-dns               — egress to CoreDNS (every pod needs name resolution)
 #   3. allow-intra-namespace   — pods within the tenant may talk to each other
-#   4. allow-from-ingress      — ingress-nginx may reach tenant workloads
+#   4. allow-from-gateway      — Envoy Gateway proxies (north-south HTTPRoutes)
+#                                may reach tenant workloads
 #   5. allow-from-monitoring   — Prometheus may scrape /metrics
 #   6. allow-to-platform       — egress to shared services: Kafka (platform ns)
 #                                and vLLM (apps ns)
@@ -62,7 +63,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-from-ingress
+  name: allow-from-gateway
 spec:
   podSelector: {}
   policyTypes:
@@ -71,7 +72,7 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              kubernetes.io/metadata.name: envoy-gateway-system
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

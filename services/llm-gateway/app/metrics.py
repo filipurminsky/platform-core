@@ -15,7 +15,7 @@ PROXY_LATENCY = Histogram(
 )
 UPSTREAM_ERRORS = Counter(
     "gateway_upstream_errors_total",
-    "Upstream connection or timeout errors",
+    "Upstream connection, timeout, or protocol errors (also feeds KEDA 0->1 activation)",
 )
 RATE_LIMITED = Counter(
     "gateway_rate_limited_total",
@@ -24,4 +24,13 @@ RATE_LIMITED = Counter(
 RATE_LIMITER_ERRORS = Counter(
     "gateway_rate_limiter_errors_total",
     "Rate-limiter backend (Redis) errors; the limiter fails open on these",
+)
+AUTH_FAILURES = Counter(
+    "gateway_auth_failures_total",
+    "Requests to /v1/* rejected for a missing or invalid API key",
+    ["reason"],  # missing | invalid
+)
+REQUESTS_TOO_LARGE = Counter(
+    "gateway_request_too_large_total",
+    "Requests rejected with 413 because the body exceeded MAX_REQUEST_BYTES",
 )

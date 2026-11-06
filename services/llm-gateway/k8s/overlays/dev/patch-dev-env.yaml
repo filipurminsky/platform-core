@@ -1,0 +1,22 @@
+# Dev environment settings for llm-gateway.
+#
+# TRUSTED_PROXY_CIDRS: the kind pod CIDR (terraform/modules/kind/kind-config.yaml
+# podSubnet). Requests arrive from the Envoy Gateway proxy pods, so the per-IP
+# rate limiter must honour their X-Forwarded-For to see the real client.
+# Trade-off (dev only): any pod in the cluster could forge XFF.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-gateway
+spec:
+  template:
+    spec:
+      containers:
+        - name: llm-gateway
+          securityContext:
+            readOnlyRootFilesystem: true
+          env:
+            - name: ENVIRONMENT
+              value: dev
+            - name: TRUSTED_PROXY_CIDRS
+              value: 10.244.0.0/16

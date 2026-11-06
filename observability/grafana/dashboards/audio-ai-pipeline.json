@@ -179,7 +179,7 @@
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
         { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(DCGM_FI_DEV_GPU_UTIL) by (pod)", "legendFormat": "{{pod}}" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(vllm:gpu_cache_usage_perc) * 100", "legendFormat": "vLLM KV-cache" }
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(vllm:kv_cache_usage_perc) * 100", "legendFormat": "vLLM KV-cache" }
       ]
     },
     {

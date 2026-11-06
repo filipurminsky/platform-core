@@ -1,0 +1,51 @@
+# GatewayClass + EnvoyProxy + the shared `platform` Gateway, environment-selected
+# like the apps: the cluster generator reads the `environment` label off the
+# destination cluster's ArgoCD secret (set by bootstrap.sh) and picks the overlay.
+#   dev  (kind) — Envoy pods bind hostPort 80/443 on the `ingress-ready=true`
+#                 control-plane node, which kind maps to the host's :80/:443.
+#   prod (EKS)  — Envoy Service type LoadBalancer (AWS NLB).
+#
+# CONTRACT: Gateway `platform` in namespace `envoy-gateway-system`, listener
+# `http` (:80, hostname *.platform-core.local, routes allowed from All
+# namespaces). Every HTTPRoute in the repo uses
+#   parentRefs: [{name: platform, namespace: envoy-gateway-system}]
+# Renaming either breaks every route.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: envoy-gateway-config
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: Exists
+  template:
+    metadata:
+      name: envoy-gateway-config
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      annotations:
+        # After the CRDs (-3) and the controller (-2); before the apps (0) whose
+        # HTTPRoutes attach to the Gateway.
+        argocd.argoproj.io/sync-wave: "-1"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: kubernetes/platform/envoy-gateway/config/overlays/{{.metadata.labels.environment}}
+      destination:
+        server: "{{.server}}"
+        namespace: envoy-gateway-system
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true

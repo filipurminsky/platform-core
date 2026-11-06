@@ -7,10 +7,13 @@ data "aws_caller_identity" "current" {}
 # One OIDC provider per account. If you already manage it elsewhere, set
 # create_oidc_provider = false and pass oidc_provider_arn instead.
 resource "aws_iam_openid_connect_provider" "github" {
-  count           = var.create_oidc_provider ? 1 : 0
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
+  count          = var.create_oidc_provider ? 1 : 0
+  url            = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+  # No thumbprint_list: AWS validates token.actions.githubusercontent.com
+  # against its own trusted root CAs and ignores configured thumbprints for
+  # GitHub, and the AWS provider (>= 5.81) treats thumbprint_list as optional +
+  # computed — so dropping the hard-coded (rotation-prone) value is a no-op diff.
 }
 
 locals {

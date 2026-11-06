@@ -4,7 +4,8 @@
 # first, then progressively more specific overrides. Pair this with a branch
 # ruleset on `main` that REQUIRES code-owner review — and add `github-actions[bot]`
 # to that ruleset's bypass allowlist so the digest-promotion job
-# (.github/workflows/docker-build.yaml, which direct-pushes to main) is unaffected.
+# (.github/workflows/docker-build.yaml `promote`, which direct-pushes to main
+# after approval in the `production` GitHub Environment) is unaffected.
 #
 # NOTE: replace @org/platform-team and @org/app-team with your real GitHub team
 # slugs (or @usernames) before enabling the ruleset.
@@ -21,3 +22,15 @@
 # GitOps registration (ApplicationSets) stays platform-reviewed — it governs what
 # is admitted to the cluster (project, namespace, sync policy).
 /kubernetes/apps/          @org/platform-team
+
+# Shared worker library — a change here rebuilds all four Kafka workers.
+/services/platform-common/ @org/platform-team
+
+# Supply chain: CI/CD workflows, composite actions, dependency + scanner policy.
+# Explicit (even though the catch-all covers them) so a later /services/-style
+# override can never hand these to another team by accident.
+/.github/                  @org/platform-team
+/renovate.json5            @org/platform-team
+/.pre-commit-config.yaml   @org/platform-team
+/.trivyignore.yaml         @org/platform-team
+/CODEOWNERS                @org/platform-team

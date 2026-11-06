@@ -1,6 +1,9 @@
 variable "cluster_name" { type = string }
 variable "node_role_arn" { type = string }
-variable "subnet_ids" { type = list(string) }
+variable "subnet_ids" {
+  description = "PRIVATE subnet IDs for the GPU nodes (egress via NAT, no public IPs)"
+  type        = list(string)
+}
 
 variable "instance_type" {
   type    = string

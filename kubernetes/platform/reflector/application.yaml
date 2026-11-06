@@ -1,0 +1,69 @@
+# kubernetes-reflector (emberstack) — mirrors annotated Secrets/ConfigMaps into
+# other namespaces and keeps the mirrors in sync (watch-based, not polling).
+#
+# Why it exists: Strimzi creates the Kafka cluster CA public cert Secret
+# `platform-kafka-cluster-ca-cert` only in the Kafka namespace (`platform`),
+# while the prod Kafka clients in `apps` (audio-api, worker-service, stt/llm/
+# tts-worker) mount it and their KEDA TriggerAuthentications read it (`ca`).
+# The Kafka CR (`spec.kafka.template.clusterCaCert.metadata.annotations`, see
+# kubernetes/platform/kafka/base/kafka.yaml) opts that ONE Secret into
+# auto-reflection to `apps` only; reflector then creates/updates
+# apps/platform-kafka-cluster-ca-cert with the same name, so no app manifest
+# changes, and CA renewals propagate within seconds.
+# Rationale and alternatives: docs/adr/adr-022-replicate-kafka-cluster-ca-with-reflector.md.
+#
+# Runs in every environment (it is tiny, and keeps dev/prod wiring identical);
+# in dev nothing consumes the mirror because dev Kafka clients use PLAINTEXT.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: reflector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    # Before the kafka app (wave 0) so the CA mirror appears as soon as Strimzi
+    # issues the CA. Order is not load-bearing: reflector reconciles all
+    # annotated sources on startup.
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://emberstack.github.io/helm-charts
+    chart: reflector
+    # Pinned; bump deliberately (upstream publishes very frequent patch releases).
+    targetRevision: 10.0.73
+    helm:
+      values: |
+        replicaCount: 1
+        configuration:
+          watcher:
+            # Never reflect into/out of system namespaces.
+            excludedNamespaces: "kube-system,kube-public,kube-node-lease"
+        # Chart defaults already: non-root (uid 1000), drop ALL caps,
+        # read-only root FS. Add the remaining restricted-PSS bits.
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          seccompProfile:
+            type: RuntimeDefault
+        resources:
+          requests:
+            cpu: 20m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: reflector
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

@@ -1,86 +1,142 @@
 """
 llm-worker — Kafka consumer that summarises meeting transcripts via the LLM gateway.
 
-Processing contract (per audio-pipeline-contract.md §1-9, especially §6):
-  - Consumes from `audio.transcripts` (consumer group `llm-worker`)
-  - Reads full transcript text from S3 transcripts/<job_id>
-  - Calls the EXISTING llm-gateway at LLM_GATEWAY_URL (OpenAI-compatible
-    POST /v1/chat/completions).  NEVER calls vLLM directly.
-    In dev the gateway proxies to TinyLlama — low quality by design; the pipeline
-    is a wiring demo, not a production-quality summariser.
-  - Parses the assistant reply defensively: extracts executive summary + action_items[];
-    if parsing fails falls back to full text as summary + empty action_items (no crash).
-  - Writes full summary JSON to S3 summaries/<job_id> (idempotent).
-  - SETs Redis job-state: status=summarizing on start, keys.summary on success, failed on DLQ.
-  - Produces `audio.summaries` (carries created_at forward for end-to-end metric).
-  - On repeated failure: produces to `audio.llm-dlq` + sets Redis failed.
-  - Manual commit only after output event/DLQ produced (enable.auto.commit=false).
-  - SIGTERM: finishes in-flight message, commits, exits (terminationGracePeriodSeconds=60).
-
-This module is the thin orchestration layer: per-job processing and the consume
-loop. Supporting concerns live in the `app` package (config, observability,
-metrics, kafka_io, storage, job_state, gateway).
+Processing contract (docs/audio-pipeline-contract.md, especially §6):
+  - Consume `audio.transcripts` (group `llm-worker`); validate the event —
+    invalid messages go to `audio.llm-dlq` with the reason, then commit
+  - Atomic Redis dedup claim (`dedup:llm:<job_id>`)
+  - Read the full transcript from S3 `transcripts/<job_id>`
+  - Call the EXISTING llm-gateway (POST /v1/chat/completions, bearer auth) —
+    NEVER vLLM directly. Long transcripts are summarised map-reduce.
+  - Gateway 429/502/503/504 / connection refused (vLLM scaling from zero) are
+    retried for up to LLM_COLD_START_BUDGET_SECONDS honouring Retry-After;
+    other 4xx are permanent → DLQ immediately
+  - Write the summary JSON to S3 `summaries/<job_id>`; merge Redis keys.summary
+  - Produce `audio.summaries` (carries created_at forward)
+  - Commit only after the output event (or DLQ) is confirmed
 
 Prometheus metrics on :9090/metrics (contract §7):
-  llm_jobs_total{status}          Counter   success|error|dlq
-  llm_tokens_generated_total      Counter   completion_tokens from gateway response
-  llm_request_duration_seconds    Histogram latency of the /v1/chat/completions call
-  pipeline_jobs_failed_total{stage="llm"}  Counter  on DLQ
+  llm_jobs_total{status}  llm_tokens_generated_total  llm_request_duration_seconds
+  llm_summary_bytes  pipeline_jobs_failed_total{stage="llm"}
+  pipeline_queue_wait_seconds{stage="llm"}
+  (additive) llm_transcript_chunks  llm_transcript_truncated_total
 """
 
 import json
-import signal
-import threading
 import time
-from datetime import UTC, datetime
 
 import httpx
-from app.config import (
-    BOOTSTRAP_SERVERS,
-    CONSUMER_GROUP,
-    JOB_STATE_TTL,
-    LLM_GATEWAY_URL,
-    LLM_MODEL,
-    LLM_TIMEOUT,
-    MAX_RETRIES,
-    S3_BUCKET,
-    TOPIC_DLQ,
-    TOPIC_IN,
-    TOPIC_OUT,
-)
-from app.gateway import _parse_llm_response, call_llm_gateway  # noqa: F401  (_parse re-exported)
-from app.job_state import make_redis_client, mark_failed, mark_summarized, mark_summarizing
-from app.kafka_io import (
-    kafka_header_getter,
-    kafka_header_setter,
-    make_consumer,
-    make_producer,
-    produce_confirmed,
-)
+from app import config
+from app.config import SERVICE_NAME, STAGE, STALE_SECONDS, settings
+from app.gateway import _parse_llm_response, call_llm_gateway, make_http_client  # noqa: F401
 from app.metrics import (
     LLM_JOBS,
     LLM_SUMMARY_BYTES,
     LLM_TOKENS,
-    PIPELINE_FAILED,
-    PIPELINE_QUEUE_WAIT,
+    PIPELINE_FAILED,  # noqa: F401  (re-exported for tests/operators)
+    PIPELINE_QUEUE_WAIT,  # noqa: F401
 )
-from app.metrics_server import start_metrics_server
-from app.metrics_server import touch as _heartbeat
-from app.observability import log, tracer
-from app.storage import make_s3_client
-from confluent_kafka import KafkaError, KafkaException
-from opentelemetry import propagate
+from platform_common.consumer_loop import (
+    Outcome,
+    install_signal_handlers,
+    run_consumer_loop,
+)
+from platform_common.events import SummaryEvent, TranscriptEvent, now_iso
+from platform_common.health import start_metrics_server
+from platform_common.job_state import make_redis_client
+from platform_common.kafka_io import make_consumer, make_producer
+from platform_common.observability import setup
+from platform_common.retry import RetryPolicy
+from platform_common.stage import StageConfig, StageResult, StageSpec, process_stage_message
+from platform_common.storage import make_s3_client
+
+log, tracer = setup(SERVICE_NAME)
+
+# Module-level so tests/operators can inspect or monkeypatch them.
+TOPIC_IN = config.TOPIC_IN
+TOPIC_OUT = config.TOPIC_OUT
+TOPIC_DLQ = config.TOPIC_DLQ
+MAX_RETRIES = config.MAX_RETRIES
+S3_BUCKET = config.S3_BUCKET
+LLM_MODEL = config.LLM_MODEL
+LLM_GATEWAY_URL = config.LLM_GATEWAY_URL
+
+SPEC = StageSpec(
+    name=STAGE,
+    service=SERVICE_NAME,
+    input_model=TranscriptEvent,
+    in_progress_status="summarizing",
+    jobs_total=LLM_JOBS,
+)
 
 
-def _parse_created_at(created_at: str) -> float | None:
-    """Return a UTC timestamp float from an ISO-8601 string, or None on parse error."""
-    try:
-        dt = datetime.fromisoformat(created_at)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=UTC)
-        return dt.timestamp()
-    except (ValueError, TypeError):
-        return None
+def stage_config() -> StageConfig:
+    return StageConfig(
+        topic_in=TOPIC_IN,
+        topic_out=TOPIC_OUT,
+        topic_dlq=TOPIC_DLQ,
+        job_state_ttl_seconds=settings.job_state_ttl_seconds,
+        dedup_lease_seconds=settings.effective_dedup_lease_seconds,
+        # retry_budget_seconds == LLM_COLD_START_BUDGET_SECONDS for this worker.
+        policy=RetryPolicy.from_settings(settings, max_attempts=MAX_RETRIES),
+    )
+
+
+def make_handler(s3, http_client: httpx.Client):
+    chunk_cache: dict = {}  # per message: survives retry attempts, not messages
+
+    def handle(event: TranscriptEvent) -> StageResult:
+        deadline = time.monotonic() + settings.attempt_timeout_seconds
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=event.transcript_key)
+        transcript = obj["Body"].read().decode("utf-8")
+
+        summary, action_items, completion_tokens = call_llm_gateway(
+            http_client,
+            transcript,
+            deadline=deadline,
+            cache=chunk_cache,
+            log_ctx={"job_id": event.job_id},
+        )
+        LLM_TOKENS.inc(completion_tokens)
+
+        created_at = event.created_at or now_iso()
+        summary_key = f"summaries/{event.job_id}"
+        summary_body = json.dumps(
+            {
+                "job_id": event.job_id,
+                "summary": summary,
+                "action_items": action_items,
+                "model": LLM_MODEL,
+                "created_at": created_at,
+            }
+        ).encode("utf-8")
+        s3.put_object(
+            Bucket=S3_BUCKET, Key=summary_key, Body=summary_body, ContentType="application/json"
+        )
+        LLM_SUMMARY_BYTES.observe(len(summary_body))
+
+        return StageResult(
+            out_event=SummaryEvent(
+                job_id=event.job_id,
+                summary_key=summary_key,
+                action_items=action_items,
+                created_at=created_at,
+            ),
+            # Status stays "summarizing" — tts-worker moves it on (§5 has no
+            # "summarized" state).
+            state_update={
+                "status": "summarizing",
+                "stage": STAGE,
+                "keys": {"summary": summary_key},
+            },
+            log_fields={
+                "completion_tokens": completion_tokens,
+                "action_items_count": len(action_items),
+                "transcript_chars": len(transcript),
+            },
+        )
+
+    return handle
 
 
 def process_message(
@@ -90,220 +146,52 @@ def process_message(
     r,
     http_client: httpx.Client,
     headers: list[tuple[str, bytes]] | None = None,
-) -> None:
-    """Deserialise → deduplicate → summarise → write S3 → Redis → produce → DLQ on failure."""
-    context = propagate.extract(headers or [], getter=kafka_header_getter)
-
-    try:
-        event = json.loads(raw_value)
-    except json.JSONDecodeError as exc:
-        log.error("bad_json", error=str(exc), raw=raw_value[:200])
-        LLM_JOBS.labels(status="error").inc()
-        return  # malformed message: commit and move on
-
-    job_id = event.get("job_id", "")
-    transcript_key = event.get("transcript_key", f"transcripts/{job_id}")
-    created_at = event.get("created_at", datetime.now(UTC).isoformat())
-
-    # Deduplication — Redis-based (survives restarts/rebalances).
-    if job_id:
-        try:
-            if r.get(f"dedup:llm:{job_id}"):
-                log.info("duplicate_skipped", job_id=job_id)
-                return
-        except Exception as exc:
-            log.warning("dedup_check_failed", job_id=job_id, error=str(exc))
-
-    # Queue wait — how long the job sat between creation and this stage starting (§7).
-    _qw_ts = _parse_created_at(created_at)
-    if _qw_ts is not None:
-        PIPELINE_QUEUE_WAIT.labels(stage="llm").observe(max(0.0, time.time() - _qw_ts))
-
-    with tracer.start_as_current_span(
-        "llm-worker.process",
-        context=context,
-        attributes={
-            "messaging.system": "kafka",
-            "messaging.destination.name": TOPIC_IN,
-            "job.id": job_id,
-        },
-    ) as span:
-        last_exc: Exception | None = None
-
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                # Mark in-progress in Redis
-                mark_summarizing(r, job_id)
-
-                # Read transcript from S3
-                obj = s3.get_object(Bucket=S3_BUCKET, Key=transcript_key)
-                transcript = obj["Body"].read().decode("utf-8")
-
-                # Call LLM gateway (never vLLM directly — §6)
-                summary, action_items, completion_tokens = call_llm_gateway(http_client, transcript)
-                LLM_TOKENS.inc(completion_tokens)
-
-                # Build full summary JSON for S3
-                summary_key = f"summaries/{job_id}"
-                summary_doc = {
-                    "job_id": job_id,
-                    "summary": summary,
-                    "action_items": action_items,
-                    "model": LLM_MODEL,
-                    "created_at": created_at,
-                }
-                summary_body = json.dumps(summary_doc).encode("utf-8")
-                s3.put_object(
-                    Bucket=S3_BUCKET,
-                    Key=summary_key,
-                    Body=summary_body,
-                    ContentType="application/json",
-                )
-                LLM_SUMMARY_BYTES.observe(len(summary_body))
-
-                # Update Redis with summary key
-                mark_summarized(r, job_id, summary_key)
-
-                # Produce audio.summaries (carry created_at forward for end-to-end metric)
-                out_event = {
-                    "job_id": job_id,
-                    "summary_key": summary_key,
-                    "action_items": action_items,
-                    "created_at": created_at,
-                }
-                out_headers: list[tuple[str, bytes]] = []
-                propagate.inject(out_headers, setter=kafka_header_setter)
-                # Delivery-confirmed: raises (→ retry/DLQ) if the broker did not
-                # ack, so the offset commit below never outruns the output event.
-                produce_confirmed(
-                    producer,
-                    TOPIC_OUT,
-                    value=json.dumps(out_event).encode(),
-                    key=job_id.encode() if job_id else None,
-                    headers=out_headers,
-                )
-
-                LLM_JOBS.labels(status="success").inc()
-                log.info(
-                    "job_summarised",
-                    job_id=job_id,
-                    attempt=attempt,
-                    completion_tokens=completion_tokens,
-                    action_items_count=len(action_items),
-                )
-                if job_id:
-                    try:
-                        r.setex(f"dedup:llm:{job_id}", JOB_STATE_TTL, "1")
-                    except Exception as exc:
-                        log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
-                return
-
-            except Exception as exc:
-                last_exc = exc
-                span.record_exception(exc)
-                log.warning(
-                    "job_attempt_failed",
-                    job_id=job_id,
-                    attempt=attempt,
-                    error=str(exc),
-                )
-                if attempt < MAX_RETRIES:
-                    time.sleep(0.1 * (2 ** (attempt - 1)))  # 100ms, 200ms back-off
-
-        # All retries exhausted → dead-letter
-        dlq_payload = json.dumps(
-            {
-                **event,
-                "error": str(last_exc),
-                "stage": "llm",
-                "failed_at": datetime.now(UTC).isoformat(),
-                "attempts": MAX_RETRIES,
-            }
-        ).encode()
-        dlq_headers: list[tuple[str, bytes]] = []
-        propagate.inject(dlq_headers, setter=kafka_header_setter)
-        # Delivery-confirmed: if the DLQ publish itself fails, this raises out of
-        # process_message — the run loop exits without committing, the pod
-        # restarts, and the message is redelivered rather than silently dropped.
-        produce_confirmed(
-            producer,
-            TOPIC_DLQ,
-            value=dlq_payload,
-            key=job_id.encode() if job_id else None,
-            headers=dlq_headers,
-        )
-
-        mark_failed(r, job_id, str(last_exc))
-        LLM_JOBS.labels(status="dlq").inc()
-        PIPELINE_FAILED.labels(stage="llm").inc()
-        log.error(
-            "job_sent_to_dlq",
-            job_id=job_id,
-            error=str(last_exc),
-        )
-        if job_id:
-            try:
-                r.setex(f"dedup:llm:{job_id}", 86400, "1")
-            except Exception as exc:
-                log.warning("dedup_set_failed", job_id=job_id, error=str(exc))
+    key: bytes | None = None,
+) -> Outcome:
+    return process_stage_message(
+        SPEC,
+        stage_config(),
+        raw_value=raw_value,
+        producer=producer,
+        redis_client=r,
+        handler=make_handler(s3, http_client),
+        headers=headers,
+        key=key,
+    )
 
 
 def run() -> None:
     log.info(
         "llm_worker_starting",
-        bootstrap=BOOTSTRAP_SERVERS,
+        bootstrap=settings.bootstrap_servers,
         topic_in=TOPIC_IN,
         topic_out=TOPIC_OUT,
-        group=CONSUMER_GROUP,
         llm_gateway=LLM_GATEWAY_URL,
+        gateway_auth=bool(settings.llm_gateway_api_key),
+        cold_start_budget_s=settings.retry_budget_seconds,
     )
-
-    start_metrics_server()
-    consumer = make_consumer()
-    producer = make_producer()
-    s3 = make_s3_client()
-    r = make_redis_client()
-    http_client = httpx.Client(
-        base_url=LLM_GATEWAY_URL,
-        timeout=httpx.Timeout(LLM_TIMEOUT),
-    )
-
-    shutdown = threading.Event()
-
-    def _handle_signal(sig, frame):
-        log.info("shutdown_signal_received", signal=sig)
-        shutdown.set()
-
-    signal.signal(signal.SIGTERM, _handle_signal)
-    signal.signal(signal.SIGINT, _handle_signal)
-
+    start_metrics_server(settings.metrics_port, STALE_SECONDS)
+    consumer = make_consumer(settings, SERVICE_NAME, [TOPIC_IN])
+    producer = make_producer(settings, SERVICE_NAME)
+    s3 = make_s3_client(region=settings.s3_region, endpoint_url=settings.s3_endpoint_url)
+    r = make_redis_client(settings.redis_url, settings.redis_password.get_secret_value())
+    http_client = make_http_client()
     try:
-        while not shutdown.is_set():
-            msg = consumer.poll(timeout=1.0)
-            _heartbeat()
+        # Propagate W3C trace context on gateway calls (one trace across hops).
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-            if msg is None:
-                continue
-            if msg.error():
-                if msg.error().code() == KafkaError._PARTITION_EOF:
-                    continue
-                raise KafkaException(msg.error())
+        HTTPXClientInstrumentor.instrument_client(http_client)
+    except Exception as exc:  # pragma: no cover - tracing is best-effort
+        log.warning("httpx_instrumentation_failed", error=str(exc))
 
-            process_message(
-                msg.value(),
-                producer,
-                s3,
-                r,
-                http_client,
-                headers=msg.headers(),
-            )
-
-            # Manual commit — only after output event or DLQ publish (§1)
-            try:
-                consumer.commit(message=msg, asynchronous=False)
-            except KafkaException as exc:
-                log.warning("offset_commit_failed", error=str(exc))
-
+    install_signal_handlers()  # SIGTERM → SHUTDOWN: finish/abort in-flight work, exit
+    try:
+        run_consumer_loop(
+            consumer,
+            lambda msg: process_message(
+                msg.value(), producer, s3, r, http_client, headers=msg.headers(), key=msg.key()
+            ),
+        )
     finally:
         log.info("llm_worker_shutting_down")
         consumer.close()
