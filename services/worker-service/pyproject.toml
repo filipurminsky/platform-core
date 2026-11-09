@@ -2,7 +2,7 @@
 name = "worker-service"
 version = "0.2.0"
 description = "Kafka consumer (in-memory dedup, classified retry -> DLQ, graceful drain); scaled by KEDA on consumer lag."
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "platform-common",
     "confluent-kafka==2.16.1",

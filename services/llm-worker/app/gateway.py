@@ -144,11 +144,11 @@ def _chat(
     completion_tokens = 0
     try:
         completion_tokens = int(data.get("usage", {}).get("completion_tokens", 0) or 0)
-    except (AttributeError, TypeError, ValueError):
+    except AttributeError, TypeError, ValueError:
         pass
     try:
         text = data["choices"][0]["message"]["content"] or ""
-    except (KeyError, IndexError, TypeError):
+    except KeyError, IndexError, TypeError:
         text = str(data)
     return text, completion_tokens
 

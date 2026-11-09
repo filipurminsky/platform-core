@@ -39,12 +39,12 @@ test: ## Run unit tests for all apps + shared libs (uv run pytest)
 lint: ## Lint + format-check the apps + shared libs (ruff via uvx, root pyproject.toml config)
 	@for app in $(PYPROJECTS); do \
 	  echo "== $$app =="; \
-	  uvx ruff check services/$$app && uvx ruff format --check services/$$app || exit 1; \
+	  uvx ruff@0.17.4 check services/$$app && uvx ruff@0.17.4 format --check services/$$app || exit 1; \
 	done
 
 .PHONY: fmt
 fmt: ## Auto-format the apps (ruff format)
-	@for app in $(PYPROJECTS); do uvx ruff format services/$$app; done
+	@for app in $(PYPROJECTS); do uvx ruff@0.17.4 format services/$$app; done
 
 .PHONY: images
 images: ## Build all app container images locally (no push; context = services/, like CI)

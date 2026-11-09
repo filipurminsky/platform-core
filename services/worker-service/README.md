@@ -20,7 +20,7 @@ A generic Kafka consumer template used to demonstrate job processing, deduplicat
 
 ## Technology Stack
 
-- **Runtime**: Python 3.13 (multi-stage image, digest-pinned base, non-root)
+- **Runtime**: Python 3.14 (multi-stage image, digest-pinned base, non-root)
 - **Shared library**: `platform-common` (Kafka I/O, retry/error classification, health server)
 - **Messaging**: `confluent-kafka`
 - **Observability**: OpenTelemetry (trace extraction/injection), `prometheus-client`.

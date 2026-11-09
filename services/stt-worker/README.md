@@ -13,7 +13,7 @@ Kafka consumer responsible for transcribing audio files into text. It supports p
 
 ## Technology Stack
 
-- **Runtime**: Python 3.13 (multi-stage image, digest-pinned base, non-root, no uv at runtime)
+- **Runtime**: Python 3.14 (multi-stage image, digest-pinned base, non-root, no uv at runtime)
 - **Shared library**: `platform-common` (Kafka I/O, retries, dedup, events)
 - **ML Framework**: NVIDIA NeMo (Parakeet RNNT) — Production only.
 - **Messaging**: `confluent-kafka`

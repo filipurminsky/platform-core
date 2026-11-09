@@ -35,7 +35,7 @@ def wav_duration_seconds(audio_bytes: bytes) -> float | None:
         with wave.open(io.BytesIO(audio_bytes), "rb") as wf:
             rate = wf.getframerate()
             return wf.getnframes() / rate if rate else None
-    except (wave.Error, EOFError):
+    except wave.Error, EOFError:
         return None
 
 

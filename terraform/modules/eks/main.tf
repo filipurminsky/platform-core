@@ -14,7 +14,7 @@ locals {
 #
 # Upgrading an EXISTING cluster's Kubernetes version: EKS only upgrades one
 # minor at a time, so a cluster created on 1.31 must be walked
-#   1.31 → 1.32 → 1.33 → 1.34 → 1.35
+#   1.31 → 1.32 → 1.33 → 1.34 → 1.35 → 1.36
 # by setting kubernetes_version to each intermediate minor and applying in turn
 # (control plane first, then the managed node groups roll; Karpenter nodes
 # drift-replace onto the new AMI on their own). Before each hop: check the EKS

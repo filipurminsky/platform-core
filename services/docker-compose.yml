@@ -63,7 +63,7 @@ services:
   # port 9000, with the same access/secret keys, so S3_ENDPOINT_URL and the
   # credentials below are unchanged.
   minio:
-    image: chrislusf/seaweedfs:4.52
+    image: chrislusf/seaweedfs:4.53
     command:
       - server
       - -ip.bind=0.0.0.0
@@ -83,7 +83,7 @@ services:
       retries: 20
 
   minio-init:
-    image: chrislusf/seaweedfs:4.52
+    image: chrislusf/seaweedfs:4.53
     depends_on:
       minio:
         condition: service_healthy
@@ -138,7 +138,7 @@ services:
 
   # Lightweight OpenAI-compatible mock for vLLM and the audio pipeline.
   vllm-mock:
-    image: python:3.13.18-alpine
+    image: python:3.14.10-alpine@sha256:a18b20ad69e74df6cf6d2e1b1a260d7a1ecf5380fd83b310f83ba88c461cf894
     container_name: vllm-mock
     command: ["python", "/app/vllm_mock.py"]
     volumes:

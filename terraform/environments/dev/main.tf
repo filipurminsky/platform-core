@@ -55,7 +55,7 @@ module "eks" {
   private_subnet_ids = module.networking.private_subnet_ids
 
   # Fleet target. EKS upgrades one minor at a time — see modules/eks/main.tf.
-  kubernetes_version = "1.35"
+  kubernetes_version = "1.36"
 
   # Dev keeps a public API endpoint for laptop kubectl, but only from the
   # explicitly supplied CIDRs (no default — set api_allowed_cidrs in a tfvars

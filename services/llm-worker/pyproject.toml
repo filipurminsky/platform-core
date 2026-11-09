@@ -2,10 +2,10 @@
 name = "llm-worker"
 version = "0.2.0"
 description = "Kafka consumer: audio.transcripts → LLM summarisation (via llm-gateway) → audio.summaries; scales to zero via KEDA."
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "platform-common[audio]",
-    "boto3==1.43.124",
+    "boto3==1.43.126",
     "confluent-kafka==2.16.1",
     "httpx==0.28.1",
     "opentelemetry-api==1.45.2",

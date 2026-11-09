@@ -20,7 +20,7 @@ inputs:
     description: Gateway API release tag, e.g. v1.6.3
     required: true
   envoy-gateway-version:
-    description: Envoy Gateway release tag, e.g. v1.9.3
+    description: Envoy Gateway release tag, e.g. v1.10.0
     required: true
   external-secrets-version:
     description: External Secrets Operator release tag, e.g. v2.14.0

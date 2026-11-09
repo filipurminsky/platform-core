@@ -15,7 +15,7 @@ Kafka consumer that processes meeting transcripts, generates executive summaries
 
 ## Technology Stack
 
-- **Runtime**: Python 3.13 (multi-stage image, digest-pinned base, non-root, no uv at runtime)
+- **Runtime**: Python 3.14 (multi-stage image, digest-pinned base, non-root, no uv at runtime)
 - **Shared library**: `platform-common` (Kafka I/O, retries, dedup, events)
 - **Messaging**: `confluent-kafka`
 - **Autoscaling**: [KEDA](https://keda.sh/) (scaled by Kafka consumer lag)

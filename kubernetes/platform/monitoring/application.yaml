@@ -13,19 +13,19 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    # 92.x (Prometheus Operator v0.94, Prometheus v3, Grafana chart 14 / Grafana 13,
+    # 93.x (Prometheus Operator v0.95.1, Prometheus v3, Grafana chart 14 / Grafana 13,
     # now sourced from grafana-community). Upgraded from 58.2.1. Notes:
     #   - CRDs: the chart's CRDs are large (>256KiB annotation limit), so they
     #     MUST be applied server-side — keep ServerSideApply=true below. ArgoCD
     #     upgrades the CRDs from the chart's crds/ dir on every sync, so the
     #     manual `kubectl apply --server-side` step in UPGRADE.md is not needed.
     #   - `*SelectorNilUsesHelmValues` is deprecated (62→63): empty selectors are
-    #     now `<x>Selector.matchLabels: null`.
+    #     now `<x>Selector.matchLabels: {}` (null fails the v0.95.1 CRD schema).
     #   - Prometheus v3: PromQL `.` in regexes now matches newlines and range
     #     selectors are left-open — review recording/alert rules accordingly.
     #   - Grafana 13 image is distroless with readOnlyRootFilesystem; no
     #     GF_*__FILE env vars (none used here).
-    targetRevision: 92.20.0
+    targetRevision: 93.1.1
     helm:
       values: |
         fullnameOverride: kube-prometheus-stack
@@ -34,11 +34,11 @@ spec:
             # Discover ALL ServiceMonitors/PrometheusRules regardless of label,
             # so the repo's existing manifests (mixed labels) are picked up.
             serviceMonitorSelector:
-              matchLabels: null
+              matchLabels: {}
             ruleSelector:
-              matchLabels: null
+              matchLabels: {}
             podMonitorSelector:
-              matchLabels: null
+              matchLabels: {}
             retention: 6h
             resources:
               requests:

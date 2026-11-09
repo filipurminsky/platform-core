@@ -66,7 +66,7 @@ class Settings(BaseSettings):
         return tuple(_split_csv(self.gateway_api_keys.get_secret_value()))
 
     @model_validator(mode="after")
-    def _require_api_keys_in_prod(self) -> "Settings":
+    def _require_api_keys_in_prod(self) -> Settings:
         # Fail closed: an empty GATEWAY_API_KEYS disables auth, which is a dev
         # convenience only. Refuse to start in prod rather than serve /v1/* open.
         if self.environment.lower() in ("prod", "production") and not self.api_keys:

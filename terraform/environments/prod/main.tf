@@ -54,8 +54,8 @@ module "eks" {
   private_subnet_ids = module.networking.private_subnet_ids
 
   # Fleet target. EKS upgrades one minor at a time — an existing 1.31 cluster
-  # must be walked 1.32 → 1.33 → 1.34 → 1.35 (see modules/eks/main.tf).
-  kubernetes_version = "1.35"
+  # must be walked 1.32 → 1.33 → 1.34 → 1.35 → 1.36 (see modules/eks/main.tf).
+  kubernetes_version = "1.36"
 
   # Private API endpoint only by default — reach it from inside the VPC (SSM
   # Session Manager port-forward / VPN). Setting api_public_access = true

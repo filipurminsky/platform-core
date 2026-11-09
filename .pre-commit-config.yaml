@@ -39,7 +39,7 @@ repos:
 
   # ── Python: ruff lint + format (config in repo-root pyproject.toml) ─────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+    rev: v0.17.4
     hooks:
       - id: ruff
         args: [--fix]
@@ -91,7 +91,7 @@ repos:
 
       # ── Trivy IaC/misconfig scan (mirrors the trivy-iac CI job) ─────────────
       # Pinned (tag + digest) to the SAME Trivy version CI installs
-      # (.github/actions/setup-trivy, 0.76.1) so verdicts match exactly — a
+      # (.github/actions/setup-trivy, 0.76.2) so verdicts match exactly — a
       # locally installed trivy of another version flags different things.
       # Bump both together. Requires Docker running. Flags mirror the CI job:
       #   --ignorefile .trivyignore.yaml  == CI's --ignorefile
@@ -103,9 +103,9 @@ repos:
       #                                      (e.g. helm-validator's insecure test
       #                                      fixture chart under .agents/skills/).
       - id: trivy-config
-        name: trivy IaC + manifest misconfig scan (pinned 0.76.1)
+        name: trivy IaC + manifest misconfig scan (pinned 0.76.2)
         entry: >-
-          ghcr.io/aquasecurity/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+          ghcr.io/aquasecurity/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
           --cache-dir /tmp/trivy-cache
           config --severity HIGH,CRITICAL --exit-code 1
           --ignorefile .trivyignore.yaml

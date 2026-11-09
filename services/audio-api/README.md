@@ -13,7 +13,7 @@ FastAPI service that accepts audio uploads, stores them in S3 (or MinIO), and pr
 
 ## Technology Stack
 
-- **Framework**: FastAPI (Python 3.13 in the container image; 3.12+ locally)
+- **Framework**: FastAPI (Python 3.14 in the container image; 3.14+ locally)
 - **Package Manager**: [uv](https://github.com/astral-sh/uv)
 - **Storage**: `boto3` (S3/MinIO), `redis`
 - **Messaging**: `confluent-kafka`
@@ -76,4 +76,4 @@ docker build -f services/audio-api/Dockerfile services/
 ```
 
 Multi-stage: `uv` resolves `uv.lock` into a venv in the builder stage only; the
-runtime stage is `python:3.13-slim` (pinned by digest) running as UID 10001.
+runtime stage is `python:3.14.10-slim` (pinned by digest) running as UID 10001.

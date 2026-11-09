@@ -6,10 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Kustomize — build and validate manifests
-kustomize build kustomize/validation/dev  | kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location default
-kustomize build kustomize/validation/prod | kubeconform -strict -summary -kubernetes-version 1.35.0 -schema-location default
-kustomize build kubernetes/platform/kafka/overlays/dev  | kubeconform -strict -summary -kubernetes-version 1.35.0
-kustomize build kubernetes/platform/kafka/overlays/prod | kubeconform -strict -summary -kubernetes-version 1.35.0
+kustomize build kustomize/validation/dev  | kubeconform -strict -summary -kubernetes-version 1.36.0 -schema-location default
+kustomize build kustomize/validation/prod | kubeconform -strict -summary -kubernetes-version 1.36.0 -schema-location default
+kustomize build kubernetes/platform/kafka/overlays/dev  | kubeconform -strict -summary -kubernetes-version 1.36.0
+kustomize build kubernetes/platform/kafka/overlays/prod | kubeconform -strict -summary -kubernetes-version 1.36.0
 # CI resolves CRD kinds (Strimzi, KEDA, Gateway API, Envoy Gateway, ESO, Argo Rollouts)
 # from schemas it converts from the pinned CRDs — see .github/actions/setup-kubeconform.
 
@@ -49,8 +49,9 @@ kubectl apply -k tests/load
 ```
 
 **Pinned tool versions** (match what CI uses):
-- Helm 4.3.1, Terraform 1.17.1 (config requires ≥ 1.10), kubeconform v0.8.0, Kubernetes target 1.35 (EKS + kindest/node v1.35.8, kind ≥ v0.33.0)
-- Strimzi 1.3.1 (Kafka 4.3.2, `kafka.strimzi.io/v1`), KEDA 2.21.0, Gateway API v1.6.1 (standard), Envoy Gateway v1.9.3, External Secrets 2.14.0 (`external-secrets.io/v1`), Argo Rollouts v1.10.2
+- Helm 4.3.1, Terraform 1.17.1 (config requires ≥ 1.10), kubeconform v0.8.0, Kubernetes target 1.36 (EKS + kindest/node v1.36.4, kind ≥ v0.33.0)
+- Strimzi 1.3.1 (Kafka 4.3.2, `kafka.strimzi.io/v1`), KEDA 2.21.0, Gateway API v1.6.1 (standard), Envoy Gateway v1.10.0, External Secrets 2.14.0 (`external-secrets.io/v1`), Argo Rollouts v1.10.2
+- Cilium 1.20.4, Argo CD chart 10.17.1, Trivy 0.76.2, Ruff 0.17.4. Compatibility holds and existing-cluster upgrade steps: `docs/tool-upgrades.md`.
 
 ---
 
@@ -113,7 +114,7 @@ The **AI audio pipeline** (see the dedicated section below) adds four more servi
 - **`audio-api`** — FastAPI ingest: `POST /v1/audio/jobs` stores the upload to S3 (SeaweedFS in dev), writes Redis job-state, produces `audio.jobs`. `GET /jobs/{id}` reads Redis.
 - **`stt-worker`** / **`llm-worker`** / **`tts-worker`** — the worker stages (speech→text, summarize-via-`llm-gateway`, text→speech). Each is built on the shared `platform_common.stage` processor (validate → atomic dedup claim → process → produce-confirmed → commit, with transient/permanent error classification and DLQ) and is KEDA scale-to-zero on consumer lag.
 
-Each service is a **uv project**: `main.py` (the app entrypoint) plus an **`app/` package** (`config.py` typed pydantic-settings, `metrics.py`, per-service helpers like `backends.py`/`gateway.py`). The four Kafka workers share **`services/platform-common/`** (package `platform_common`: settings, observability, health/metrics server, Kafka I/O + consumer loop, retry/error classification, pydantic event models, job state, dedup, storage, pipeline metrics), depended on via `[tool.uv.sources] platform-common = { path = "../platform-common" }` — fix shared behaviour there, not per worker. `pyproject.toml` (`[project.dependencies]` runtime + `[dependency-groups].dev` for `pytest`/`httpx`, all pinned; `tool.uv.package = false` — deps are synced, nothing is built as a wheel), a committed `uv.lock`, `test_main.py` + `conftest.py` (sets `OTEL_SDK_DISABLED=true`; run `uv run pytest -q` from the service dir), `Dockerfile` (multi-stage: uv builder → digest-pinned `python:3.13-slim` runtime without uv, non-root; **build context is `services/`**: `docker build -f services/<app>/Dockerfile services/`, with a per-Dockerfile `<app>/Dockerfile.dockerignore`, BuildKit required), `README.md`, and `catalog-info.yaml` (Backstage catalog entry). Common tasks are wrapped in the root `Makefile` (`make deps|test|lint|fmt`). Lint/format with `ruff` (config in the **repo-root** `pyproject.toml`, inherited by each app); CI runs `ruff` (via `uvx`) + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. uv.lock files are kept current by Renovate (`pep621` manager + monthly lockfile maintenance). There is also a `services/docker-compose.yml` for running the stack locally without Kubernetes.
+Each service is a **uv project**: `main.py` (the app entrypoint) plus an **`app/` package** (`config.py` typed pydantic-settings, `metrics.py`, per-service helpers like `backends.py`/`gateway.py`). The four Kafka workers share **`services/platform-common/`** (package `platform_common`: settings, observability, health/metrics server, Kafka I/O + consumer loop, retry/error classification, pydantic event models, job state, dedup, storage, pipeline metrics), depended on via `[tool.uv.sources] platform-common = { path = "../platform-common" }` — fix shared behaviour there, not per worker. `pyproject.toml` (`[project.dependencies]` runtime + `[dependency-groups].dev` for `pytest`/`httpx`, all pinned; `tool.uv.package = false` — deps are synced, nothing is built as a wheel), a committed `uv.lock`, `test_main.py` + `conftest.py` (sets `OTEL_SDK_DISABLED=true`; run `uv run pytest -q` from the service dir), `Dockerfile` (multi-stage: uv builder → digest-pinned `python:3.14.10-slim` runtime without uv, non-root; **build context is `services/`**: `docker build -f services/<app>/Dockerfile services/`, with a per-Dockerfile `<app>/Dockerfile.dockerignore`, BuildKit required), `README.md`, and `catalog-info.yaml` (Backstage catalog entry). Common tasks are wrapped in the root `Makefile` (`make deps|test|lint|fmt`). Lint/format with `ruff` (config in the **repo-root** `pyproject.toml`, inherited by each app); CI runs `ruff` (via `uvx`) + `pytest` per service (`app-lint`/`app-test`) and `docker-build.yaml` gates image build/sign/promotion on tests passing. uv.lock files are kept current by Renovate (`pep621` manager + monthly lockfile maintenance). There is also a `services/docker-compose.yml` for running the stack locally without Kubernetes.
 
 ### App-of-Apps flow
 
@@ -176,7 +177,7 @@ Supporting platform services are net-new: **SeaweedFS** (dev object store, `plat
 
 ### Terraform module structure
 
-`terraform/environments/{dev,prod}/main.tf` composes `networking` → `eks` → `iam` (+ `ecr`, `github-oidc` in prod). The `gpu-nodegroup` module is conditionally invoked inside `eks` (off in prod — Karpenter's GPU NodePool replaces it). Posture: nodes and Karpenter run in **private subnets** behind NAT (one per AZ in prod, single in dev) with VPC endpoints (S3 gateway always; ECR/STS/EC2/SQS/Logs interface endpoints in prod); prod spans **3 AZs** with an **on-demand** `role=platform` node group (min 3); the **prod API endpoint is private-only** by default (public access is opt-in via `api_public_access` + `api_allowed_cidrs`, and `0.0.0.0/0` is rejected); dev's public endpoint requires `api_allowed_cidrs` (CI: repo variable `TF_API_ALLOWED_CIDRS`). Kubernetes 1.35 on AL2023 AMIs. State uses S3-native locking (`use_lockfile = true`, Terraform ≥ 1.10). Providers/modules: aws ~> 6.72, eks ~> 21, vpc ~> 6, iam ~> 6 (IRSA retained; Pod Identity is a future migration). All three modules share the same `project`/`environment` naming convention which becomes the cluster name (`platform-core-dev`, `platform-core-prod`).
+`terraform/environments/{dev,prod}/main.tf` composes `networking` → `eks` → `iam` (+ `ecr`, `github-oidc` in prod). The `gpu-nodegroup` module is conditionally invoked inside `eks` (off in prod — Karpenter's GPU NodePool replaces it). Posture: nodes and Karpenter run in **private subnets** behind NAT (one per AZ in prod, single in dev) with VPC endpoints (S3 gateway always; ECR/STS/EC2/SQS/Logs interface endpoints in prod); prod spans **3 AZs** with an **on-demand** `role=platform` node group (min 3); the **prod API endpoint is private-only** by default (public access is opt-in via `api_public_access` + `api_allowed_cidrs`, and `0.0.0.0/0` is rejected); dev's public endpoint requires `api_allowed_cidrs` (CI: repo variable `TF_API_ALLOWED_CIDRS`). Kubernetes 1.36 on AL2023 AMIs. State uses S3-native locking (`use_lockfile = true`, Terraform ≥ 1.10). Providers/modules: aws ~> 6.72, eks ~> 21, vpc ~> 6, iam ~> 6 (IRSA retained; Pod Identity is a future migration). All three modules share the same `project`/`environment` naming convention which becomes the cluster name (`platform-core-dev`, `platform-core-prod`).
 
 ### Crossplane vs Terraform (two IaC tools, split by lifecycle)
 

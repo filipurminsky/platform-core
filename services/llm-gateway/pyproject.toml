@@ -2,9 +2,9 @@
 name = "llm-gateway"
 version = "0.1.0"
 description = "FastAPI reverse proxy in front of vLLM (rate limiting, error mapping, metrics)."
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "fastapi==0.162.0",
+    "fastapi==0.162.2",
     "uvicorn[standard]==0.54.0",
     "httpx==0.28.1",
     "opentelemetry-api==1.45.2",

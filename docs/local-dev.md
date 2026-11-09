@@ -25,6 +25,10 @@ curl http://localhost:8080/v1/models
 
 No Kubernetes needed. This is the right loop for editing `services/*/main.py`.
 
+For running services or tests directly, use Python 3.14. Each service's
+`.python-version` selects that minor, and uv creates the matching environment
+with `make deps` or `make test`. Container images use Python 3.14.10.
+
 ---
 
 ## Option B — Full platform on kind (the real thing)
@@ -35,7 +39,7 @@ KEDA, Kyverno, Strimzi+Kafka, kube-prometheus-stack, Envoy Gateway (Gateway API)
 ### Prerequisites
 
 ```bash
-# macOS (brew) — needs kind ≥ v0.33.0 (kindest/node v1.35.8 image)
+# macOS (brew) — needs kind ≥ v0.33.0 (kindest/node v1.36.4 image)
 brew install kind helm kubectl
 # Argo Rollouts kubectl plugin (for the canary demo)
 brew install argoproj/tap/kubectl-argo-rollouts

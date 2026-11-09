@@ -14,7 +14,7 @@ A thin reverse proxy that sits in front of vLLM (or any OpenAI-compatible API). 
 
 ## Technology Stack
 
-- **Framework**: FastAPI (Python 3.13 in the container image; 3.12+ locally)
+- **Framework**: FastAPI (Python 3.14 in the container image; 3.14+ locally)
 - **HTTP Client**: `httpx` (Async)
 - **Package Manager**: [uv](https://github.com/astral-sh/uv)
 - **Observability**: `prometheus-client`, OpenTelemetry (OTel), `structlog`
@@ -81,4 +81,4 @@ docker build -f services/llm-gateway/Dockerfile services/
 ```
 
 Multi-stage: `uv` resolves `uv.lock` into a venv in the builder stage only; the
-runtime stage is `python:3.13-slim` (pinned by digest) running as UID 10001.
+runtime stage is `python:3.14.10-slim` (pinned by digest) running as UID 10001.

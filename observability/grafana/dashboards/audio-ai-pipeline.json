@@ -173,12 +173,12 @@
       "id": 14,
       "type": "timeseries",
       "title": "GPU Utilization % (prod)",
-      "description": "Per-GPU utilization from the DCGM exporter (DCGM_FI_DEV_GPU_UTIL), plus vLLM KV-cache occupancy. PROD/EKS ONLY — local kind has no GPU, so this panel shows \"No data\" there by design.",
+      "description": "Per-GPU utilization from the DCGM exporter (DCGM_FI_DEV_GPU_UTIL_RATIO, converted to percent), plus vLLM KV-cache occupancy. PROD/EKS ONLY — local kind has no GPU, so this panel shows \"No data\" there by design.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
       "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(DCGM_FI_DEV_GPU_UTIL) by (pod)", "legendFormat": "{{pod}}" },
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "100 * avg(DCGM_FI_DEV_GPU_UTIL_RATIO) by (pod)", "legendFormat": "{{pod}}" },
         { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "avg(vllm:kv_cache_usage_perc) * 100", "legendFormat": "vLLM KV-cache" }
       ]
     },

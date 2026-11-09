@@ -55,13 +55,13 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _default_security_protocol(self) -> "Settings":
+    def _default_security_protocol(self) -> Settings:
         if self.kafka_security_protocol is None:
             self.kafka_security_protocol = "SASL_SSL" if self.kafka_sasl_username else "PLAINTEXT"
         return self
 
     @model_validator(mode="after")
-    def _require_token_in_prod(self) -> "Settings":
+    def _require_token_in_prod(self) -> Settings:
         # Fail closed: an unset API_TOKEN silently disables auth, which is a dev
         # convenience only. Refuse to start in prod without the token even though
         # the current prod overlay keeps the Service cluster-internal.

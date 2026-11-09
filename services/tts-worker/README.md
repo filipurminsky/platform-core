@@ -13,7 +13,7 @@ The terminal stage of the audio processing pipeline. It consumes meeting summari
 
 ## Technology Stack
 
-- **Runtime**: Python 3.13 (multi-stage image, digest-pinned base, non-root, no uv at runtime)
+- **Runtime**: Python 3.14 (multi-stage image, digest-pinned base, non-root, no uv at runtime)
 - **Shared library**: `platform-common` (Kafka I/O, retries, dedup, events)
 - **TTS Engine**: [Kokoro](https://github.com/hexgrad/kokoro) (CPU-based) — Production only.
 - **Messaging**: `confluent-kafka`

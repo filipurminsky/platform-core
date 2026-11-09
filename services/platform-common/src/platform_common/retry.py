@@ -96,7 +96,7 @@ def parse_retry_after(value: str | None, *, now: datetime | None = None) -> floa
         pass
     try:
         when = parsedate_to_datetime(value)
-    except (TypeError, ValueError, IndexError):
+    except TypeError, ValueError, IndexError:
         return None
     if when.tzinfo is None:
         when = when.replace(tzinfo=UTC)

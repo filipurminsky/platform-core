@@ -13,7 +13,7 @@
 #                             the cluster's `environment` label).
 #
 # The CRD chart version tracks the controller version: each Envoy Gateway release
-# bundles (and is tested against) a specific Gateway API bundle — v1.9.x ships
+# bundles (and is tested against) a specific Gateway API bundle — v1.10.x ships
 # Gateway API v1.6.1. Bump both targetRevisions together.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -30,7 +30,7 @@ spec:
     # OCI Helm chart: Argo CD expects the registry path WITHOUT the oci:// scheme.
     repoURL: registry-1.docker.io/envoyproxy
     chart: gateway-crds-helm
-    targetRevision: v1.9.3
+    targetRevision: v1.10.0
     helm:
       values: |
         crds:
@@ -69,7 +69,7 @@ spec:
   source:
     repoURL: registry-1.docker.io/envoyproxy
     chart: gateway-helm
-    targetRevision: v1.9.3
+    targetRevision: v1.10.0
     helm:
       # CRDs come from the gateway-api-crds app above.
       skipCrds: true

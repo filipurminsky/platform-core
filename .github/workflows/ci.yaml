@@ -17,16 +17,16 @@ concurrency:
 env:
   # ── Manifest validation targets — bump here ───────────────────────────────
   # Kubernetes version every kubeconform run validates against (fleet target).
-  KUBERNETES_VERSION: "1.35.0"
+  KUBERNETES_VERSION: "1.36.0"
   # CRD bundles converted into local kubeconform schemas
   # (.github/actions/setup-kubeconform). Keep in lock-step with the platform
   # charts in kubernetes/platform/*.
   STRIMZI_VERSION: "1.3.1"             # kafka.strimzi.io/v1 (no leading v)
   KEDA_VERSION: "2.21.0"               # keda.sh (no leading v)
-  GATEWAY_API_VERSION: "v1.6.1"        # gateway.networking.k8s.io (standard channel; matches Envoy Gateway v1.9)
-  ENVOY_GATEWAY_VERSION: "v1.9.3"      # gateway.envoyproxy.io (EnvoyProxy, policies)
+  GATEWAY_API_VERSION: "v1.6.1"        # gateway.networking.k8s.io (standard channel; matches Envoy Gateway v1.10)
+  ENVOY_GATEWAY_VERSION: "v1.10.0"      # gateway.envoyproxy.io (EnvoyProxy, policies)
   EXTERNAL_SECRETS_VERSION: "v2.14.0"  # external-secrets.io/v1
-  ROLLOUTS_VERSION: "v1.10.2"          # argoproj.io Rollout/AnalysisTemplate (chart argo-rollouts 2.43.9); also the e2e controller
+  ROLLOUTS_VERSION: "v1.10.2"          # argoproj.io Rollout/AnalysisTemplate (chart argo-rollouts 2.43.11); also the e2e controller
   # ── Tool versions (sha256 from each release's published checksums) ────────
   HELM_VERSION: "v4.3.1"
   HELM_SHA256: 0403a88ae20913d11b10a2467b50087721fea7581736da6b9d3992f5357fe54b
@@ -300,10 +300,10 @@ jobs:
       # ruff is a static analyzer — no need to install the app's deps to lint.
       # Config is the repo-root pyproject.toml ([tool.ruff]).
       - name: Ruff lint
-        run: uvx ruff check services/${{ matrix.app }}
+        run: uvx ruff@0.17.4 check services/${{ matrix.app }}
 
       - name: Ruff format check
-        run: uvx ruff format --check services/${{ matrix.app }}
+        run: uvx ruff@0.17.4 format --check services/${{ matrix.app }}
 
   app-test:
     name: Python tests
@@ -360,7 +360,7 @@ jobs:
       # already passes. Skip only this one check.
       - name: Run Checkov on Terraform (gating — our code)
         run: |
-          uvx --python 3.12 "checkov==${CHECKOV_VERSION}" \
+          uvx --python 3.14 "checkov==${CHECKOV_VERSION}" \
             --directory terraform/ \
             --framework terraform \
             --skip-check CKV_TF_1 \
@@ -378,7 +378,7 @@ jobs:
       # list too long").
       - name: Run Checkov with external modules (informational)
         run: |
-          uvx --python 3.12 "checkov==${CHECKOV_VERSION}" \
+          uvx --python 3.14 "checkov==${CHECKOV_VERSION}" \
             --directory terraform/ \
             --framework terraform \
             --download-external-modules true \
@@ -462,10 +462,10 @@ jobs:
           persist-credentials: false
 
       - name: Create kind cluster
-        uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           version: v0.33.0
-          node_image: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
+          node_image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
           cluster_name: e2e
 
       # echo-service ships an HTTPRoute and its Rollout routes canary traffic via

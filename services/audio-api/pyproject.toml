@@ -2,13 +2,13 @@
 name = "audio-api"
 version = "0.1.0"
 description = "FastAPI service that accepts audio uploads, stores to S3, and produces audio.jobs Kafka events."
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
-    "fastapi==0.162.0",
+    "fastapi==0.162.2",
     "uvicorn[standard]==0.54.0",
     "python-multipart==0.0.33",
     "confluent-kafka==2.16.1",
-    "boto3==1.43.124",
+    "boto3==1.43.126",
     "redis==8.1.0",
     "prometheus-client==0.26.0",
     "structlog==26.1.0",

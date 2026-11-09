@@ -32,7 +32,7 @@ spec:
     repoURL: https://emberstack.github.io/helm-charts
     chart: reflector
     # Pinned; bump deliberately (upstream publishes very frequent patch releases).
-    targetRevision: 10.0.73
+    targetRevision: 10.0.74
     helm:
       values: |
         replicaCount: 1

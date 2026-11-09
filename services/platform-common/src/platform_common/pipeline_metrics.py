@@ -32,7 +32,7 @@ def parse_created_at(created_at: str | None) -> float | None:
         return None
     try:
         dt = datetime.fromisoformat(created_at)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)

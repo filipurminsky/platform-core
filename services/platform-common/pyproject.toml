@@ -2,7 +2,7 @@
 name = "platform-common"
 version = "0.2.0"
 description = "Shared building blocks for the platform-core Kafka workers: Kafka I/O, observability, health/metrics server, retry + error classification, Redis job-state + dedup, S3 client, and the audio-pipeline event models."
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "confluent-kafka==2.16.1",
     "opentelemetry-api==1.45.2",
@@ -18,13 +18,13 @@ dependencies = [
 # Object storage + job-state store, used by the audio-pipeline workers only
 # (worker-service needs neither).
 audio = [
-    "boto3==1.43.124",
+    "boto3==1.43.126",
     "redis==8.1.0",
 ]
 
 [dependency-groups]
 dev = [
-    "boto3==1.43.124",
+    "boto3==1.43.126",
     "httpx==0.28.1",
     "pytest==9.2.0",
     "redis==8.1.0",

@@ -9,7 +9,6 @@ set -euo pipefail
 # ─── Defaults ────────────────────────────────────────────────────────────────
 MODE="local"
 ARGOCD_NAMESPACE="argocd"
-PLATFORM_NAMESPACE="platform"
 CLUSTER_NAME="platform-core"
 ENVIRONMENT=""   # derived from MODE below: local→dev, aws→prod
 
@@ -55,6 +54,8 @@ if [[ "$MODE" == "local" ]]; then
       --config terraform/modules/kind/kind-config.yaml
   fi
   ok "kind cluster created"
+  # A rerun can start with another cluster selected in kubeconfig.
+  kubectl config use-context "kind-${CLUSTER_NAME}"
 
   # ─── Cilium + Hubble (eBPF dataplane, local-first) ─────────────────────────
   # Installed here, before ArgoCD, because the cluster has no CNI yet and nothing
@@ -66,11 +67,19 @@ if [[ "$MODE" == "local" ]]; then
   # Envoy Gateway proxy binds hostPort 80/443 on the ingress-ready node, which
   # is how kind's host :80/:443 mapping reaches the Gateway.
   log "Installing Cilium + Hubble"
+  # Cilium only supports consecutive-minor upgrades with preflight checks.
+  # Bootstrap installs new clusters or reconciles this minor; it must not jump
+  # an existing 1.16 installation directly to 1.20.
+  CILIUM_INSTALLED_VERSION=$(helm list --namespace kube-system --filter '^cilium$' --no-headers | awk '{print $NF}')
+  if [[ -n "$CILIUM_INSTALLED_VERSION" && "$CILIUM_INSTALLED_VERSION" != 1.20.* ]]; then
+    err "Cilium ${CILIUM_INSTALLED_VERSION} needs a staged upgrade before bootstrap can install 1.20.4. See docs/tool-upgrades.md (existing local clusters)."
+  fi
   helm repo add cilium https://helm.cilium.io --force-update
   helm upgrade --install cilium cilium/cilium \
     --namespace kube-system \
-    --version "1.16.5" \
+    --version "1.20.4" \
     --set ipam.mode=kubernetes \
+    --set kubeProxyReplacement=false \
     --set cni.chainingMode=portmap \
     --set image.pullPolicy=IfNotPresent \
     --set operator.replicas=1 \
@@ -98,7 +107,7 @@ kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl 
 helm repo add argo https://argoproj.github.io/argo-helm --force-update
 helm upgrade --install argocd argo/argo-cd \
   --namespace "$ARGOCD_NAMESPACE" \
-  --version "10.14.0" \
+  --version "10.17.1" \
   --values kubernetes/bootstrap/argocd/values.yaml \
   --wait --timeout 5m
 

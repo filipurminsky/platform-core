@@ -12,10 +12,10 @@ description: >-
 inputs:
   version:
     description: Trivy version (no leading v)
-    default: "0.76.1"
+    default: "0.76.2"
   sha256:
     description: sha256 of trivy_<version>_Linux-64bit.tar.gz from trivy_<version>_checksums.txt
-    default: c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0
+    default: bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf
 
 runs:
   using: composite

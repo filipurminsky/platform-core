@@ -5,7 +5,7 @@
 #
 # Base image is pinned by digest for reproducible, tamper-evident builds;
 # Renovate (dockerfile manager) bumps tag + digest together.
-ARG PYTHON_IMAGE=python:3.13-slim@sha256:09a17cad02668ae61ece136b4fd36ac3849e14f670ebedb637ea3e15580525bc
+ARG PYTHON_IMAGE=python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
 
 # ---------------------------------------------------------------------------
 # Builder: resolve the locked deps into a venv. uv exists only in this stage.
