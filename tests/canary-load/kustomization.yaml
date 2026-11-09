@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../load
+patches:
+  - target:
+      kind: Job
+      name: k6-echo-load
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: HOLD_DURATION
+          value: 20m

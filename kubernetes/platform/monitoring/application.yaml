@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    # 93.x (Prometheus Operator v0.95.1, Prometheus v3, Grafana chart 14 / Grafana 13,
+    # 92.20.0 (Prometheus Operator v0.94.2, Prometheus v3, Grafana chart 14 / Grafana 13,
     # now sourced from grafana-community). Upgraded from 58.2.1. Notes:
     #   - CRDs: the chart's CRDs are large (>256KiB annotation limit), so they
     #     MUST be applied server-side — keep ServerSideApply=true below. ArgoCD
@@ -25,7 +25,10 @@ spec:
     #     selectors are left-open — review recording/alert rules accordingly.
     #   - Grafana 13 image is distroless with readOnlyRootFilesystem; no
     #     GF_*__FILE env vars (none used here).
-    targetRevision: 93.1.1
+    # v0.95.1 operator/reloader image indexes omit ARM64 (verified 2026-11-09).
+    # Keep controller, reloader and CRDs on the last verified multi-arch chart.
+    # See docs/tool-upgrades.md before removing this compatibility hold.
+    targetRevision: 92.20.0
     helm:
       values: |
         fullnameOverride: kube-prometheus-stack

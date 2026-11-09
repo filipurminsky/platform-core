@@ -16,6 +16,9 @@ spec:
     targetRevision: 2.43.11
     helm:
       values: |
+        podSecurityContext:
+          runAsNonRoot: true
+          fsGroup: 10001
         controller:
           metrics:
             enabled: true
@@ -45,12 +48,19 @@ spec:
               args:
                 - |
                   case "$(uname -m)" in
-                    x86_64)        ARCH=amd64 ;;
-                    aarch64|arm64) ARCH=arm64 ;;
+                    x86_64)
+                      ARCH=amd64
+                      SHA256=1904ca787d33107c140521899d61fff030ee75d99908bd175fca5a4647759061
+                      ;;
+                    aarch64|arm64)
+                      ARCH=arm64
+                      SHA256=5221279f7bf2c9b2c0ff6ed7ff12718ecce1d4892f1ff5e5224bb723cfd0fd92
+                      ;;
                     *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
                   esac
                   curl -fsSL --retry 5 -o /plugins/gatewayapi-plugin \
                     "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-gatewayapi/releases/download/${PLUGIN_VERSION}/gatewayapi-plugin-linux-${ARCH}"
+                  echo "${SHA256}  /plugins/gatewayapi-plugin" | sha256sum -c -
                   chmod 0755 /plugins/gatewayapi-plugin
               volumeMounts:
                 - name: gatewayapi-plugin
@@ -64,6 +74,11 @@ spec:
                   memory: 64Mi
               securityContext:
                 runAsNonRoot: true
+                # curlimages/curl declares a named USER; Kubernetes cannot
+                # prove runAsNonRoot without a numeric UID. fsGroup above
+                # makes the shared plugin volume writable to this user.
+                runAsUser: 10001
+                runAsGroup: 10001
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
                 capabilities:

@@ -28,7 +28,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "decimals": 4, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.99 }, { "color": "green", "value": 0.995 }] } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:request_success_ratio:rate5m" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "slo:http_request_success:ratio_rate5m" }]
     },
     {
       "id": 2,
@@ -37,7 +37,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 14.4 }] } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:error_budget_burn:rate5m" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "(1 - slo:http_request_success:ratio_rate5m) / 0.005" }]
     },
     {
       "id": 3,
@@ -46,16 +46,17 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "short", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 1 }, { "color": "red", "value": 14.4 }] } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:error_budget_burn:rate1h" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "(1 - sum(rate(echo_requests_total{status!~\"5..\"}[1h])) / sum(rate(echo_requests_total[1h]))) / 0.005" }]
     },
     {
       "id": 4,
       "type": "gauge",
-      "title": "Error Budget Remaining (1h window est.)",
+      "title": "Error Budget Remaining (30d, available history)",
+      "description": "Uses available retained samples in the 30-day query window. Local Prometheus retains only 6 hours; a fresh cluster cannot establish a 30-day SLO.",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "orange", "value": 0.25 }, { "color": "green", "value": 0.5 }] } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "clamp_min(1 - echo:error_budget_burn:rate1h, 0)" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "clamp_min(1 - (1 - slo:http_request_success:ratio_rate30d) / 0.005, 0)" }]
     },
     {
       "id": 5,
@@ -65,21 +66,21 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
       "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0.9, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:request_success_ratio:rate5m", "legendFormat": "5m" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:request_success_ratio:rate30m", "legendFormat": "30m" },
-        { "refId": "C", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:request_success_ratio:rate1h", "legendFormat": "1h" }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "slo:http_request_success:ratio_rate5m", "legendFormat": "5m" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(echo_requests_total{status!~\"5..\"}[30m])) / sum(rate(echo_requests_total[30m]))", "legendFormat": "30m" },
+        { "refId": "C", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "sum(rate(echo_requests_total{status!~\"5..\"}[1h])) / sum(rate(echo_requests_total[1h]))", "legendFormat": "1h" }
       ]
     },
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Latency p90 / p99 (s)",
+      "title": "Latency p95 / p99 (s)",
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
       "fieldConfig": { "defaults": { "unit": "s", "custom": { "drawStyle": "line", "fillOpacity": 10 } }, "overrides": [] },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:request_latency:p90_5m", "legendFormat": "p90" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "echo:request_latency:p99_5m", "legendFormat": "p99" }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "slo:http_request_duration_p95:rate5m", "legendFormat": "p95" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "histogram_quantile(0.99, sum by (le) (rate(echo_request_duration_seconds_bucket[5m])))", "legendFormat": "p99" }
       ]
     },
     {

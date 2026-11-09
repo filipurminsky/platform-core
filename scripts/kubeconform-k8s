@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Local equivalent of CI's wrapper, including the pinned Kubernetes version.
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+SCHEMA_DIR="${SCHEMA_DIR:-$ROOT/.cache/platform-validation/crd-schemas}"
+for tool in kubeconform yq; do
+  command -v "$tool" >/dev/null || { echo "Missing $tool; see docs/tool-upgrades.md" >&2; exit 1; }
+done
+pins=$(yq -r '.env | .KUBERNETES_VERSION + " " + .STRIMZI_VERSION + " " + .KEDA_VERSION + " " + .GATEWAY_API_VERSION + " " + .ENVOY_GATEWAY_VERSION + " " + .EXTERNAL_SECRETS_VERSION + " " + .ROLLOUTS_VERSION' "$ROOT/.github/workflows/ci.yaml")
+if [[ ! -f "$SCHEMA_DIR/versions" ]] || [[ "$(cat "$SCHEMA_DIR/versions")" != "$pins" ]]; then
+  echo "CRD schemas are missing or stale. Run make schemas (requires network access)." >&2
+  exit 1
+fi
+exec kubeconform -strict -summary -kubernetes-version "${pins%% *}" \
+  -schema-location default \
+  -schema-location "$SCHEMA_DIR/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json" \
+  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+  -schema-location 'https://kubernetes-schemas.pages.dev/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' "$@"

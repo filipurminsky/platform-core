@@ -23,6 +23,23 @@ def test_valid_audio_job_and_default_key():
     assert json.loads(ev.to_json_bytes())["bytes"] == 10
 
 
+@pytest.mark.parametrize("job_id", [uuid.uuid4().hex, str(uuid.uuid4()), str(uuid.uuid4()).upper()])
+@pytest.mark.parametrize("model", [AudioJobEvent, TranscriptEvent, SummaryEvent, ResultEvent])
+def test_uuid_validation_preserves_job_identity_across_stages(job_id, model):
+    event = decode_event(json.dumps({"job_id": job_id}).encode(), model)
+    assert event.job_id == job_id
+    assert json.loads(event.to_json_bytes())["job_id"] == job_id
+
+
+def test_invalid_event_preserves_hex_job_id_for_failed_state():
+    job_id = uuid.uuid4().hex
+    with pytest.raises(InvalidMessage) as exc:
+        decode_event(
+            json.dumps({"job_id": job_id, "audio_key": "wrong/key"}).encode(), AudioJobEvent
+        )
+    assert exc.value.job_id == job_id
+
+
 @pytest.mark.parametrize(
     "raw",
     [

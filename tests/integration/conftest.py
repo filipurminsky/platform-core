@@ -20,6 +20,9 @@ from pathlib import Path
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 
 SERVICES_DIR = Path(__file__).parent.parent.parent / "services"
+# audio-api deliberately does not depend on the worker library. This source-level
+# cross-service suite imports the checked-out workers and their shared library.
+sys.path.insert(0, str(SERVICES_DIR / "platform-common" / "src"))
 
 # Multiple services share metric names (e.g. pipeline_jobs_failed_total). Allow
 # duplicate registration so all services can load in a single test process.

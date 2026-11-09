@@ -62,7 +62,7 @@
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 3 },
       "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
-      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "count(argocd_app_info{health_status=\"Degraded\"}) or count(argocd_app_info{sync_status=\"OutOfSync\"})" }]
+      "targets": [{ "refId": "A", "datasource": { "type": "prometheus", "uid": "${datasource}" }, "expr": "count(argocd_app_info{health_status=\"Degraded\"} or argocd_app_info{sync_status=\"OutOfSync\"}) or vector(0)" }]
     },
     {
       "id": 5,

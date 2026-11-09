@@ -45,12 +45,21 @@ spec:
           extraVolumeMounts:
             - name: tempo-data
               mountPath: /var/tempo
+          # Sustained local canary traffic reached ~508 MiB and OOM-killed
+          # the previous 512 MiB limit. Reserve the measured working set and
+          # leave headroom for block completion/query spikes. This is a local
+          # demo budget, not production capacity sizing.
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
-            limits:
               memory: 512Mi
+            limits:
+              memory: 1Gi
+          # Go's soft limit leaves ~224 MiB for non-Go/runtime overhead. It
+          # encourages earlier GC but does not replace the container limit.
+          extraEnv:
+            - name: GOMEMLIMIT
+              value: 800MiB
         persistence:
           enabled: false
         # Ephemeral data dir (live-store WAL + local trace blocks) as an explicit

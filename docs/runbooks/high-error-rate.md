@@ -8,15 +8,15 @@
 
 ## Symptoms
 
-- HTTP 5xx error rate burn rate > 14× the 0.5% SLO threshold, sustained for 1 hour
-- Error budget projected to exhaust within 3 days at current burn rate
+- echo-service 5xx ratio > 14.4× the 0.5% budget in both the 5m and 1h windows, held for 2m
+- At sustained 14.4× burn, a full 30-day request budget would be consumed in about 2.1 days; actual remaining budget and traffic matter
 
 ---
 
 ## Immediate Checks
 
 ```bash
-# Which service is generating errors?
+# Check resource pressure (this does not identify HTTP errors)
 kubectl top pods -A | sort -k3 -rn | head -20
 
 # Check recent pod restarts
@@ -37,23 +37,22 @@ kubectl get applications -n argocd -o wide
 
 ```bash
 # Identify the bad deployment
-kubectl rollout history deployment/echo-service -n apps
+kubectl argo rollouts history echo-service -n apps
 
 # Rollback
-kubectl rollout undo deployment/echo-service -n apps
-kubectl rollout status deployment/echo-service -n apps
+kubectl argo rollouts undo echo-service -n apps
+kubectl argo rollouts status echo-service -n apps
 ```
 
 To prevent future bad deployments, verify the CI pipeline runs `helm template | kubeconform` and `kube-linter` on every PR.
 
-### Cause 2: Downstream dependency failure
+### Cause 2: Routing or telemetry mismatch
 
-Check if the error is propagating from an upstream (database, external API, vLLM):
-
-```bash
-kubectl exec -n apps deploy/echo-service -- \
-  curl -sf http://vllm-inference.apps.svc:8000/health || echo "vLLM unavailable"
-```
+The current alert measures echo-service, which does not depend on vLLM. Check
+the echo HTTPRoute, stable/canary Service selectors, recent AnalysisRuns, and
+Prometheus labels before attributing errors to an unrelated backend. Use the
+[canary runbook](canary-rollback.md) to verify serving recovery and then reconcile
+the desired image in Git; an imperative rollback alone is not a Git revert.
 
 ### Cause 3: Resource exhaustion (OOMKilled)
 
@@ -67,7 +66,8 @@ kubectl describe pods -n apps -l app=echo-service | grep -A5 OOMKilled
 
 ## Error Budget Policy
 
-Per `docs/slo-definitions.md`:
+The following is the proposed human operating policy in
+[SLO definitions](../slo-definitions.md), not an automated budget gate:
 - If error budget > 50% remaining: deployments proceed normally
 - If error budget 10–50% remaining: require extra test coverage on PRs
 - If error budget < 10% remaining: freeze deployments; platform team approval required

@@ -2,10 +2,10 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: ${{ values.name }}
-  description: ${{ values.description }}
+  description: ${{ values.description | dump }}
   tags: [python, fastapi]
   annotations:
-    github.com/project-slug: filipurminsky/${{ values.name }}
+    github.com/project-slug: ${{ values.repoOwner }}/${{ values.repoName }}
     backstage.io/techdocs-ref: dir:.
     backstage.io/kubernetes-id: ${{ values.name }}
     prometheus.io/rule: ${{ values.name }}

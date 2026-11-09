@@ -1,0 +1,13 @@
+**
+!platform-common/
+!platform-common/pyproject.toml
+!platform-common/src/
+!platform-common/src/**
+!stt-worker/
+!stt-worker/pyproject.toml
+!stt-worker/uv.lock
+!stt-worker/main.py
+!stt-worker/app/
+!stt-worker/app/**
+**/__pycache__/
+**/*.pyc

@@ -39,6 +39,11 @@ configs:
 
 # Trim resources so the whole stack fits on a laptop kind cluster
 controller:
+  metrics:
+    enabled: true
+    # The ServiceMonitor is reconciled with monitoring-rules after its CRD exists.
+    serviceMonitor:
+      enabled: false
   resources:
     requests:
       cpu: 100m

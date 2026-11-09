@@ -4,9 +4,9 @@ metadata:
   name: microservice
   title: New Microservice
   description: |
-    Scaffold a production-shaped FastAPI microservice — Dockerfile (non-root),
-    Prometheus /metrics, health probes, catalog-info, and TechDocs — and publish
-    it to a new GitHub repository, pre-registered in the catalog.
+    Create a FastAPI service with tests, signed image delivery, dev/prod overlays,
+    and a platform registration pull request. Deployment starts after the first
+    image promotion and platform review; GitHub integration setup is required.
   tags: [recommended, python, fastapi]
 spec:
   owner: platform-team
@@ -19,12 +19,13 @@ spec:
           title: Name
           type: string
           description: Unique service name (lowercase, kebab-case)
-          pattern: "^[a-z][a-z0-9-]+$"
+          pattern: "^[a-z][a-z0-9-]{0,38}[a-z0-9]$"
           ui:autofocus: true
         description:
           title: Description
           type: string
           description: What does this service do?
+          default: ""
         owner:
           title: Owner
           type: string
@@ -33,11 +34,18 @@ spec:
             catalogFilter:
               kind: [Group, User]
     - title: Repository
-      required: [repoUrl]
+      required: [repoUrl, platformRepoUrl]
       properties:
         repoUrl:
           title: Repository Location
           type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts: [github.com]
+        platformRepoUrl:
+          title: Platform repository for registration review
+          type: string
+          default: github.com?owner=filipurminsky&repo=platform-core
           ui:field: RepoUrlPicker
           ui:options:
             allowedHosts: [github.com]
@@ -47,17 +55,49 @@ spec:
       action: fetch:template
       input:
         url: ./skeleton
+        targetPath: service
+        copyWithoutTemplating:
+          - .github/workflows/**
+          - .github/actions/**
+          - scripts/**
         values:
           name: ${{ parameters.name }}
           description: ${{ parameters.description }}
           owner: ${{ parameters.owner }}
+          repoOwner: ${{ (parameters.repoUrl | parseRepoUrl).owner }}
+          repoName: ${{ (parameters.repoUrl | parseRepoUrl).repo }}
     - id: publish
       name: Publish to GitHub
       action: publish:github
       input:
+        sourcePath: service
         repoUrl: ${{ parameters.repoUrl }}
+        repoVisibility: public
         description: ${{ parameters.description }}
         defaultBranch: main
+    - id: registration-files
+      name: Prepare platform registration
+      action: fetch:template
+      input:
+        url: ./registration
+        targetPath: registration
+        values:
+          name: ${{ parameters.name }}
+          repoOwner: ${{ (parameters.repoUrl | parseRepoUrl).owner }}
+          repoName: ${{ (parameters.repoUrl | parseRepoUrl).repo }}
+    - id: registration-pr
+      name: Request platform review
+      action: publish:github:pull-request
+      input:
+        repoUrl: ${{ parameters.platformRepoUrl }}
+        branchName: onboard-${{ parameters.name }}
+        title: Register ${{ parameters.name }}
+        description: |
+          Review the service repository, namespace, AppProject permissions and
+          signed release workflow. The service starts at zero replicas until its
+          first verified digest promotion PR merges. No automatic merge is requested.
+        sourcePath: registration
+        targetPath: kubernetes/apps/${{ parameters.name }}
     - id: register
       name: Register in catalog
       action: catalog:register
@@ -66,6 +106,8 @@ spec:
         catalogInfoPath: /catalog-info.yaml
   output:
     links:
+      - title: Platform registration review
+        url: ${{ steps['registration-pr'].output.remoteUrl }}
       - title: Repository
         url: ${{ steps.publish.output.remoteUrl }}
       - title: Open in catalog

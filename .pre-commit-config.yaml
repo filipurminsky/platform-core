@@ -42,8 +42,11 @@ repos:
     rev: v0.17.4
     hooks:
       - id: ruff
-        args: [--fix]
+        # Use the shared configuration explicitly: scaffold pyproject.toml
+        # files contain template expressions until a service is generated.
+        args: [--fix, --config, pyproject.toml]
       - id: ruff-format
+        args: [--config, pyproject.toml]
 
   # ── Terraform formatting ──────────────────────────────────────────────────
   - repo: https://github.com/antonbabenko/pre-commit-terraform

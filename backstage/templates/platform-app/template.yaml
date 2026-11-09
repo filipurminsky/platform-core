@@ -5,8 +5,9 @@ metadata:
   title: New Platform App (GitOps)
   description: |
     Scaffold a GitOps deployment for an existing container image: a demo-app
-    Helm values file plus an ArgoCD Application, so the service is delivered the
-    moment the PR merges. No application source code — delivery only.
+    Helm values file plus an ArgoCD Application for platform-owner review.
+    Publishing this repository does not register or deploy the Application.
+    Use New Microservice for the complete signed delivery and registration path.
   tags: [recommended, gitops, argocd, helm]
 spec:
   owner: platform-team
@@ -37,11 +38,13 @@ spec:
         imageTag:
           title: Image tag
           type: string
-          default: latest
+          description: Explicit release tag; mutable latest tags are rejected
+          pattern: "^(?!latest$)[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$"
         namespace:
           title: Target namespace
           type: string
           default: apps
+          enum: [apps]
     - title: Repository
       required: [repoUrl]
       properties:
@@ -61,6 +64,8 @@ spec:
           name: ${{ parameters.name }}
           description: ${{ parameters.description }}
           owner: ${{ parameters.owner }}
+          repoOwner: ${{ (parameters.repoUrl | parseRepoUrl).owner }}
+          repoName: ${{ (parameters.repoUrl | parseRepoUrl).repo }}
           imageRepository: ${{ parameters.imageRepository }}
           imageTag: ${{ parameters.imageTag }}
           namespace: ${{ parameters.namespace }}

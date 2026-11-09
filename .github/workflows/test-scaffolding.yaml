@@ -1,0 +1,62 @@
+name: Generated service contract
+on:
+  pull_request:
+    paths: [backstage/templates/**, helm/backstage/**, kubernetes/platform/backstage/**, tests/scaffolding/**, services/**/k8s/**, policy/**, .github/workflows/test-scaffolding.yaml, .github/workflows/ci.yaml, .github/actions/setup-kubeconform/**, scripts/setup-crd-schemas.sh]
+  push:
+    branches: [main]
+    paths: [backstage/templates/**, helm/backstage/**, kubernetes/platform/backstage/**, tests/scaffolding/**, services/**/k8s/**, policy/**, .github/workflows/test-scaffolding.yaml, .github/workflows/ci.yaml, .github/actions/setup-kubeconform/**, scripts/setup-crd-schemas.sh]
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  generated-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install locked template test dependencies
+        run: npm ci --prefix tests/scaffolding --ignore-scripts --no-audit --no-fund
+      - name: Read authoritative tool pins from CI
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import YAML from './tests/scaffolding/node_modules/yaml/dist/index.js';
+          const pins = YAML.parse(readFileSync('.github/workflows/ci.yaml', 'utf8')).env;
+          for (const [name, value] of Object.entries(pins)) {
+            appendFileSync(process.env.GITHUB_ENV, `${name}=${value}\n`);
+          }
+          JS
+      - name: Install checksum-verified rendering and policy tools
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tar.gz
+          echo "${HELM_SHA256}  /tmp/helm.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/helm.tar.gz -C /tmp linux-amd64/helm
+          sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
+          curl -sSfL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/kustomize_v${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" -o /tmp/kustomize.tar.gz
+          echo "${KUSTOMIZE_SHA256}  /tmp/kustomize.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/kustomize.tar.gz -C /tmp kustomize
+          sudo install -m 0755 /tmp/kustomize /usr/local/bin/kustomize
+          curl -sSfL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" -o /tmp/conftest.tar.gz
+          echo "${CONFTEST_SHA256}  /tmp/conftest.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/conftest.tar.gz -C /tmp conftest
+          sudo install -m 0755 /tmp/conftest /usr/local/bin/conftest
+      - name: Test generated service and delivery contracts
+        run: npm test --prefix tests/scaffolding
+      - uses: ./.github/actions/setup-kubeconform
+        with:
+          kubernetes-version: ${{ env.KUBERNETES_VERSION }}
+          strimzi-version: ${{ env.STRIMZI_VERSION }}
+          keda-version: ${{ env.KEDA_VERSION }}
+          gateway-api-version: ${{ env.GATEWAY_API_VERSION }}
+          envoy-gateway-version: ${{ env.ENVOY_GATEWAY_VERSION }}
+          external-secrets-version: ${{ env.EXTERNAL_SECRETS_VERSION }}
+          argo-rollouts-version: ${{ env.ROLLOUTS_VERSION }}
+      - name: Schema-validate generated overlays and build runtime
+        run: |
+          set -euo pipefail
+          node tests/scaffolding/render.mjs /tmp/generated-service
+          for environment in dev prod; do
+            kustomize build "/tmp/generated-service/k8s/overlays/$environment" | kubeconform-k8s
+          done
+          docker build -t generated-service:test /tmp/generated-service

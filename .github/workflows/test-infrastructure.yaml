@@ -1,0 +1,35 @@
+name: Real infrastructure recovery tests
+
+on:
+  pull_request:
+    paths:
+      - services/platform-common/**
+      - services/stt-worker/**
+      - tests/infrastructure/**
+      - scripts/test-infrastructure.sh
+      - .github/workflows/test-infrastructure.yaml
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      INFRA_EVIDENCE_DIR: ${{ runner.temp }}/infrastructure-evidence
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Exercise real infrastructure and worker interruption
+        run: ./scripts/test-infrastructure.sh
+      - name: Preserve test results and worker/infrastructure diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: infrastructure-recovery-${{ github.run_id }}
+          path: ${{ env.INFRA_EVIDENCE_DIR }}
+          if-no-files-found: warn
+          retention-days: 7

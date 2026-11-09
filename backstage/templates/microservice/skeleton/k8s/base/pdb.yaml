@@ -1,0 +1,9 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ${{ values.name }}
+spec:
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  maxUnavailable: 1
+  selector:
+    matchLabels: {app: "${{ values.name }}"}

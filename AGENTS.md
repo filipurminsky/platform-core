@@ -74,7 +74,10 @@ CI definitions are in [.github/workflows/ci.yaml](.github/workflows/ci.yaml) and
 ```bash
 make lint                  # Ruff lint and format check, apps + shared library
 make test                  # pytest separately in each Python project
-make integration-test      # cross-service audio tests using the audio-api venv
+make integration-test      # cross-service audio contract tests using the audio-api venv
+make infrastructure-test   # isolated real Kafka/Redis/S3 recovery tests; requires Docker
+make script-test           # operational-script regressions and shell syntax checks
+make scaffold-test         # npm ci + generated-service tests; Node/npm, uv, kustomize, conftest
 
 # Targeted checks (replace echo-service with the affected project)
 (cd services/echo-service && uv run --frozen pytest -q)
@@ -111,34 +114,47 @@ kyverno apply kubernetes/platform/kyverno-policies/base/
 ```
 
 Also build each affected service overlay and tenant directory independently.
-Rendering alone does not validate Kubernetes schemas. CI installs
-`kubeconform-k8s` through the [setup action](.github/actions/setup-kubeconform/action.yaml),
-which converts pinned CRDs into `/tmp/crd-schemas` and configures strict validation
-against the fleet version. Once that wrapper and its schemas are available, run:
+Rendering alone does not validate Kubernetes schemas. `make schemas` downloads
+and converts the pinned CRDs using the same setup script as
+[CI](.github/actions/setup-kubeconform/action.yaml). Locally, schemas live under
+`.cache/platform-validation/crd-schemas` and `scripts/kubeconform-k8s` checks the
+cache against CI's version pins before strict validation. CI installs its wrapper
+on PATH and places schemas in `/tmp/crd-schemas`.
+
+```bash
+make schemas               # requires network access, curl, yq, Python 3
+make kustomize             # aggregate, service, Kafka, tenant and canary-load renders
+make helm-validate         # lint + render + schema validation for all three local charts
+make policy                # --combine cross-resource checks for both dev and prod
+make kube-lint             # workload and repository-wide PDB configurations
+```
+
+For targeted schema checks after `make schemas`, use the repository wrapper:
 
 ```bash
 set -o pipefail
 for environment in dev prod; do
-  kustomize build "kustomize/validation/$environment" | kubeconform-k8s || exit 1
-  kustomize build "kubernetes/platform/kafka/overlays/$environment" | kubeconform-k8s || exit 1
+  kustomize build "kustomize/validation/$environment" | ./scripts/kubeconform-k8s || exit 1
+  kustomize build "kubernetes/platform/kafka/overlays/$environment" | ./scripts/kubeconform-k8s || exit 1
   for overlay in services/*/k8s/overlays/"$environment"/; do
-    kustomize build "$overlay" | kubeconform-k8s || exit 1
+    kustomize build "$overlay" | ./scripts/kubeconform-k8s || exit 1
   done
 done
-helm template demo helm/demo-app --set image.repository=registry.example.com/demo-app | kubeconform-k8s
-helm template vllm helm/vllm | kubeconform-k8s
-helm template backstage helm/backstage -f helm/backstage/values.yaml | kubeconform-k8s
+helm template demo helm/demo-app --set image.repository=registry.example.com/demo-app | ./scripts/kubeconform-k8s
+helm template vllm helm/vllm | ./scripts/kubeconform-k8s
+helm template backstage helm/backstage -f helm/backstage/values.yaml | ./scripts/kubeconform-k8s
 ```
 
-The wrapper is CI-generated, not installed by plain kubeconform. For local schema
-setup, follow that action's download/conversion and schema-location configuration;
-use the skip list in CI only for the kinds explicitly exempted there. Do not mask
-missing schemas with a blanket ignore flag.
+Plain kubeconform does not install the repository wrapper or CRD cache. Use the
+explicit CI skip list only for exempted kinds; never mask missing schemas with
+a blanket ignore flag.
 
-`make validate` is a convenience aggregate, not the complete CI gate: its current
-`make policy` omits `--combine`, and `make kustomize` lacks CI's pinned schema
-configuration. Use the explicit commands above for those checks. CI also runs
-security scans, container builds, and an echo-service smoke test on kind.
+`make validate` runs the non-cluster aggregate: Python lint/tests, in-process
+integration, operational-script and generated-service tests, manifest/chart
+schema validation, combined OPA policy, both kube-linter configurations, and
+Terraform formatting/validation. Run `make schemas` first. Security scans,
+container builds, the Docker infrastructure recovery suite, and live-cluster
+checks remain separate gates. Hosted CI also runs an echo-service kind smoke test.
 
 ### Terraform
 
@@ -280,6 +296,13 @@ DOCKER_BUILDKIT=1 docker build -f services/echo-service/Dockerfile -t platform-c
 make images                # build all seven app images locally
 ```
 
+Read-only diagnostics before cluster changes:
+
+```bash
+./scripts/bootstrap.sh --mode=local --check
+make doctor
+```
+
 For cluster work, see [local-dev.md](docs/local-dev.md) and the focused
 [runbooks](docs/runbooks/). These commands change the selected environment; use
 them when the task calls for cluster lifecycle or demos:
@@ -287,8 +310,9 @@ them when the task calls for cluster lifecycle or demos:
 ```bash
 ./scripts/bootstrap.sh --mode=local
 # AWS: apply the Terraform foundation and wire outputs before bootstrap --mode=aws.
-kubectl -n apps argo rollouts get rollout echo-service --watch
-./scripts/canary-demo.sh bad   # intentionally deploys a broken canary
+kubectl argo rollouts get rollout echo-service -n apps --watch
+./scripts/prepare-canary-images.sh  # build/load runnable good and faulty dev images
+./scripts/canary-demo.sh bad   # verified abort/recovery; restores original image
 kubectl apply -k tests/load   # starts k6 load
 ./scripts/teardown.sh --mode=local
 ```

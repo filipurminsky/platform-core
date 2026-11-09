@@ -19,6 +19,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.cache/platform-validation/
 
 # OS
 .DS_Store

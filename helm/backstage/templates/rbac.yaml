@@ -20,6 +20,11 @@ rules:
   - apiGroups: ["autoscaling"]
     resources: [horizontalpodautoscalers]
     verbs: [get, list, watch]
+{{- if not .Values.kubernetes.skipMetricsLookup }}
+  - apiGroups: ["metrics.k8s.io"]
+    resources: [pods]
+    verbs: [get, list]
+{{- end }}
   - apiGroups: ["networking.k8s.io"]
     resources: [ingresses]
     verbs: [get, list, watch]

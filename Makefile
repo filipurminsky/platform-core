@@ -1,7 +1,12 @@
 # platform-core — common developer commands.
 # Run `make` or `make help` to list targets. These mirror what CI does
-# (.github/workflows/ci.yaml) and the runbook in CLAUDE.md, so "green locally"
-# means "green in CI".
+# (.github/workflows/ci.yaml). Security scans, image builds and live-cluster
+# exercises remain separate CI gates; validate does not claim to replace them.
+
+# macOS ships GNU Make 3.81, which ignores .SHELLFLAGS. Put the options in
+# SHELL so failed renders cannot be hidden by successful downstream commands.
+SHELL := /bin/bash -eu -o pipefail
+KUBECONFORM ?= ./scripts/kubeconform-k8s
 
 APPS        := echo-service worker-service llm-gateway audio-api stt-worker tts-worker llm-worker
 # Shared Python library used by the Kafka workers (tested/linted, no image).
@@ -54,23 +59,44 @@ images: ## Build all app container images locally (no push; context = services/,
 
 # ── Kubernetes manifests ────────────────────────────────────────────────────────
 .PHONY: kustomize
-kustomize: ## Build dev + prod overlays and validate with kubeconform
-	kustomize build $(DEV_OVERLAY)  | kubeconform -strict -summary -schema-location default
-	kustomize build $(PROD_OVERLAY) | kubeconform -strict -summary -schema-location default
-	kustomize build kubernetes/platform/kafka/overlays/dev  | kubeconform -strict -summary
-	kustomize build kubernetes/platform/kafka/overlays/prod | kubeconform -strict -summary
+kustomize: ## Validate aggregate, service, Kafka and tenant renders using CI schemas
+	@for environment in dev prod; do \
+	  kustomize build kustomize/validation/$$environment | $(KUBECONFORM); \
+	  kustomize build kubernetes/platform/kafka/overlays/$$environment | $(KUBECONFORM); \
+	  for overlay in services/*/k8s/overlays/$$environment/; do \
+	    kustomize build "$$overlay" | $(KUBECONFORM); \
+	  done; \
+	done
+	@for tenant in kubernetes/tenants/team-*/; do \
+	  kustomize build "$$tenant" | $(KUBECONFORM); \
+	done
+	kustomize build tests/canary-load | $(KUBECONFORM)
+	kustomize build observability/prometheus | $(KUBECONFORM)
+
+.PHONY: schemas
+schemas: ## Download pinned CRDs and prepare local validation schemas (requires yq)
+	./scripts/setup-crd-schemas.sh
+
+.PHONY: helm-validate
+helm-validate: helm-lint ## Render local charts and validate with CI schemas
+	helm template demo helm/demo-app --set image.repository=registry.example.com/demo-app | $(KUBECONFORM)
+	helm template vllm helm/vllm | $(KUBECONFORM)
+	helm template backstage helm/backstage -f helm/backstage/values.yaml | $(KUBECONFORM)
 
 .PHONY: helm-lint
 helm-lint: ## Lint all Helm charts
 	@for chart in helm/*/; do echo "== $$chart =="; helm lint "$$chart" || exit 1; done
 
 .PHONY: policy
-policy: ## Run OPA/conftest policies against the dev overlay
-	kustomize build $(DEV_OVERLAY) | conftest test --policy policy/ -
+policy: ## Evaluate combined cross-resource OPA policies in both environments
+	@for environment in dev prod; do \
+	  kustomize build kustomize/validation/$$environment | conftest test --combine --policy policy/ -; \
+	done
 
 .PHONY: kube-lint
 kube-lint: ## Run kube-linter best-practice checks
 	kube-linter lint kubernetes/ --config .kube-linter.yaml
+	kube-linter lint . --config .kube-linter-pdb.yaml
 
 .PHONY: kyverno
 kyverno: ## Check Kyverno policies are well-formed (dry-run)
@@ -91,8 +117,26 @@ tf-validate: ## Validate the dev + prod Terraform root modules
 integration-test: ## Run cross-service audio pipeline integration tests (uses audio-api venv)
 	cd services/audio-api && uv run --frozen pytest ../../tests/integration/ -q
 
+.PHONY: infrastructure-test
+infrastructure-test: ## Run isolated Kafka/Redis/S3 worker recovery tests (requires Docker)
+	./scripts/test-infrastructure.sh
+
+.PHONY: scaffold-test
+scaffold-test: ## Render and test generated services (requires Node, uv, kustomize, conftest)
+	npm ci --prefix tests/scaffolding
+	npm test --prefix tests/scaffolding
+
+.PHONY: script-test
+script-test: ## Run operational-script regression checks without a cluster
+	python3 -m unittest discover -s tests/scripts -v
+	@for script in scripts/*.sh scripts/kubeconform-k8s; do bash -n "$$script"; done
+
 .PHONY: validate
-validate: lint test kustomize helm-lint policy tf-fmt ## Run the full local check suite (mirrors CI)
+validate: lint test integration-test script-test scaffold-test kustomize helm-validate policy kube-lint tf-fmt tf-validate ## Non-cluster checks; run make schemas first (security/build/e2e remain separate)
+
+.PHONY: doctor
+doctor: ## Inspect local tools, Docker and the selected cluster without changing them
+	./scripts/doctor.sh
 
 # ── Cluster lifecycle + demos ───────────────────────────────────────────────────
 .PHONY: up

@@ -1,0 +1,54 @@
+# Platform-owned registration: review repository ownership before merging.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: service-${{ values.name }}
+  namespace: argocd
+spec:
+  description: Reviewed delivery boundary for ${{ values.name }}
+  sourceRepos:
+    - https://github.com/${{ values.repoOwner }}/${{ values.repoName }}.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: apps
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - {group: "", kind: Service}
+    - {group: "", kind: ServiceAccount}
+    - {group: apps, kind: Deployment}
+    - {group: policy, kind: PodDisruptionBudget}
+    - {group: networking.k8s.io, kind: NetworkPolicy}
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute}
+    - {group: monitoring.coreos.com, kind: ServiceMonitor}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ${{ values.name }}
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: [dev, prod]
+  template:
+    metadata:
+      name: ${{ values.name }}
+    spec:
+      project: service-${{ values.name }}
+      source:
+        repoURL: https://github.com/${{ values.repoOwner }}/${{ values.repoName }}.git
+        targetRevision: main
+        path: k8s/overlays/{{.metadata.labels.environment}}
+      destination:
+        server: "{{.server}}"
+        namespace: apps
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true

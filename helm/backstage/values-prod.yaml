@@ -1,0 +1,6 @@
+# Production fails closed until a real identity provider and frontend sign-in
+# experience are configured in a custom Backstage image. Never enable guest here.
+environment: prod
+auth:
+  guest:
+    enabled: false

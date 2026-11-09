@@ -4,18 +4,26 @@
 #   ./scripts/bootstrap.sh --mode=local   # kind cluster, zero AWS cost
 #   ./scripts/bootstrap.sh --mode=aws     # AWS EKS (terraform must already be applied)
 
-set -euo pipefail
+set -Eeuo pipefail
+cd "$(dirname "$0")/.."
 
 # ─── Defaults ────────────────────────────────────────────────────────────────
 MODE="local"
 ARGOCD_NAMESPACE="argocd"
 CLUSTER_NAME="platform-core"
+KIND_CONFIG="terraform/modules/kind/kind-config.yaml"
 ENVIRONMENT=""   # derived from MODE below: local→dev, aws→prod
+CHECK_ONLY=false
+PHASE=preflight
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
 for arg in "$@"; do
   case $arg in
     --mode=*) MODE="${arg#*=}" ;;
+    --cluster-name=*) CLUSTER_NAME="${arg#*=}" ;;
+    --kind-config=*) KIND_CONFIG="${arg#*=}" ;;
+    --check) CHECK_ONLY=true ;;
+    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH]"; exit 0 ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
@@ -31,27 +39,46 @@ log()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
 err()  { echo -e "\033[1;31m[ERR ]\033[0m  $*" >&2; exit 1; }
 
-require() {
-  command -v "$1" >/dev/null 2>&1 || err "Required tool not found: $1 — install it first"
+failure() {
+  local status=$?
+  trap - ERR
+  echo "Bootstrap failed during: $PHASE (exit $status)." >&2
+  echo 'Run ./scripts/doctor.sh, then inspect docs/local-dev.md. Bootstrap can be rerun after fixing the cause.' >&2
+  # Do not print BASH_COMMAND: secret creation commands contain credentials.
+  exit "$status"
 }
+trap failure ERR
 
 # ─── Dependency checks ───────────────────────────────────────────────────────
-require kubectl
-require helm
-[[ "$MODE" == "local" ]] && require kind
-[[ "$MODE" == "aws"   ]] && require aws
+./scripts/doctor.sh --mode="$MODE" --preflight
+if [[ "$CHECK_ONLY" == true ]]; then
+  ok "Preflight passed; no cluster resources changed."
+  exit 0
+fi
 
 # ─── Local: provision kind cluster ───────────────────────────────────────────
 if [[ "$MODE" == "local" ]]; then
+  PHASE='kind creation and Cilium installation'
   log "Creating kind cluster: $CLUSTER_NAME"
   if kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
     log "Cluster already exists, skipping creation"
+    # A pinned config does not upgrade existing nodes or replace their CNI.
+    # Refuse incompatible reuse before installing anything into that cluster.
+    kubectl --context "kind-${CLUSTER_NAME}" get nodes -o json | python3 -c '
+import json, sys
+nodes = json.load(sys.stdin)["items"]
+if not nodes or any(not node["status"]["nodeInfo"]["kubeletVersion"].startswith("v1.36.") for node in nodes):
+    sys.exit("Existing cluster is not Kubernetes 1.36. Use a fresh cluster name/config; changing the node pin does not upgrade existing nodes.")
+'
+    if kubectl --context "kind-${CLUSTER_NAME}" -n kube-system get daemonset kindnet >/dev/null 2>&1; then
+      err "Existing cluster uses kindnet. Create a fresh cluster with disableDefaultCNI before installing Cilium."
+    fi
   else
     # No --wait: the kind-config disables the default CNI, so nodes stay
     # NotReady until Cilium is installed below.
     kind create cluster \
       --name "$CLUSTER_NAME" \
-      --config terraform/modules/kind/kind-config.yaml
+      --config "$KIND_CONFIG"
   fi
   ok "kind cluster created"
   # A rerun can start with another cluster selected in kubeconfig.
@@ -92,6 +119,7 @@ if [[ "$MODE" == "local" ]]; then
   ok "Cilium + Hubble ready"
 
 elif [[ "$MODE" == "aws" ]]; then
+  PHASE='EKS connectivity'
   log "Updating kubeconfig for EKS cluster"
   AWS_REGION="${AWS_REGION:-eu-west-1}"
   aws eks update-kubeconfig \
@@ -102,6 +130,7 @@ fi
 
 # ─── Install ArgoCD ──────────────────────────────────────────────────────────
 log "Installing ArgoCD"
+PHASE='Argo CD installation'
 kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
 helm repo add argo https://argoproj.github.io/argo-helm --force-update
@@ -119,6 +148,7 @@ ok "ArgoCD installed"
 # a secret for the in-cluster server lets us attach that label to the local
 # cluster. Without it the generator matches nothing and no apps are created.
 log "Labelling in-cluster as environment=$ENVIRONMENT"
+PHASE='cluster environment and credentials'
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Secret
@@ -143,6 +173,7 @@ if [[ "$MODE" == "local" ]]; then
   log "Creating local Redis authentication Secrets"
   if kubectl get secret redis-auth -n platform >/dev/null 2>&1; then
     REDIS_PASSWORD=$(kubectl get secret redis-auth -n platform -o jsonpath='{.data.password}' | base64 -d)
+    [[ -n "$REDIS_PASSWORD" ]] || err "Existing redis-auth has no password; repair it before bootstrap."
   else
     REDIS_PASSWORD=$(openssl rand -hex 32)
   fi
@@ -164,7 +195,13 @@ if [[ "$MODE" == "local" ]]; then
   # secret in prod, but the code path is identical).
   log "Creating local object-storage credentials Secret"
   MINIO_USER="minio"
-  MINIO_PASSWORD="minio123"  # static for local kind — not a security concern
+  if kubectl get secret minio-credentials -n platform >/dev/null 2>&1; then
+    MINIO_USER=$(kubectl get secret minio-credentials -n platform -o jsonpath='{.data.rootUser}' | base64 -d)
+    MINIO_PASSWORD=$(kubectl get secret minio-credentials -n platform -o jsonpath='{.data.rootPassword}' | base64 -d)
+    [[ -n "$MINIO_USER" && -n "$MINIO_PASSWORD" ]] || err 'Existing minio-credentials is incomplete; repair it before bootstrap.'
+  else
+    MINIO_PASSWORD=$(openssl rand -hex 32)
+  fi
   for namespace in platform apps; do
     kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f -
     kubectl create secret generic minio-credentials \
@@ -187,11 +224,15 @@ if [[ "$MODE" == "local" ]]; then
   if kubectl get secret llm-gateway-api-keys -n apps >/dev/null 2>&1; then
     LLM_GATEWAY_API_KEYS=$(kubectl get secret llm-gateway-api-keys -n apps -o jsonpath='{.data.api-keys}' | base64 -d)
     LLM_WORKER_API_KEY=$(kubectl get secret llm-gateway-api-keys -n apps -o jsonpath='{.data.llm-worker}' | base64 -d)
-  fi
-  if [[ -z "${LLM_GATEWAY_API_KEYS:-}" || -z "${LLM_WORKER_API_KEY:-}" ]]; then
+    [[ -n "$LLM_GATEWAY_API_KEYS" && -n "$LLM_WORKER_API_KEY" ]] || err "Existing llm-gateway-api-keys is incomplete; repair it before bootstrap."
+  else
     LLM_WORKER_API_KEY=$(openssl rand -hex 32)
     LLM_GATEWAY_API_KEYS="$(openssl rand -hex 32),${LLM_WORKER_API_KEY}"
   fi
+  case ",${LLM_GATEWAY_API_KEYS}," in
+    *",${LLM_WORKER_API_KEY},"*) ;;
+    *) err 'Existing llm-gateway-api-keys does not accept its llm-worker key; repair the Secret before bootstrap.' ;;
+  esac
   kubectl create secret generic llm-gateway-api-keys \
     --namespace apps \
     --from-literal=api-keys="$LLM_GATEWAY_API_KEYS" \
@@ -204,6 +245,7 @@ fi
 # ─── Bootstrap App-of-Apps ───────────────────────────────────────────────────
 # The AppProject must exist first — the echo-service Application references it.
 log "Applying platform-apps AppProject"
+PHASE='GitOps registration'
 kubectl apply -f kubernetes/platform/argocd/appproject-apps.yaml
 
 log "Applying ArgoCD App-of-Apps (root)"
@@ -218,19 +260,17 @@ ok "App-of-Apps applied — ArgoCD will now sync platform services + apps"
 log "ArgoCD is reconciling. Watch progress with:"
 echo "    kubectl get applications -n $ARGOCD_NAMESPACE -w"
 echo "    kubectl argo rollouts get rollout echo-service -n apps --watch   # canary"
-kubectl -n "$ARGOCD_NAMESPACE" rollout status deploy/argocd-server --timeout=180s 2>/dev/null || true
+kubectl -n "$ARGOCD_NAMESPACE" rollout status deploy/argocd-server --timeout=180s
 
 # ─── Access info (local mode only) ───────────────────────────────────────────
 if [[ "$MODE" == "local" ]]; then
   echo ""
   ok "Bootstrap kicked off. ArgoCD will keep syncing in the background."
   echo ""
-  echo "ArgoCD admin password:"
-  kubectl -n argocd get secret argocd-initial-admin-secret \
-    -o jsonpath="{.data.password}" 2>/dev/null | base64 -d && echo
+  echo 'Retrieve the initial Argo CD password when needed: make argocd-password'
   echo ""
   echo "Port-forward what you need (run in separate terminals), e.g.:"
-  echo "  kubectl port-forward svc/argocd-server -n argocd     8080:80    # http://localhost:8080  (admin / above)"
+  echo "  kubectl port-forward svc/argocd-server -n argocd     8080:80    # http://localhost:8080"
   echo "  kubectl port-forward svc/grafana       -n monitoring 3000:80    # http://localhost:3000  (admin / admin) — metrics, logs, traces, cost"
   echo "  kubectl port-forward svc/hubble-ui     -n kube-system 12000:80  # http://localhost:12000 — live Cilium network flows"
   echo "  kubectl port-forward svc/opencost      -n monitoring 9090:9090  # http://localhost:9090 — OpenCost UI (cost-model API on :9003)"
@@ -247,6 +287,6 @@ if [[ "$MODE" == "local" ]]; then
   echo ""
   echo "Watch the canary + KEDA scaling demos:"
   echo "  kubectl argo rollouts get rollout echo-service -n apps --watch"
-  echo "  kubectl apply -k tests/load        # generate load"
+  echo "  # The canary demo creates and removes its own load job."
   echo "  ./scripts/canary-demo.sh bad       # SLO-gated auto-rollback"
 fi

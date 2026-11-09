@@ -61,8 +61,29 @@ class FakeRedis:
     def setex(self, key, ttl, value):
         self._store[key] = value
 
-    def set(self, key, value, ex=None):
+    def set(self, key, value, ex=None, nx=False):
+        if nx and key in self._store:
+            return False
         self._store[key] = value
+        return True
+
+    def eval(self, script, numkeys, key, *args):
+        # Model the two shared-library Lua operations. Real Redis semantics are
+        # exercised separately by tests/infrastructure/.
+        if len(args) == 1:
+            if self._store.get(key) == args[0]:
+                del self._store[key]
+                return 1
+            return 0
+        update, _ttl, updated_at = args
+        current = json.loads(self._store.get(key, "{}"))
+        update = json.loads(update)
+        if "keys" in update:
+            current.setdefault("keys", {}).update(update.pop("keys"))
+        current.update(update)
+        current["updated_at"] = updated_at
+        self._store[key] = json.dumps(current)
+        return 1
 
     def get(self, key):
         return self._store.get(key)
@@ -76,14 +97,21 @@ class FakeProducer:
 
     def __init__(self, bus: dict):
         self._bus = bus
+        self._callbacks = []
 
     def produce(self, topic, value=None, key=None, headers=None, on_delivery=None):
         self._bus.setdefault(topic, []).append({"value": value, "key": key, "headers": headers})
+        if on_delivery:
+            self._callbacks.append(on_delivery)
 
     def poll(self, timeout=0):
+        callbacks, self._callbacks = self._callbacks, []
+        for callback in callbacks:
+            callback(None, None)
         return 0
 
     def flush(self, timeout=10):
+        self.poll()
         return 0
 
 
@@ -172,6 +200,13 @@ def test_full_pipeline_happy_path(monkeypatch):
     result_event = json.loads(bus[tts.TOPIC_OUT][0]["value"])
     assert result_event["status"] == "done"
     assert result_event["job_id"] == job_id
+    for topic in (audio_api.KAFKA_TOPIC_JOBS, stt.TOPIC_OUT, llm.TOPIC_OUT, tts.TOPIC_OUT):
+        assert bus[topic][0]["key"] == job_id.encode()
+    # The API must see completion under the very same ID it returned on upload.
+    with TestClient(audio_api.app) as client:
+        status_response = client.get(f"/jobs/{job_id}")
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "done"
 
 
 def test_created_at_propagated_through_all_hops(monkeypatch):

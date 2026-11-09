@@ -1,0 +1,388 @@
+{
+  "date": "2026-11-09",
+  "scope": "Local working-tree QA; no hosted CI, AWS or external publication claim.",
+  "base_commit": "1c223043f5b57f820b48d12dc4d5584d8f0478e5",
+  "runtime_snapshot": "1ac611c40352cfc1e1ad646a06bf886f771f7fa1",
+  "cluster": "kind-platform-core-qa",
+  "architecture": "arm64",
+  "kubernetes": "1.36.4",
+  "docker_memory_gib": 16,
+  "final_health_at": "2026-11-09T15:30:08.598143+00:00",
+  "application_sync": {
+    "Synced": 37
+  },
+  "application_health": {
+    "Healthy": 36,
+    "Suspended": 1
+  },
+  "applicationsets_without_errors": 22,
+  "ready_or_completed_pods": 68,
+  "accepted_routes": 6,
+  "alloy_ready_nodes": 3,
+  "fresh_envoy_request_correlated_in_loki": true,
+  "scrapes": {
+    "up": 34,
+    "total": 40,
+    "unavailable_jobs": {
+      "kube-controller-manager": 1,
+      "kube-etcd": 1,
+      "kube-proxy": 3,
+      "kube-scheduler": 1
+    }
+  },
+  "canaries": {
+    "canary-bad-final": {
+      "scenario": "bad",
+      "elapsed_seconds": 82,
+      "verified": true,
+      "exit_code": 0,
+      "phase_at_verification": "Degraded",
+      "weights": {
+        "echo-service": 100,
+        "echo-service-canary": 0
+      },
+      "restored_phase": "Healthy",
+      "restored_image": "echo-service:qa-20261109",
+      "gateway_responses_verified": 5,
+      "new_analyses": [
+        {
+          "name": "echo-service-5568f57f87-6-2",
+          "phase": "Failed",
+          "metrics": [
+            {
+              "name": "canary-metrics-present",
+              "phase": "Successful",
+              "measurements": [
+                "[]",
+                "[5.959293333333332]",
+                "[11.541405555555556]"
+              ]
+            },
+            {
+              "name": "p95-latency-seconds",
+              "phase": "Successful",
+              "measurements": [
+                "[]",
+                "[0.00475]",
+                "[0.00475]"
+              ]
+            },
+            {
+              "name": "success-rate",
+              "phase": "Failed",
+              "measurements": [
+                "[]",
+                "[0.04512196076939772]",
+                "[0.028881519822590452]"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "canary-good": {
+      "scenario": "good",
+      "elapsed_seconds": 195,
+      "verified": true,
+      "exit_code": 0,
+      "phase_at_verification": "Healthy",
+      "weights": {
+        "echo-service": 100,
+        "echo-service-canary": 0
+      },
+      "restored_phase": "Healthy",
+      "restored_image": "echo-service:qa-20261109",
+      "gateway_responses_verified": 5,
+      "new_analyses": [
+        {
+          "name": "echo-service-5f744f97b-8-2",
+          "phase": "Successful",
+          "metrics": [
+            {
+              "name": "p95-latency-seconds",
+              "phase": "Successful",
+              "measurements": [
+                "[]",
+                "[0.00475]",
+                "[0.00475]",
+                "[0.00475]"
+              ]
+            },
+            {
+              "name": "canary-metrics-present",
+              "phase": "Successful",
+              "measurements": [
+                "[]",
+                "[6.510228333333334]",
+                "[8.9]",
+                "[13.533333333333333]"
+              ]
+            },
+            {
+              "name": "success-rate",
+              "phase": "Successful",
+              "measurements": [
+                "[]",
+                "[1]",
+                "[1]",
+                "[1]"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "echo-service-5f744f97b-8-5",
+          "phase": "Successful",
+          "metrics": [
+            {
+              "name": "canary-metrics-present",
+              "phase": "Successful",
+              "measurements": [
+                "[35.56666666666667]",
+                "[72.96666666666665]",
+                "[72.96666666666665]",
+                "[72.27630350713427]"
+              ]
+            },
+            {
+              "name": "p95-latency-seconds",
+              "phase": "Successful",
+              "measurements": [
+                "[0.004808586337760911]",
+                "[0.004824941995359628]",
+                "[0.004824941995359628]",
+                "[0.004915513126491646]"
+              ]
+            },
+            {
+              "name": "success-rate",
+              "phase": "Successful",
+              "measurements": [
+                "[1]",
+                "[1]",
+                "[1]",
+                "[1]"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "canary-cleanup-retest": {
+      "scenario": "bad",
+      "elapsed_seconds": 103,
+      "verified": true,
+      "exit_code": 0,
+      "phase_at_verification": "Degraded",
+      "weights": {
+        "echo-service": 100,
+        "echo-service-canary": 0
+      },
+      "restored_phase": "Healthy",
+      "restored_image": "echo-service:qa-20261109",
+      "gateway_responses_verified": 5,
+      "new_analyses": [
+        {
+          "name": "echo-service-5568f57f87-10-2",
+          "phase": "Failed",
+          "metrics": [
+            {
+              "name": "success-rate",
+              "phase": "Failed",
+              "measurements": [
+                "[]",
+                "[]",
+                "[0.026739874500855677]",
+                "[0.024449877750611245]"
+              ]
+            },
+            {
+              "name": "p95-latency-seconds",
+              "phase": "Successful",
+              "measurements": [
+                "[]",
+                "[]",
+                "[0.004750000000000001]",
+                "[0.00475]"
+              ]
+            },
+            {
+              "name": "canary-metrics-present",
+              "phase": "Successful",
+              "measurements": [
+                "[]",
+                "[]",
+                "[11.2192]",
+                "[13.632424505032997]"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "audio": {
+    "cluster": "kind-platform-core-qa",
+    "date": "2026-11-09",
+    "image_tag": "qa-20261109",
+    "input": "synthetic one-second mono 16kHz WAV",
+    "gateway_url": "http://127.0.0.1:18000",
+    "job_id": "6916a04951314c45ba02276c025047e8",
+    "trace_id": "072cdf965340453c86051e58c62834fa",
+    "completion_observed_seconds": 55.39,
+    "worker_initial_replicas": {
+      "stt-worker": 0,
+      "llm-worker": 0,
+      "tts-worker": 0
+    },
+    "worker_activated_replicas": {
+      "stt-worker": 1,
+      "llm-worker": 1,
+      "tts-worker": 1
+    },
+    "actual_s3_objects_verified": 4,
+    "redis_status": "done",
+    "redis_ttl_seconds_at_inspection": 604770,
+    "all_stage_events_preserve_job_id_created_at_trace_id": true,
+    "all_worker_offsets_committed": true,
+    "duplicate_replay_no_new_output_no_state_change": true,
+    "invalid_event_dlq_and_failed_state": true,
+    "http_checks": {
+      "missing_gateway_bearer": 401,
+      "invalid_gateway_bearer": 401,
+      "invalid_upload_mime": 415,
+      "missing_upload_file": 422
+    },
+    "limitations": [
+      "STT and TTS use stub backends; LLM uses vllm-mock through authenticated llm-gateway.",
+      "An extra boto3 diagnostic process executed inside the 256Mi API pod coincided with OOMKilled restart1 before acceptance. The API recovered and completed the job without another restart. Heavy evidence collection was moved to an isolated512Mi diagnostic pod.",
+      "This verifies Kafka header and log trace continuity; Tempo trace storage is verified separately."
+    ],
+    "full_smoke": {
+      "passed": true,
+      "exit_code": 0,
+      "context": "kind-platform-core-qa",
+      "local_port": 18083,
+      "evidence_directory": "full-smoke",
+      "job_id": "1632447d29244e0db17435a561eb1211",
+      "checks": [
+        "worker exact job log and all partition lag zero",
+        "poison job found in actual DLQ payload",
+        "audio upload and original job poll reached done"
+      ]
+    },
+    "scale_back_to_zero": {
+      "passed": true,
+      "observed_at": "2026-11-09T15:05:37.454282+00:00",
+      "all_three_desired_actual_ready_terminating_zero": true,
+      "worker_pods_remaining": 0,
+      "all_triggers_inactive": true,
+      "cooldown_seconds": 300,
+      "evidence": "audio-cooldown.json"
+    },
+    "final_smoke_after_cleanup_fix": {
+      "passed": true,
+      "exit_code": 0,
+      "context": "kind-platform-core-qa",
+      "job_id": "d0e87ee2a80d46599b506bad346d6fa3",
+      "trace_id": "c23fe12258eaf3a7b8139e48c9127547",
+      "trace_retrieved_from_resized_tempo": true,
+      "trace_evidence": "tempo-audio-postresize-trace.json",
+      "local_port": 18083,
+      "port_cleanup": {
+        "lsof_exit": 1,
+        "lsof_listeners": [],
+        "curl_exit": 7,
+        "curl_error": "Failed to connect to 127.0.0.1 port 18083: connection refused"
+      },
+      "job_state": {
+        "updated_at": "2026-11-09T15:15:28.562810+00:00",
+        "status": "done",
+        "stage": "tts",
+        "keys": {
+          "speech": "speech/d0e87ee2a80d46599b506bad346d6fa3",
+          "summary": "summaries/d0e87ee2a80d46599b506bad346d6fa3",
+          "transcript": "transcripts/d0e87ee2a80d46599b506bad346d6fa3",
+          "audio": "audio/d0e87ee2a80d46599b506bad346d6fa3"
+        }
+      },
+      "cooldown": {
+        "passed": true,
+        "observed_at": "2026-11-09T15:20:29.613465+00:00",
+        "all_three_desired_actual_ready_terminating_zero": true,
+        "worker_pods_remaining": 0,
+        "all_triggers_inactive": true,
+        "evidence": "audio-cooldown-final.json"
+      }
+    }
+  },
+  "tempo_memory_retest": {
+    "memory_request": "512Mi",
+    "memory_limit": "1Gi",
+    "go_memory_limit_bytes": 838860800,
+    "same_pod_across_runs": true,
+    "runs": [
+      {
+        "started": "2026-11-09T15:13:02.995756+00:00",
+        "finished": "2026-11-09T15:20:09.501834+00:00",
+        "passed": true,
+        "peak_sampled_working_set_bytes": 382500864.0,
+        "restarts": 0,
+        "all_samples_ready": true,
+        "cleanup_complete": true
+      },
+      {
+        "started": "2026-11-09T15:20:18.244568+00:00",
+        "finished": "2026-11-09T15:27:24.712694+00:00",
+        "passed": true,
+        "peak_sampled_working_set_bytes": 435621888.0,
+        "restarts": 0,
+        "all_samples_ready": true,
+        "cleanup_complete": true
+      }
+    ],
+    "boundary": "Bounded local load, not long-term production sizing."
+  },
+  "load": {
+    "requests": 92600,
+    "failed": 6,
+    "failure_rate_percent": 0.0064794816414686825,
+    "all_failures_attributed_to_envoy_upstream_connection_termination_503": true,
+    "p95_ms_by_run": [
+      103.48,
+      103.09
+    ],
+    "both_configured_thresholds_passed": true,
+    "underlying_cause": "Idle keepalive race is plausible but unproven."
+  },
+  "tenancy_checks": {
+    "authorization": 13,
+    "network": 6,
+    "admission": 5
+  },
+  "portal": {
+    "catalog_entities": 28,
+    "templates": 3,
+    "dry_run_files": 25,
+    "kubernetes_lookup_errors": 0,
+    "external_publish_executed": false
+  },
+  "noncluster": {
+    "aggregate_exit_code": 0,
+    "python_passed": 208,
+    "python_skipped": 1,
+    "audio_contract_passed": 4,
+    "scaffold_passed": 13,
+    "subsequent_operational_regressions_passed": 22,
+    "real_dependency_recovery_passed": 4,
+    "recovery_seconds": 34.46
+  },
+  "limitations": [
+    "Six kind control-plane/proxy scrape targets remain unavailable.",
+    "Six transient503 responses occurred under load, within configured thresholds.",
+    "Inference uses STT/TTS stubs and vllm-mock.",
+    "No visual browser QA, GitHub publishing, signing/promotion or AWS verification.",
+    "Old cluster preserved/stopped; fresh cluster relies on temporary local Git servers.",
+    "Raw session artifacts are temporary; this summary is not a release attestation."
+  ]
+}

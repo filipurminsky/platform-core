@@ -1,0 +1,11 @@
+{
+  "name": "platform-scaffolding-tests",
+  "private": true,
+  "scripts": {
+    "test": "node --test test-scaffolding.mjs"
+  },
+  "devDependencies": {
+    "nunjucks": "3.2.4",
+    "yaml": "2.8.1"
+  }
+}

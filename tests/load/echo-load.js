@@ -27,7 +27,7 @@ export const options = {
       startVUs: 0,
       stages: [
         { duration: "1m", target: 30 }, // ramp up
-        { duration: "5m", target: 30 }, // hold — spans the full canary analysis
+        { duration: __ENV.HOLD_DURATION || "5m", target: 30 }, // demo also covers restoration analysis
         { duration: "1m", target: 0 }, // ramp down
       ],
     },

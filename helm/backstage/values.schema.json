@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["environment", "auth", "github"],
+  "properties": {
+    "environment": {"type": "string", "enum": ["dev", "prod"]},
+    "auth": {
+      "type": "object",
+      "required": ["guest"],
+      "properties": {
+        "guest": {
+          "type": "object",
+          "required": ["enabled"],
+          "properties": {"enabled": {"type": "boolean"}}
+        }
+      }
+    },
+    "github": {
+      "type": "object",
+      "required": ["tokenSecret", "tokenKey"],
+      "properties": {
+        "tokenSecret": {"type": "string"},
+        "tokenKey": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

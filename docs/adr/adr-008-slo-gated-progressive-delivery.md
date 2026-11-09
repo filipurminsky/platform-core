@@ -3,8 +3,8 @@
 **Decision:** Deliver user-facing services (starting with `echo-service`) as Argo Rollouts **canary** deployments whose promotion is gated by an `AnalysisTemplate` querying Prometheus, instead of letting ArgoCD apply the new ReplicaSet at 100% immediately.
 
 **Reasoning:**
-- A green CI pipeline does not prove a release is healthy *under real traffic*. The canary shifts 10% → 50% → 100% via Gateway API traffic routing (the Argo Rollouts `gatewayAPI` plugin rewrites the HTTPRoute's stable/canary backendRef weights on Envoy Gateway — see ADR-019; originally nginx), pausing to measure the canary pods' success-rate and p95 latency against the same thresholds as our SLOs.
-- `failureLimit: 1` means a single breaching sample aborts the rollout and Argo Rollouts automatically reverts to the stable ReplicaSet — the error budget *governs* the deploy rather than just being charted.
+- A green CI pipeline does not prove a release is healthy *under real traffic*. The canary shifts 10% → 50% → 100% via Gateway API traffic routing (the Argo Rollouts `gatewayAPI` plugin rewrites the HTTPRoute's stable/canary backendRef weights on Envoy Gateway — see ADR-019; originally nginx), pausing to measure the canary pods' success-rate and p95 latency against release gates of success rate ≥ 99% and p95 latency ≤ 500 ms. The short canary success gate differs from the 99.5% 30-day echo availability objective.
+- The configured failure limits abort an unhealthy rollout and Argo Rollouts automatically reverts to the stable ReplicaSet — the error budget *governs* the deploy rather than just being charted.
 - Metrics are scoped to canary pods via `rollouts-pod-template-hash` (copied onto series by the ServiceMonitor's `podTargetLabels`), so the analysis measures only the new version.
 - An ArgoCD `AppProject` (`platform-apps`) adds a change-freeze sync window, separating app delivery governance from platform services.
 

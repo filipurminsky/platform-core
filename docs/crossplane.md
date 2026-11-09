@@ -4,12 +4,15 @@ This platform uses **two IaC tools on purpose**, split by lifecycle:
 
 | Layer | Tool | Owns |
 |---|---|---|
-| Day-0 foundation (the seed) | **Terraform** | VPC, EKS, IRSA/OIDC, GPU node group, and the IAM role Crossplane assumes |
+| Day-0 foundation (the seed) | **Terraform** | VPC, EKS, IRSA/OIDC, baseline nodes, Karpenter IAM, and the IAM role Crossplane assumes |
 | Day-2 app-facing infra (self-service) | **Crossplane** | S3 buckets (this slice), provisioned on demand by app teams |
 
-Terraform is kept for the foundation because Crossplane runs *inside* the cluster — it can't bootstrap the very EKS cluster it lives on, and you don't want the VPC/cluster lifecycle coupled to the control plane's reconcile loop. Crossplane is introduced for the app-facing layer because that's where its value is: it turns infrastructure into Kubernetes CRDs, so app teams request a bucket with `kubectl apply` (or a Backstage template) and ArgoCD reconciles it like any other resource — including drift correction Terraform doesn't give you for free.
+Terraform is kept for the foundation because Crossplane runs *inside* the cluster — it can't bootstrap the very EKS cluster it lives on, and you don't want the VPC/cluster lifecycle coupled to the control plane's reconcile loop. Crossplane is introduced for the app-facing layer because that's where its value is: it turns infrastructure into Kubernetes CRDs, so app teams request a bucket with `kubectl apply` (or a reviewed GitOps change) and ArgoCD reconciles it like any other resource — including drift correction Terraform doesn't give you for free.
 
-## What this slice demonstrates
+**Validation boundary:** this AWS-only slice is authored and statically validated;
+provisioning, drift correction, and deletion have not been exercised on a live AWS account.
+
+## What this slice is designed to demonstrate
 
 A team self-serves an S3 bucket without touching AWS, IAM, or Terraform:
 
@@ -92,14 +95,15 @@ makes no sense. See the environment-label mechanism in `CLAUDE.md`.
 ## Run the demo (AWS mode)
 
 ```bash
-# 1. Provision the foundation + IRSA role, then bootstrap.
-cd terraform/environments/prod && terraform apply && cd -
-./scripts/bootstrap.sh --mode=aws
-
-# 2. Wire the provider's IRSA role ARN into the SA annotation.
+# 1. After preparing the backend and reviewing/applying the prod Terraform plan,
+# wire the provider's IRSA role ARN into the SA annotation.
 ROLE=$(cd terraform/environments/prod && terraform output -raw crossplane_s3_role_arn)
 #   set eks.amazonaws.com/role-arn: "$ROLE" in
 #   kubernetes/platform/crossplane/config/provider.yaml  (commit → ArgoCD syncs)
+
+# 2. Complete the other prod ARN/image/secret wiring, commit it, then bootstrap
+# from a host with access to the private EKS API endpoint.
+./scripts/bootstrap.sh --mode=aws
 
 # 3. Wait for the provider + function to report Healthy.
 kubectl get providers.pkg.crossplane.io
@@ -111,13 +115,15 @@ kubectl -n apps get objectstoragebucket worker-artifacts -w
 kubectl -n apps get secret worker-artifacts-conn -o jsonpath='{.data.bucket}' | base64 -d
 ```
 
-Deleting the `ObjectStorageBucket` (`kubectl delete -f …`) deprovisions the
-bucket — Crossplane garbage-collects the composed AWS resources.
+Deleting the `ObjectStorageBucket` requests deletion of the composed AWS
+resources. A non-empty/versioned S3 bucket can block deletion; inspect managed
+resource conditions and verify cleanup in AWS rather than assuming the request
+removed all data and charges.
 
 ## Notes & caveats
 
-- **Version pins** (Crossplane chart, provider, function) are set to tested
-  releases in the manifests; bump them deliberately and check cross-compatibility.
+- **Version pins** (Crossplane chart, provider, function) are explicit in the
+  manifests; these pins are not evidence of live AWS interoperability; bump them deliberately and check cross-compatibility.
 - **Async bootstrap**: provider/function package installs and the AWS CRDs they
   register are asynchronous, so `crossplane-config`'s first sync can transiently
   fail (ClusterProviderConfig/Composition/XR before their CRDs exist). `selfHeal` + retry

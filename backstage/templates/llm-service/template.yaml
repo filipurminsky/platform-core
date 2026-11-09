@@ -2,11 +2,11 @@ apiVersion: scaffolder.backstage.io/v1beta3
 kind: Template
 metadata:
   name: llm-service
-  title: New AI Service (vLLM)
+  title: AI Client Example (gateway)
   description: |
-    Scaffold a Python service pre-configured to talk to the platform's vLLM
-    inference endpoint. Includes OpenAI-compatible client, streaming support,
-    structured logging, and Kubernetes manifests for delivery.
+    Scaffold a minimal Python client for the authenticated llm-gateway.
+    This example does not include streaming, Kubernetes manifests, or delivery.
+    Use New Microservice for the complete delivery path.
   tags: [recommended, python, ai, vllm]
 spec:
   owner: platform-team
@@ -58,6 +58,8 @@ spec:
           name: ${{ parameters.name }}
           description: ${{ parameters.description }}
           owner: ${{ parameters.owner }}
+          repoOwner: ${{ (parameters.repoUrl | parseRepoUrl).owner }}
+          repoName: ${{ (parameters.repoUrl | parseRepoUrl).repo }}
           model: ${{ parameters.model }}
     - id: publish
       name: Publish to GitHub

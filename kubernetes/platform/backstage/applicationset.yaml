@@ -1,0 +1,41 @@
+# Guest access is enabled only for labelled dev clusters. Unlabelled clusters
+# receive no portal Application; prod renders explicitly disable guest access.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: backstage
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: environment
+              operator: In
+              values: [dev, prod]
+  template:
+    metadata:
+      name: backstage
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/filipurminsky/platform-core.git
+        targetRevision: main
+        path: helm/backstage
+        helm:
+          valueFiles:
+            - values.yaml
+            - values-{{.metadata.labels.environment}}.yaml
+      destination:
+        server: "{{.server}}"
+        namespace: platform
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

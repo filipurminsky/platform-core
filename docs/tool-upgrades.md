@@ -13,7 +13,7 @@ running cluster or the workstation's globally installed tools.
 | Cilium and Hubble chart | 1.16.5 | 1.20.4 |
 | Argo CD chart | 10.14.0 | 10.17.1, Argo CD 3.6.1 |
 | Envoy Gateway controller and CRD charts | 1.9.3 | 1.10.0 |
-| kube-prometheus-stack chart | 92.20.0 | 93.1.1, Prometheus Operator 0.95.1 |
+| kube-prometheus-stack chart | 92.20.0 | Retained at 92.20.0 / Operator 0.94.2 after live ARM64 QA rejected 93.1.1 |
 | Argo Rollouts chart | 2.43.9 | 2.43.11, controller remains 1.10.2 |
 | DCGM Exporter chart | 4.8.4 | 4.9.0 |
 | Reflector chart | 10.0.73 | 10.0.74 |
@@ -145,11 +145,57 @@ performed. YAML parsing used the renderer and schema validator. Optional local
 chart improvements remain: values schemas and `.helmignore` files, plus NOTES
 for demo-app and vllm; these are not required for the version update.
 
-`make integration-test` currently fails to import `platform_common` because
+**Historical result from the upgrade session:** `make integration-test` failed
+to import `platform_common` because
 audio-api's test environment does not install the worker library. Supplying
 the missing dependencies in an isolated Python 3.13 environment exposes four
 existing failures: `FakeProducer` never calls the delivery callback, so ingest
 times out instead of returning a job. The harness predates the workers' shared
-processing and delivery-confirmation behavior and needs its own repair. The
-service unit suites cover those behaviors individually; the cross-service
-integration suite cannot yet establish end-to-end compatibility.
+processing and delivery-confirmation behavior and needed repair. At that point, the service unit suites covered those behaviors
+individually; the cross-service integration suite could not establish compatibility.
+
+**Follow-up during showcase work (2026-11-09):** the dependency and fake-client
+harness were repaired, exposing and fixing UUID normalization that split API and
+worker job-state keys. The in-process suite now passes four tests; a separate
+real Kafka/Redis/SeaweedFS recovery suite passes four scenarios. See the
+[current evidence boundaries](evidence.md) and [case study](case-study-worker-recovery.md).
+These results do not establish a full live Kubernetes or AWS deployment.
+
+
+## Live QA compatibility correction (2026-11-09)
+
+The initial rendering/schema checks did not exercise image-platform selection.
+Live ARM64 kind inspection exposed `ImagePullBackOff` for Prometheus Operator
+`v0.95.1`: its Quay and GHCR image indexes contain no `linux/arm64` descriptor.
+The `v0.95.1-distroless` operator and `v0.95.1` config-reloader indexes have the
+same issue. Registry manifests were inspected directly; this is independent
+of whether the chart renders successfully. The upstream
+[v0.95.1 release](https://github.com/prometheus-operator/prometheus-operator/releases/tag/v0.95.1)
+explains that it republishes a failed v0.95.0 image release; the v0.95.0 image
+itself is unavailable.
+
+The monitoring chart is therefore held at **92.20.0**, keeping its controller,
+config-reloader, and CRDs together at **0.94.2**. Both v0.94.2 image indexes were
+verified to include Linux AMD64 and ARM64. Retest those published platforms and
+a fresh-cluster rollout before advancing this pin. Existing 0.95 CRDs must not
+be blindly downgraded in place; the current live QA uses a fresh disposable
+cluster and preserves the old cluster.
+
+The same audit found that the platform alert and SLO recording files were not
+registered under any Argo Application. `monitoring-rules` now reconciles
+`observability/prometheus`, including both PrometheusRules. Both resources pass
+strict schema validation and `promtool check rules` accepts all 28 rules.
+
+The older Loki installation also failed the chart migration because its
+StatefulSet selector is immutable: new Service labels no longer selected the
+old Loki 2.x pod. A fresh install avoids that upgrade conflict. Migrating an
+existing installation needs a separate data-preservation and StatefulSet
+replacement procedure; a `Synced`/`Healthy` summary is insufficient when the
+last sync operation failed and the Service has no endpoints.
+
+Fresh-cluster follow-up verified that all 28 platform rules evaluate successfully
+and Grafana reaches Prometheus, Loki, and Tempo. The SLO dashboard had referenced
+nonexistent `echo:*` recording names; its panels now use the implemented `slo:*`
+series and explicit window queries. Alloy also concatenated both supported pod
+application labels; it now prefers `app.kubernetes.io/name` with legacy `app` as
+a fallback. The pinned Alloy runtime validates the corrected configuration.

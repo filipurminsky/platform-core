@@ -2,10 +2,10 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: ${{ values.name }}
-  description: ${{ values.description }}
+  description: ${{ values.description | dump }}
   tags: [gitops, helm, argocd]
   annotations:
-    github.com/project-slug: filipurminsky/${{ values.name }}
+    github.com/project-slug: ${{ values.repoOwner }}/${{ values.repoName }}
     argocd/app-name: ${{ values.name }}
     backstage.io/kubernetes-id: ${{ values.name }}
 spec:

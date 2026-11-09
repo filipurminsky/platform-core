@@ -1,0 +1,7 @@
+# Local kind only: guest users receive real Backstage tokens. NODE_ENV stays
+# production for the built application, so this explicit development opt-in is
+# required by the guest authentication provider.
+environment: dev
+auth:
+  guest:
+    enabled: true

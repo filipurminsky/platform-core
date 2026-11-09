@@ -12,6 +12,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         {{- toYaml .Values.podAnnotations | nindent 8 }}
       labels:
         {{- include "backstage.selectorLabels" . | nindent 8 }}
@@ -37,6 +38,13 @@ spec:
           env:
             - name: NODE_ENV
               value: production
+{{- if .Values.github.tokenSecret }}
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.tokenSecret | quote }}
+                  key: {{ .Values.github.tokenKey | quote }}
+{{- end }}
 {{- if .Values.kubernetes.enabled }}
             - name: K8S_SA_TOKEN
               valueFrom:

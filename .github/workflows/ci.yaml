@@ -161,35 +161,8 @@ jobs:
           external-secrets-version: ${{ env.EXTERNAL_SECRETS_VERSION }}
           argo-rollouts-version: ${{ env.ROLLOUTS_VERSION }}
 
-      - name: Build + validate dev overlay
-        run: kustomize build kustomize/validation/dev | kubeconform-k8s
-
-      - name: Build + validate dev app overlays
-        run: |
-          set -euo pipefail
-          for overlay in services/*/k8s/overlays/dev/; do
-            echo "==> $overlay"
-            kustomize build "$overlay" | kubeconform-k8s
-          done
-
-      - name: Build + validate prod overlay
-        run: kustomize build kustomize/validation/prod | kubeconform-k8s
-
-      - name: Build + validate prod app overlays
-        run: |
-          set -euo pipefail
-          for overlay in services/*/k8s/overlays/prod/; do
-            echo "==> $overlay"
-            kustomize build "$overlay" | kubeconform-k8s
-          done
-
-      - name: Build + validate Kafka overlays
-        run: |
-          set -euo pipefail
-          for env in dev prod; do
-            echo "==> kafka/$env"
-            kustomize build "kubernetes/platform/kafka/overlays/$env" | kubeconform-k8s
-          done
+      - name: Validate aggregate, service, Kafka and tenant overlays
+        run: make kustomize KUBECONFORM=kubeconform-k8s
 
   kube-linter:
     name: kube-linter best-practice checks
@@ -242,15 +215,17 @@ jobs:
       # --combine evaluates the whole rendered overlay as one set, so policies can
       # check RELATIONSHIPS (e.g. does a NetworkPolicy actually select each
       # workload's pods?), not just per-document shape.
-      - name: Run OPA policies (dev overlay)
-        run: |
-          kustomize build kustomize/validation/dev \
-            | conftest test --combine --policy policy/ -
+      - name: Evaluate combined policies in both environments
+        run: make policy
 
-      - name: Run OPA policies (prod overlay)
-        run: |
-          kustomize build kustomize/validation/prod \
-            | conftest test --combine --policy policy/ -
+  script-test:
+    name: Operational script regression tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make script-test
 
   terraform-validate:
     name: Terraform fmt + validate

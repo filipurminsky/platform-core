@@ -22,9 +22,13 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, ValidationErr
 
 def _validate_uuid(value: str) -> str:
     try:
-        return str(uuid.UUID(value))
+        uuid.UUID(value)
     except (ValueError, AttributeError, TypeError) as exc:
         raise ValueError("job_id must be a UUID string") from exc
+    # The ID is also the Kafka key and Redis/object-storage suffix. Validation
+    # must not rewrite an existing ID (audio-api emits UUID.hex); canonicalizing
+    # it here creates a different job-state key that the API will never poll.
+    return value
 
 
 JobId = Annotated[str, AfterValidator(_validate_uuid)]

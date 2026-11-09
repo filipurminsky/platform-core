@@ -1,177 +1,143 @@
 # platform-core
 
-> A production-grade Internal Developer Platform with GitOps delivery and AI inference capability.
+> A reference internal developer platform demonstrating service delivery, policy enforcement, and asynchronous workload operations on Kubernetes.
 
 [![CI](https://github.com/filipurminsky/platform-core/actions/workflows/ci.yaml/badge.svg)](https://github.com/filipurminsky/platform-core/actions/workflows/ci.yaml)
 [![Terraform](https://github.com/filipurminsky/platform-core/actions/workflows/terraform-plan.yaml/badge.svg)](https://github.com/filipurminsky/platform-core/actions/workflows/terraform-plan.yaml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
----
+The platform gives application teams a supported path for creating a service,
+delivering an immutable image, finding its telemetry, and diagnosing failures.
+It also demonstrates a Kafka audio pipeline with shared retry, deduplication,
+job-state, and trace propagation infrastructure.
 
-## What This Is
+**Scope:** local development uses Docker Compose or kind. The AWS EKS path is
+authored but has **not been verified on a live AWS account**. Local LLM responses
+come from a mock; STT and TTS use stub backends in both environments. This is an
+engineering reference, with explicit [validation boundaries](docs/evidence.md),
+not a claim of production operation or measured availability.
 
-A fully working reference implementation of a modern Internal Developer Platform (IDP) built on Kubernetes. It demonstrates senior platform engineering patterns: GitOps delivery via ArgoCD, event-driven autoscaling with KEDA + Kafka, self-hosted LLM inference with vLLM, and a Backstage developer portal wired to real infrastructure.
+## Start here
 
-Designed to run **locally** (kind cluster, zero AWS cost) or on **AWS EKS** (production-realistic).
+- [Showcase walkthrough](docs/showcase.md): reproduce the developer journey and failure exercises.
+- [Evidence matrix](docs/evidence.md): what each check establishes and what remains unverified.
+- [Engineering case study](docs/case-study-worker-recovery.md): delivery guarantees, failure windows, and tradeoffs.
+- [Local development](docs/local-dev.md): prerequisites, startup, access, and troubleshooting.
+- [Architecture decisions](docs/architecture.md): ownership boundaries and accepted tradeoffs.
 
----
+## What this demonstrates
+
+| Developer or operator need | Implementation | Review entry point |
+|---|---|---|
+| Create and deliver a service | Backstage scaffolding, GitHub Actions, reviewed GitOps registration | [Templates](backstage/templates/) |
+| Release safely | Argo Rollouts, canary-scoped Prometheus analysis, Gateway API routing | [Canary runbook](docs/runbooks/canary-rollback.md) |
+| Verify supply chain | Trivy scans, SBOM/provenance, keyless signing, digest promotion, Kyverno admission | [Release workflow](.github/workflows/docker-build.yaml) |
+| Isolate teams | Namespace components, quota tiers, RBAC, NetworkPolicies | [Tenant configuration](kubernetes/tenants/) |
+| Operate asynchronous jobs | Kafka, shared retries/dedup, delivery-confirmed output, Redis state, S3 objects | [Shared worker library](services/platform-common/) |
+| Debug requests across services | OTLP traces, structured logs, Prometheus metrics, Grafana | [Observability](observability/) |
+| Provision app-facing storage | Namespaced Crossplane bucket API with platform-owned defaults; AWS validation pending | [Crossplane guide](docs/crossplane.md) |
+| Manage infrastructure lifecycle | Terraform foundation; on-demand platform nodes and Karpenter burst/GPU capacity | [Prod Terraform](terraform/environments/prod/) |
 
 ## Architecture
 
-A developer pushes to Git; ArgoCD syncs it onto a Kubernetes cluster that
-Terraform provisioned (EKS in the cloud, kind locally).
-
 ```mermaid
 flowchart LR
-    Dev([Developer]) -->|git push| Git[(Git)]
-    Git -->|GitOps sync| Argo[ArgoCD]
-    Argo --> Cluster[Kubernetes Cluster]
-    Terraform -.provisions.-> Cluster
+    Developer --> Template[Service template]
+    Template --> Source[Service repository]
+    Source --> CI[Test, scan, build, sign]
+    CI --> Review[GitOps review and digest promotion]
+    Review --> Argo[Argo CD]
+    Argo --> Apps[Kubernetes services]
+    Apps --> Telemetry[Metrics, logs, traces]
+    Terraform --> Foundation[VPC, EKS, IAM]
+    Foundation --> Apps
 ```
 
-Inside the cluster:
+Application source and deployable manifests live together under `services/`.
+Platform-reviewed ApplicationSets under `kubernetes/apps/` select the service's
+`dev` or `prod` overlay using the cluster's environment label. The
+`kustomize/validation/` aggregates exist only for CI and local validation.
 
-- **Apps** — echo-service, worker-service, the llm-gateway + vLLM inference, and the AI audio pipeline (`audio-api → stt → llm → tts`).
-- **Platform services** — Kafka (Strimzi, KRaft), KEDA autoscaling, Redis, SeaweedFS (dev S3), cert-manager, External Secrets, Envoy Gateway (Gateway API).
-- **Observability** — Prometheus, Grafana, Loki (logs), Tempo (traces).
+The audio path is `audio-api → stt-worker → llm-worker → tts-worker`, using Kafka
+between stages and object keys rather than inline audio/text. Read the
+[frozen contract](docs/audio-pipeline-contract.md) before changing that path.
 
----
+## Quick start
 
-## What This Demonstrates
-
-| Capability | Implementation |
-|---|---|
-| Kubernetes cluster operations | EKS + Kustomize overlays + Argo Rollouts canary + PDB + Network Policies |
-| Terraform IaC | Modular AWS + kind modules + GPU node group + remote state |
-| Cloud infra self-service | Crossplane S3 API — teams claim a secure bucket via `kubectl`; XRD + Composition + IRSA (AWS-only slice) |
-| Internal developer platform | Backstage with scaffolding templates, catalog, and plugins |
-| Multi-tenancy | Namespace-per-team via ApplicationSet + ResourceQuota/LimitRange tiers + zero-trust NetworkPolicies + per-tenant RBAC |
-| GitOps / SDLC automation | ArgoCD App-of-Apps + GitHub Actions (lint / validate / plan) |
-| Event-driven architecture | Kafka (Strimzi) + consumer groups + DLQ + idempotent processing ([SLOs](docs/slo-definitions.md)) |
-| Scale-to-zero autoscaling | KEDA Kafka consumer-lag trigger (worker) + Prometheus trigger (vLLM) |
-| SLO / error budgets | Prometheus recording rules + Grafana burn-rate dashboards + runbooks ([Definitions](docs/slo-definitions.md)) |
-| AI workload infrastructure | vLLM + GPU scheduling + inference SLOs + llm-gateway |
-| Observability | Prometheus + Grafana + Loki + Tempo + structured alerting ([Reference](docs/slo-definitions.md)) |
-| Progressive delivery | Argo Rollouts canary + Prometheus SLO analysis + automatic rollback on error-budget burn |
-| Supply chain security | cosign keyless signing + SBOM + SLSA provenance + Trivy scan + GitHub OIDC (no static keys) |
-| Dependency hygiene | Renovate keeps Actions, Python deps, base images, Helm charts, Crossplane providers & `kindest/node` current via CI-gated PRs |
-| Policy as code | Kyverno admission control (verify image signatures, pod standards) — graduated enforcement |
-| Security | RBAC + Network Policies + IRSA + Kafka SCRAM-SHA-512 + External Secrets + image signing |
-
----
-
-## Prerequisites
-
-**Local mode (kind):**
-- Docker Desktop
-- `kind` ≥ 0.20
-- `kubectl` ≥ 1.28
-- `helm` ≥ 3.12
-- `terraform` ≥ 1.6
-
-**AWS mode (EKS):**
-- All of the above
-- AWS CLI configured (`aws configure`)
-- IAM permissions: EKS, EC2, VPC, IAM, S3, DynamoDB, ECR
-
----
-
-## Quick Start
-
-> Common tasks are wrapped in a `Makefile` — run `make help` to list them
-> (`make validate` runs the full local check suite, `make up` bootstraps a local
-> kind cluster, `make test` runs the app unit tests). Contributors: run
-> `make hooks` once to install the pre-commit/pre-push git hooks
-> (`.pre-commit-config.yaml`) so lint/format/test issues surface before CI.
-
-### Local — no AWS cost
+For application development, install Docker with Compose and run from the repo root:
 
 ```bash
-# Clone and bootstrap a local kind cluster
-git clone https://github.com/filipurminsky/platform-core.git
-cd platform-core
+docker compose -f services/docker-compose.yml up -d --build
+curl --fail http://localhost:8081/healthz
+LLM_KEY=$(docker compose -f services/docker-compose.yml exec -T llm-worker printenv LLM_GATEWAY_API_KEY)
+curl --fail -H "Authorization: Bearer $LLM_KEY" http://localhost:8080/v1/models
+unset LLM_KEY
+```
+
+These are local development credentials. Compose exposes echo on `8081`,
+llm-gateway on `8080`, and audio-api on `8082`; it does not exercise Kubernetes,
+GitOps, admission, or autoscaling.
+
+For the Kubernetes path, use Docker, kind **≥ 0.33.0**, kubectl compatible with
+Kubernetes **1.36**, and Helm **4.3.1**. The kind configuration pins node image
+**1.36.4**. Allow at least 8 GB of Docker memory as an initial allocation;
+full-stack resource requirements and startup duration must be measured on your
+machine. See [local development](docs/local-dev.md) for setup and prerequisites.
+
+```bash
+./scripts/bootstrap.sh --mode=local --check
 ./scripts/bootstrap.sh --mode=local
-
-# Services available at:
-#   Backstage    →  http://backstage.platform-core.local
-#   ArgoCD       →  http://localhost:8080
-#   Grafana      →  http://localhost:3000
-#   vLLM API     →  http://localhost:8000/v1
-#   AKHQ (Kafka) →  http://akhq.platform-core.local  (dev only)
-
-# Trigger worker-service autoscaling by producing test jobs
-# (spins up a throwaway Strimzi producer pod and pipes in the sample job):
-kubectl -n platform run kafka-producer --rm -i --restart=Never \
-  --image=quay.io/strimzi/kafka:0.40.0-kafka-3.7.0 -- \
-  bin/kafka-console-producer.sh \
-    --bootstrap-server platform-kafka-kafka-bootstrap.platform.svc:9092 \
-    --topic jobs < scripts/sample-job.json
+kubectl get applications -n argocd -w
 ```
 
-### AWS — production-realistic
+Bootstrap starts asynchronous reconciliation. An exit status of zero does not
+mean every application is healthy. Argo CD reads the configured remote Git
+revision; uncommitted local changes are not deployed by bootstrap.
+
+## Validation
+
+Python projects use Python **3.14** and separate uv environments/lockfiles.
+Scaffolding checks also require Node.js/npm, uv, Kustomize, and conftest.
+Use the tool pins and checksum-verified schema setup described in
+[tool upgrades](docs/tool-upgrades.md) and [CI](.github/workflows/ci.yaml).
 
 ```bash
-cd terraform/environments/dev
-terraform init
-terraform apply          # provisions VPC + EKS + ECR
-cd ../../..
-./scripts/bootstrap.sh --mode=aws
+make help
+make deps
+make hooks
+make schemas       # download/convert the pinned Kubernetes CRD schemas
+make validate      # local non-cluster checks; see Makefile for exact coverage
 ```
 
----
+`make validate` includes `make scaffold-test` (locked npm install and generated
+service checks). `make infrastructure-test` is a separate Docker-based gate.
+`make validate` is not the complete hosted CI pipeline. Image builds, security
+scans, live cluster exercises, external account integration, and AWS validation
+have separate prerequisites and evidence. See the [evidence matrix](docs/evidence.md).
 
-## Repository Structure
+## AWS preparation
 
-```
-platform-core/
-├── docs/                    # Architecture decisions, SLOs, runbooks, diagrams
-├── terraform/               # Infrastructure as Code (kind + EKS + GPU node group)
-│   ├── modules/             # Reusable modules: eks, networking, iam, gpu-nodegroup, kind
-│   └── environments/        # dev + prod root modules
-├── kubernetes/
-│   ├── bootstrap/argocd/    # One-time ArgoCD installation
-│   ├── platform/            # ArgoCD Applications for platform services
-│   │   ├── kafka/           # Strimzi Kafka cluster + topics + users
-│   │   ├── keda/            # KEDA operator
-│   │   └── crossplane/      # Crossplane + AWS S3 self-service API (XRD/Composition)
-│   └── apps/                # ArgoCD ApplicationSets (GitOps registration, one per service)
-├── services/                # One folder per service: source + co-located k8s manifests
-│   ├── echo-service/        #   main.py, Dockerfile, catalog-info.yaml, …
-│   │   └── k8s/             #   base/ + overlays/{dev,prod}/ (what ArgoCD deploys)
-│   └── <svc>/               #   worker-service, llm-gateway, audio-api, stt/tts/llm-worker, vllm-inference
-├── helm/                    # Custom Helm charts (demo-app, vllm, backstage)
-├── kustomize/validation/    # CI-only aggregate overlay (kubeconform + OPA --combine)
-├── backstage/               # Backstage config, catalog, scaffolding templates
-├── observability/           # Prometheus rules, Grafana dashboards, Loki config
-├── .github/workflows/       # CI, Terraform plan, Docker build pipelines
-└── scripts/                 # bootstrap.sh, teardown.sh
-```
+Use `terraform/environments/prod/` for the AWS bootstrap path;
+`bootstrap.sh --mode=aws` selects the `prod` Kubernetes overlays. Prepare the S3
+state backend and AWS credentials, review a Terraform plan, and wire the
+Terraform output ARNs, account-specific settings, and ECR image references before
+bootstrap. The prod API endpoint is private by default, so the execution host
+must have VPC access. [Crossplane](docs/crossplane.md) describes its additional
+provider wiring. This path incurs AWS charges and is not a one-command verified demo.
 
----
+## Repository map
 
-## Key Design Decisions
-
-See [`docs/architecture.md`](docs/architecture.md) for full ADRs. Summary:
-
-- **ArgoCD over Flux** — richer UI, RBAC model, and broader ecosystem adoption
-- **Strimzi over MSK/SQS** — runs identically on kind and EKS; partition-level lag metrics for precise KEDA autoscaling
-- **Kustomize overlays over Helm values files** — cleaner separation of env-specific patches without templating complexity
-- **External Secrets Operator** — secrets live in AWS Secrets Manager; never committed to Git
-- **vLLM over TGI/Triton** — OpenAI-compatible API, PagedAttention for KV cache efficiency, built-in Prometheus metrics
-- **Terraform + Crossplane, split by lifecycle** — Terraform for the day-0 foundation (VPC/EKS/IAM, the seed Crossplane can't bootstrap itself); Crossplane for day-2 app-facing infra exposed as self-service Kubernetes APIs. See [`docs/crossplane.md`](docs/crossplane.md)
-
----
-
-## Runbooks
-
-| Alert | Runbook |
+| Directory | Responsibility |
 |---|---|
-| `PodCrashLooping` | [pod-crash-loop.md](docs/runbooks/pod-crash-loop.md) |
-| `HighErrorRate` | [high-error-rate.md](docs/runbooks/high-error-rate.md) |
-| `KafkaConsumerLagHigh` | [kafka-consumer-lag.md](docs/runbooks/kafka-consumer-lag.md) |
-| `VllmLatencyBreach` | [vllm-inference-latency.md](docs/runbooks/vllm-inference-latency.md) |
-
----
+| `services/` | Seven Python apps, shared worker library, vLLM manifests, Compose |
+| `kubernetes/apps/` | Platform-reviewed service registration |
+| `kubernetes/platform/` | Controllers, shared services, platform custom resources |
+| `kubernetes/tenants/` | Team namespaces, quotas, RBAC, network boundaries |
+| `terraform/` | Foundation infrastructure and IAM |
+| `helm/` | Local demo-app, vLLM, and Backstage charts |
+| `backstage/` | Catalog and service templates |
+| `observability/` | Dashboards, alerts, SLO recording rules |
+| `policy/`, `tests/`, `.github/` | Policy, behavioral checks, delivery automation |
+| `docs/` | Decisions, runbooks, evidence, walkthrough |
 
 ## License
 

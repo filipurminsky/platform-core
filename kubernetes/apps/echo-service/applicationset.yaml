@@ -8,6 +8,11 @@ metadata:
   name: echo-service
   namespace: argocd
 spec:
+  # The dev canary exercise temporarily pauses this Application's reconciliation
+  # and restores the annotation afterward. Do not erase the pause mid-exercise.
+  preservedFields:
+    annotations:
+      - argocd.argoproj.io/skip-reconcile
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
   generators:

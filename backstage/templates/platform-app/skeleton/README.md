@@ -15,6 +15,8 @@ scaffolded from the **New Platform App** template.
 
 ## Delivery
 
-Apply `application.yaml` to the cluster (or let the platform App-of-Apps pick it
-up). ArgoCD renders `helm/demo-app` from the platform-core repo with the
+A platform owner must review this Application, explicitly authorize this source
+repository in the `platform-apps` AppProject, and add the Application under
+`kubernetes/apps/<name>/application.yaml` through a platform PR. Publishing this
+repository alone does not register it. ArgoCD renders `helm/demo-app` from the platform-core repo with the
 `values.yaml` in this repo, then keeps the deployment in sync.

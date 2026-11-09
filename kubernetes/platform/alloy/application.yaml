@@ -30,6 +30,11 @@ spec:
         fullnameOverride: alloy
         controller:
           type: daemonset
+          # Node log collection must also cover kind's tainted control-plane
+          # (where Envoy runs) and tainted GPU workers in production.
+          tolerations:
+            - operator: Exists
+              effect: NoSchedule
         alloy:
           # Read pod log files from the node's /var/log (hostPath, read-only).
           mounts:
@@ -67,9 +72,17 @@ spec:
                   source_labels = ["__meta_kubernetes_pod_container_name"]
                   target_label  = "container"
                 }
+                // Prefer the recommended app label; use the legacy label only
+                // as a fallback. Concatenating both duplicates names on pods
+                // carrying both labels and breaks app-filtered dashboards.
                 rule {
-                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name", "__meta_kubernetes_pod_label_app"]
-                  separator     = ""
+                  source_labels = ["__meta_kubernetes_pod_label_app"]
+                  regex         = "(.+)"
+                  target_label  = "app"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  regex         = "(.+)"
                   target_label  = "app"
                 }
                 rule {

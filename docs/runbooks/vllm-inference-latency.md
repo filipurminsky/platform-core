@@ -1,84 +1,66 @@
-# Runbook: vLLM Inference Latency SLO Breach
+# Runbook: vLLM inference latency
 
-**Alert:** `VllmLatencyBreach`
-**Severity:** Critical
-**Team:** Platform Engineering
+**Alert:** `VllmLatencyBreach` — p90 request latency above 5 seconds for 5 minutes.
+**Scope:** real vLLM in prod. Dev intentionally uses a mock and pauses vLLM at zero.
+The AWS/GPU path has not been verified live.
 
----
-
-## Symptoms
-
-- vLLM p90 request latency > 5 seconds, sustained for > 5 minutes
-- `vllm:e2e_request_latency_seconds` histogram showing degraded tail latency
-
----
-
-## Immediate Checks
+## Establish the failure boundary
 
 ```bash
-# Check vLLM metrics
-kubectl port-forward -n apps svc/vllm-inference 8000:8000 &
-curl http://localhost:8000/metrics | grep -E "vllm:(e2e|num_requests|kv_cache)"
-
-# Check GPU utilisation on the node
-kubectl exec -n apps deploy/vllm-inference -- nvidia-smi
-
-# Check how many requests are queued vs running
-curl http://localhost:8000/metrics | grep vllm_num_requests
+kubectl -n apps get deploy vllm-inference
+kubectl -n apps get pods -l app=vllm-inference -o wide
+kubectl -n apps describe scaledobject vllm-inference
+kubectl -n apps describe pod -l app=vllm-inference
+kubectl -n apps logs deploy/vllm-inference --tail=100
+kubectl get nodepool,nodeclaim
 ```
 
----
+Pending pods point toward capacity, taints, storage, or quota. Image pull or
+startup failures require inspecting pod events and model-download logs before
+tuning request concurrency. Inspect Karpenter controller logs and NodeClaim
+conditions for GPU provisioning failures; this platform does not use Cluster
+Autoscaler for GPU capacity.
 
-## Root Causes and Remediation
-
-### Cause 1: GPU KV cache saturated
-
-**Signal:** `vllm:kv_cache_usage_perc` > 0.9 (alert `VllmKvCacheNearFull`)
-
-Too many concurrent requests; KV cache evictions are causing latency spikes.
-
-**Fix:**
-- Reduce `max_num_seqs` in vLLM Helm values (limits concurrent sequences)
-- Or scale up vLLM replicas manually: `kubectl scale deployment vllm-inference -n apps --replicas=2`
-- If GPU node is not available, check Cluster Autoscaler: `kubectl logs -n kube-system -l app=cluster-autoscaler`
-
-### Cause 2: Request queue growing (KEDA not scaling fast enough)
-
-**Signal:** `vllm:num_requests_waiting` >> 5 and replica count still at 1
-
-The `cooldownPeriod: 300` on the ScaledObject may be holding back scale-out.
-
-**Fix:** Manually trigger scale-up while investigating:
+When a vLLM pod is ready, port-forward in a separate terminal:
 
 ```bash
-kubectl scale deployment vllm-inference -n apps --replicas=2
+kubectl -n apps port-forward svc/vllm-inference 8000:8000
 ```
-
-Longer-term: reduce `lagThreshold` in the ScaledObject or increase `pollingInterval`.
-
-### Cause 3: Model loaded on CPU instead of GPU
-
-**Signal:** High latency but low GPU utilisation; `nvidia-smi` shows no GPU processes
-
-vLLM may have fallen back to CPU if the GPU node taint/toleration is misconfigured.
 
 ```bash
-kubectl describe pod -n apps -l app=vllm-inference | grep -A5 Tolerations
-kubectl get node -l role=gpu -o jsonpath='{.items[*].status.conditions}'
+curl --fail http://localhost:8000/metrics | grep -E 'vllm:(e2e|num_requests|kv_cache)'
+kubectl -n apps exec deploy/vllm-inference -- nvidia-smi
 ```
 
-### Cause 4: Cold start after scale-from-zero
+## Diagnose and act
 
-vLLM takes 30–120 seconds to load a 7B model. This is expected and mitigated by:
-- PVC model cache (avoids re-downloading weights)
-- Readiness probe blocking traffic until model is ready
+| Observation | Investigation / response |
+|---|---|
+| KV cache ratio near 1 | Check concurrency and context length; evaluate lower `--max-model-len` / `--max-num-seqs` or additional GPU capacity |
+| Queue grows while replicas stay fixed | Inspect KEDA/HPA conditions, Prometheus query output, maximum replica limit, and node capacity |
+| Deployment remains zero despite demand | Check gateway request/error metrics used for activation; vLLM's own metrics cannot activate a nonexistent pod |
+| New pod is downloading/loading | Inspect progress against startup probe budget; measure actual cold-start time |
+| GPU unavailable | Compare workload `role=gpu`, tolerations, GPU requests, NodePool requirements, device plugin, and runtime configuration |
 
-If cold starts are too frequent, increase `cooldownPeriod` to keep the pod warm longer.
+The ScaledObject's `cooldownPeriod` controls scale-to-zero after inactivity; it
+is not the explanation for delayed 1→N scale-out. Its Prometheus trigger uses
+`threshold`, not the Kafka scaler's `lagThreshold`. Make desired replica/trigger
+changes through GitOps and account for KEDA ownership before an emergency
+manual override.
 
----
+Model caches are **per-pod generic ephemeral volumes**. A container restart may
+reuse the pod's cache, but pod replacement requires downloading again. Do not
+mount a shared RWO EBS claim across replicas. A warm minimum, baked weights, or
+suitable shared storage each require a measured cost/latency tradeoff.
 
-## Escalation
+The gateway does not implement automatic routing to an external model provider.
+Do not assume an external API fallback exists. If capacity cannot recover,
+communicate the outage, preserve retriable responses and queued work, and use
+the worker retry/DLQ runbook to assess affected jobs.
 
-If latency does not recover within 10 minutes:
-1. Redirect traffic to a fallback (e.g., external OpenAI API via llm-gateway config change)
-2. Page GPU infra on-call
+## Confirm recovery
+
+Verify ready GPU pods, declining queue depth, successful authenticated requests
+through llm-gateway, and sustained latency recovery. Capture the query window,
+model, hardware, and request shape with the incident record. A short successful
+request does not establish the long-window availability objective.

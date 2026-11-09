@@ -10,6 +10,8 @@ metadata:
     prometheus.io/rule: echo-service
     grafana/dashboard-selector: app=echo-service
     backstage.io/kubernetes-id: echo-service
+    backstage.io/kubernetes-label-selector: app=echo-service
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: production
@@ -29,6 +31,8 @@ metadata:
     argocd/app-name: worker-service
     prometheus.io/rule: worker-service
     backstage.io/kubernetes-id: worker-service
+    backstage.io/kubernetes-label-selector: app=worker-service
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: production
@@ -47,6 +51,8 @@ metadata:
     github.com/project-slug: filipurminsky/platform-core
     argocd/app-name: llm-gateway
     backstage.io/kubernetes-id: llm-gateway
+    backstage.io/kubernetes-label-selector: app=llm-gateway
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: production
@@ -69,6 +75,8 @@ metadata:
     prometheus.io/rule: vllm
     grafana/dashboard-selector: app=vllm-inference
     backstage.io/kubernetes-id: vllm-inference
+    backstage.io/kubernetes-label-selector: app=vllm-inference
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: production
@@ -87,6 +95,8 @@ metadata:
     github.com/project-slug: filipurminsky/platform-core
     argocd/app-name: kafka
     backstage.io/kubernetes-id: platform-kafka
+    backstage.io/kubernetes-label-selector: strimzi.io/cluster=platform-kafka
+    backstage.io/kubernetes-namespace: platform
 spec:
   type: service
   lifecycle: production
@@ -106,6 +116,8 @@ metadata:
     github.com/project-slug: filipurminsky/platform-core
     argocd/app-name: audio-api
     backstage.io/kubernetes-id: audio-api
+    backstage.io/kubernetes-label-selector: app=audio-api
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: experimental
@@ -120,12 +132,14 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: stt-worker
-  description: Kafka consumer that transcribes audio from S3 via a pluggable STT backend (stub in dev, NeMo Parakeet in prod) and produces audio.transcripts events
+  description: Kafka consumer that transcribes audio from S3 via a pluggable STT backend (stub in both environments; NeMo requires a custom GPU image) and produces audio.transcripts events
   tags: [python, kafka, keda, stt, audio, demo]
   annotations:
     github.com/project-slug: filipurminsky/platform-core
     argocd/app-name: stt-worker
     backstage.io/kubernetes-id: stt-worker
+    backstage.io/kubernetes-label-selector: app=stt-worker
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: experimental
@@ -146,6 +160,8 @@ metadata:
     github.com/project-slug: filipurminsky/platform-core
     argocd/app-name: llm-worker
     backstage.io/kubernetes-id: llm-worker
+    backstage.io/kubernetes-label-selector: app=llm-worker
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: experimental
@@ -162,12 +178,14 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: tts-worker
-  description: Kafka consumer that synthesises speech from summaries via a pluggable TTS backend (stub in dev, Kokoro in prod) and produces audio.results events
+  description: Kafka consumer that synthesises speech from summaries via a pluggable TTS backend (stub in both environments; Kokoro requires a custom GPU image) and produces audio.results events
   tags: [python, kafka, keda, tts, audio, demo]
   annotations:
     github.com/project-slug: filipurminsky/platform-core
     argocd/app-name: tts-worker
     backstage.io/kubernetes-id: tts-worker
+    backstage.io/kubernetes-label-selector: app=tts-worker
+    backstage.io/kubernetes-namespace: apps
 spec:
   type: service
   lifecycle: experimental

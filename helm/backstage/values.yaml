@@ -1,3 +1,22 @@
+# Default chart renders keep guest authentication disabled. The environment-selected
+# ApplicationSet supplies values-dev.yaml only for clusters labelled dev.
+environment: prod
+auth:
+  guest:
+    enabled: false
+
+# Optional credential for GitHub catalog reads and scaffolder publishing.
+# Supply a reviewed Kubernetes Secret; no credential is stored in values.
+github:
+  tokenSecret: ""
+  tokenKey: token
+
+# Defaults read the published GitHub revision. QA can point catalog reads at a
+# local source snapshot with an explicit URL-reader allowlist.
+catalog:
+  templateBaseUrl: https://github.com/filipurminsky/platform-core/blob/main/backstage/templates
+  allowedHosts: []
+
 replicaCount: 1
 
 image:
@@ -98,16 +117,22 @@ affinity: {}
 kubernetes:
   enabled: true
   clusterName: local
+  # This platform uses Prometheus and does not install metrics-server. Avoid a
+  # broken CPU/memory lookup against the absent metrics.k8s.io API. Disable only
+  # after installing that API; RBAC for it is then rendered automatically.
+  skipMetricsLookup: true
   url: https://kubernetes.default.svc
 
-# ArgoCD plugin — deployment status in the catalog.
+# ArgoCD frontend plugin is NOT bundled in the stock image. Enable only with a
+# custom image that installs it and a provisioned API token.
 argocd:
-  enabled: true
-  url: https://argocd.platform-core.local
+  enabled: false
+  url: https://argocd-server.argocd.svc
   tokenSecret: "argocd-token"
 
-# Grafana plugin — dashboards embedded in the catalog.
+# Grafana frontend plugin also requires a custom image. The standalone Grafana
+# UI remains available independently.
 grafana:
-  enabled: true
+  enabled: false
   url: http://grafana.monitoring.svc
   tokenSecret: "grafana-token"

@@ -1,3 +1,6 @@
+{{- if and .Values.auth.guest.enabled (ne .Values.environment "dev") }}
+{{- fail "guest authentication is permitted only with environment=dev" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -24,19 +27,31 @@ data:
         origin: {{ .Values.app.baseUrl | quote }}
         methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
         credentials: true
+{{- if .Values.catalog.allowedHosts }}
+      reading:
+        allow:
+{{- range .Values.catalog.allowedHosts }}
+          - host: {{ . | quote }}
+{{- end }}
+{{- end }}
       database:
         client: better-sqlite3
         connection:
           directory: /tmp
 
     auth:
-      environment: development
+      environment: {{ ternary "development" "production" (eq .Values.environment "dev") }}
       providers:
-        guest: {}
+        guest:
+          dangerouslyAllowOutsideDevelopment: {{ .Values.auth.guest.enabled }}
+          userEntityRef: user:default/guest
 
     integrations:
       github:
         - host: github.com
+{{- if .Values.github.tokenSecret }}
+          token: ${GITHUB_TOKEN}
+{{- end }}
 
     catalog:
       rules:
@@ -50,15 +65,15 @@ data:
         # skeleton resolves relative to its template.yaml. Public repo, so the
         # unauthenticated GitHub integration can read them.
         - type: url
-          target: https://github.com/filipurminsky/platform-core/blob/main/backstage/templates/microservice/template.yaml
+          target: {{ .Values.catalog.templateBaseUrl }}/microservice/template.yaml
           rules:
             - allow: [Template]
         - type: url
-          target: https://github.com/filipurminsky/platform-core/blob/main/backstage/templates/platform-app/template.yaml
+          target: {{ .Values.catalog.templateBaseUrl }}/platform-app/template.yaml
           rules:
             - allow: [Template]
         - type: url
-          target: https://github.com/filipurminsky/platform-core/blob/main/backstage/templates/llm-service/template.yaml
+          target: {{ .Values.catalog.templateBaseUrl }}/llm-service/template.yaml
           rules:
             - allow: [Template]
 
@@ -83,6 +98,7 @@ data:
               url: {{ .Values.kubernetes.url | default "https://kubernetes.default.svc" }}
               authProvider: serviceAccount
               skipTLSVerify: true
+              skipMetricsLookup: {{ .Values.kubernetes.skipMetricsLookup }}
               serviceAccountToken: ${K8S_SA_TOKEN}
 {{- end }}
 {{- if .Values.argocd.enabled }}

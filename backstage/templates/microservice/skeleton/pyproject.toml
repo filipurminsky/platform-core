@@ -1,7 +1,7 @@
 [project]
 name = "${{ values.name }}"
 version = "0.1.0"
-description = "${{ values.description }}"
+description = ${{ values.description | dump }}
 requires-python = ">=3.14"
 dependencies = [
     "fastapi==0.162.2",

@@ -2,12 +2,8 @@
 
 ${{ values.description }}
 
-This service was scaffolded from the **New Microservice** template. It exposes a
-FastAPI app with Prometheus metrics and health probes, ready to be deployed via
-the platform's GitOps pipeline.
-
-## Observability
-
-The service exposes `/metrics`. Add a `ServiceMonitor` (or the
-`prometheus.io/scrape` annotations) so Prometheus picks it up, then build a
-Grafana dashboard for its golden signals.
+Use the repository README for setup, delivery and troubleshooting. Health probes
+are `/healthz` and `/readyz`; the ServiceMonitor scrapes `/metrics`. In Grafana
+Explore select Prometheus and query
+`${{ values.name | replace('-', '_') }}_requests_total` or the
+`${{ values.name | replace('-', '_') }}_request_duration_seconds_bucket` histogram.

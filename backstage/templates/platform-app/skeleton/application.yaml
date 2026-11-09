@@ -6,7 +6,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: platform-apps
   sources:
     # The reusable demo-app chart lives in the platform-core repo.
     - repoURL: https://github.com/filipurminsky/platform-core.git
@@ -16,7 +16,7 @@ spec:
         valueFiles:
           - $values/values.yaml
     # This repo provides the per-app values.yaml.
-    - repoURL: https://github.com/filipurminsky/${{ values.name }}.git
+    - repoURL: https://github.com/${{ values.repoOwner }}/${{ values.repoName }}.git
       targetRevision: main
       ref: values
   destination:

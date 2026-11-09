@@ -200,7 +200,7 @@ event carries `created_at` forward so the terminal stage can compute it).
   for workers also `scaledobject.yaml`, `serviceaccount.yaml`).
 - Per-env overlays: `services/<svc>/k8s/overlays/{dev,prod}/` (own kustomization +
   patches; prod pins image to ECR digest placeholder `unpromoted`, dev `:latest`).
-- ArgoCD: `kubernetes/services/<svc>/applicationset.yaml` (cluster generator,
+- ArgoCD: `kubernetes/apps/<svc>/applicationset.yaml` (cluster generator,
   `path: services/<svc>/k8s/overlays/{{.metadata.labels.environment}}`, project
   `platform-apps`, namespace `apps`).
 - Env wiring in base manifests: `OTEL_SERVICE_NAME`, `OTEL_EXPORTER_OTLP_ENDPOINT`
@@ -209,6 +209,17 @@ event carries `created_at` forward so the terminal stage can compute it).
   `KAFKA_BOOTSTRAP_SERVERS=platform-kafka-kafka-bootstrap.platform.svc.cluster.local:9092`.
 
 ## 9. Decisions locked for this build
+
+> **Deployment status clarification (2026-11-09; not a wire-contract amendment):**
+> The backend and GPU statements below record the original intended build.
+> Executable [STT configuration](../services/stt-worker/k8s/base/deployment.yaml)
+> and [TTS configuration](../services/tts-worker/k8s/base/deployment.yaml) currently
+> select `stub` in **both dev and prod**; the prod overlays do not enable NeMo or
+> Kokoro. Standard images omit those optional ML dependencies. Real backends
+> require purpose-built images and explicit backend/scheduling/resource settings,
+> and have not been verified here. GPU sizing below is an intended scenario, not
+> evidence of deployed STT GPU capacity. This note changes no event schema, Kafka
+> key, state transition, metric name, or other frozen contract requirement.
 
 - **Job state:** Redis (per §5).
 - **Object storage:** SeaweedFS dev (net-new platform service), Crossplane v2 namespaced `ObjectStorageBucket` prod.

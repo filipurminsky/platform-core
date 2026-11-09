@@ -44,9 +44,10 @@ rules:
     resources:
       - horizontalpodautoscalers
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
+  # Tenants own routes; the platform owns Gateways and cross-namespace grants.
+  - apiGroups: ["gateway.networking.k8s.io"]
     resources:
-      - ingresses
+      - httproutes
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["keda.sh"]
     resources:
@@ -85,5 +86,8 @@ rules:
     verbs: ["get", "list", "watch"]
   - apiGroups: ["apps", "batch", "autoscaling", "networking.k8s.io", "keda.sh"]
     resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes"]
     verbs: ["get", "list", "watch"]
   # Secrets are intentionally excluded from the viewer role
