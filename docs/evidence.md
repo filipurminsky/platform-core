@@ -5,6 +5,10 @@ A configured workflow is not evidence that its latest run passed. Record the
 commit and actual command/run URL with each result; never infer a successful
 AWS deployment from Terraform validation or local rendering.
 
+The [reconciled historical backlog](../issues-to-be-addressed.md) records which
+June review findings are fixed in source, which retain work, and which still
+need operational evidence. A source-level resolution is not a live acceptance result.
+
 ## Coverage matrix
 
 | Capability | Reproduce / inspect | What it establishes | Boundary |

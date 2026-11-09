@@ -1,340 +1,310 @@
-# Issues To Be Addressed — Independent Code Review
+# Historical review — reconciled backlog
 
-**Reviewer perspective:** staff-level platform engineer, adversarial read.
-**Scope:** Python services, Kubernetes/kustomize, Helm, Terraform, CI/CD, OPA/Kyverno.
-**Date:** 2026-06-15 · **Branch:** `harden-eks-netpol-cleanup`
+**Reconciled:** 2026-11-09 · **Audited source:** `9e6c659dd35337e9a92691ffd430140134d940db`
 
-> This is a *fresh* pass, not a re-run of `findings.md`/`TODO.md`. Where it overlaps
-> with those, it is noted. Each item cites `file:line` and states whether it was
-> **confirmed by code reading** or **would require a live cluster to confirm**
-> (much of the AWS/prod path is authored-but-unverified, per `AGENTS.md`).
+This is the current disposition of the 18 findings from the 2026-06-15 review
+of `harden-eks-netpol-cleanup`. The
+[original review is preserved at the audited commit](https://github.com/filipurminsky/platform-core/blob/9e6c659dd35337e9a92691ffd430140134d940db/issues-to-be-addressed.md).
+Historical excerpts and severities describe that earlier review, not defects
+all still present today.
 
-Severity key: **P0** = breaks a core advertised capability / serious security exposure ·
-**P1** = real correctness/operational risk · **P2** = hardening, consistency, cost, polish.
+**Result: 13 findings resolved in implementation; five partially addressed.**
+A separate tenant-to-gateway access mismatch found during reconciliation is
+tracked as **F1** below.
 
----
+- **Resolved:** the reported implementation defect is absent in the audited
+  source. This does not imply a live AWS deployment or exhaustive failure testing.
+- **Partial:** a correction exists, but part of the concern or its operational
+  guidance still needs work.
+- **Accepted tradeoff:** an existing documented decision, not new risk acceptance
+  by this review. Mitigation or verification may still be outstanding.
 
-## Summary table
+This reconciliation used source inspection and read-only rendering. It did not
+apply infrastructure, change policies, rerun service suites, or execute cloud or
+signing operations. Previously recorded tests and local acceptance are linked
+where relevant; see the [evidence matrix](docs/evidence.md) and
+[dev QA report](docs/qa-dev-2026-11-09.md) for their boundaries. November QA
+findings remain in that report rather than being folded into this historical
+closure count.
 
-| # | Severity | Area | One-liner |
-|---|----------|------|-----------|
-| 1 | P0 | KEDA / Kafka | Prod Kafka scalers have no broker CA → TLS auth fails → scale-from-zero never fires |
-| 2 | P0 | Terraform/EKS | API server open to `0.0.0.0/0` in prod (default never overridden) |
-| 3 | P1 | Terraform/VPC | Worker nodes in public subnets with public IPs in prod |
-| 4 | P1 | CI security | IaC scanners never see the real cluster config (registry-module blind spot) |
-| 5 | P1 | Redis | Job-state store is non-durable (emptyDir, no persistence, SPOF) vs. advertised 7-day TTL |
-| 6 | P1 | audio-api | Per-request Kafka `flush()` uses a global counter → false "delivery failed" under load |
-| 7 | P1 | Kyverno | Pod admission coupled to public sigstore (`failurePolicy: Fail`) |
-| 8 | P1 | Helm | demo-app HPA + hardcoded `replicas` fight; `:latest` default, no `required` repo |
-| 9 | P2 | llm-gateway | Rate limiter is per-pod → effective limit scales with replica count |
-| 10 | P2 | NetworkPolicy | Several `egress: - {}` / unscoped `:443`/`:53` rules undermine zero-trust |
-| 11 | P2 | Tenancy | Tenant egress to `apps:8000` lets tenants bypass the llm-gateway |
-| 12 | P2 | audio-api | `/readyz` does a blocking `redis.ping()` on the event loop |
-| 13 | P2 | Terraform/IAM | Dead IAM roles (cluster-autoscaler, ecr-pull→`apps:default`) |
-| 14 | P2 | CI supply chain | CI tool binaries fetched via `curl | tar` with no checksum verification |
-| 15 | P2 | CI | Promotion job only avoided looping by GitHub's `GITHUB_TOKEN` no-recursion rule |
-| 16 | P2 | Storage | No S3 lifecycle policy + versioning on → unbounded object/version growth |
-| 17 | P2 | Workers | Redis job-state read-modify-write is non-atomic (lost-update window) |
-| 18 | P2 | Misc | k8s version drift in TF defaults; dedup-TTL < job-TTL; producer not idempotent |
+## Disposition summary
 
----
+Severities below preserve the original assessment, not a new severity for the
+remaining work.
 
-## P0 — Breaks a core capability or serious exposure
+| ID | Historical severity | Original concern | Status | Current disposition |
+|---|---|---|---|---|
+| 1 | P0 | KEDA Kafka TLS lacks cluster CA | Resolved | All four prod authentication resources reference the CA; live TLS/rotation proof remains |
+| 2 | P0 | Production EKS API public by default | Resolved | Private endpoint default; public access requires explicit CIDRs |
+| 3 | P1 | Worker nodes in public subnets | Resolved | Private subnet wiring, NAT, and private Karpenter discovery tags |
+| 4 | P1 | Registry modules invisible to IaC scanners | Partial | Expanded Checkov scan exists but is informational, not blocking |
+| 5 | P1 | Redis loses state on reschedule; single point of failure | Partial | PVC/AOF/PDB added; single-instance availability and recovery proof remain |
+| 6 | P1 | Audio delivery depends on global flush count | Resolved | Request-specific delivery acknowledgement controls acceptance |
+| 7 | P1 | Signature admission depends on public services | Partial | Dependency explicitly accepted; fail-closed policy retained; runbook/cache claims need correction |
+| 8 | P1 | Helm HPA/replica conflict and invalid image defaults | Resolved | Conditional replicas, required repository, version default, seccomp |
+| 9 | P2 | Rate limit multiplies across gateway replicas | Resolved | Production uses shared atomic Redis limiter; documented fallback tradeoffs remain |
+| 10 | P2 | Broad application egress | Partial | Gateway allow-all egress and unrestricted DNS fixed; unrestricted HTTPS destinations remain |
+| 11 | P2 | Tenant direct vLLM bypass | Resolved | Tenant port 8000 removed and vLLM ingress narrowed; separate gateway-access issue F1 |
+| 12 | P2 | Readiness ping blocks audio event loop | Resolved | Redis ping offloaded to executor |
+| 13 | P2 | Unused IAM roles | Resolved | Unused autoscaler/ECR-pull roles removed from configuration |
+| 14 | P2 | Unverified CI tool downloads | Resolved | Reported binaries use pinned SHA256 checks before installation |
+| 15 | P2 | Promotion can recursively trigger builds | Resolved | Manifest-only change guard plus `[skip ci]` promotion commit |
+| 16 | P2 | Versioned S3 objects grow without lifecycle | Partial | Audio/speech and old-version expiry added; current derived objects remain indefinite |
+| 17 | P2 | Redis job-state merge is non-atomic | Resolved | Shared atomic Lua merge preserves accumulated keys and TTL |
+| 18 | P2 | Versions, dedup TTL, producer retries, stale lag labels | Resolved | All four sub-findings corrected; targeted proof gaps remain |
 
-### 1. Prod KEDA Kafka scalers cannot authenticate → scale-from-zero is dead
-**Confirmed by code reading** (live-cluster impact, prod path).
-Files:
-- `services/stt-worker/k8s/overlays/prod/trigger-auth.yaml`
-- `services/stt-worker/k8s/overlays/prod/patch-scaledobject-kafka-auth.yaml`
-- same pair under `services/{worker-service,llm-worker,tts-worker}/k8s/overlays/prod/`
+## Partially addressed findings
 
-The prod patch turns on broker TLS for the KEDA trigger:
-```yaml
-- op: add
-  path: /spec/triggers/0/metadata/tls
-  value: enable
-- op: add
-  path: /spec/triggers/0/metadata/sasl
-  value: scram_sha512
-```
-but the `TriggerAuthentication` only supplies `password`:
-```yaml
-spec:
-  secretTargetRef:
-    - parameter: password
-      name: stt-worker
-      key: password
-```
-There is **no `ca` parameter**. Strimzi's `:9093` listener presents a cert signed by the
-**self-signed cluster CA**. The KEDA operator pod (in the `keda` namespace) has no copy of
-that CA, so the TLS handshake to the broker fails certificate verification. The worker pods
-themselves mount the CA (`KAFKA_SSL_CA_LOCATION=/mnt/kafka-certs/ca.crt`) — but **KEDA does
-not**, and KEDA is what reads consumer lag.
+### 4. Expanded IaC scanning is visible but not a blocking gate
 
-**Consequence:** every Kafka-triggered `ScaledObject` (worker-service + all three audio
-workers) goes into an error state in prod. With `minReplicaCount: 0`, the deployments stay at
-**0 replicas forever** → the entire audio pipeline and worker-service never process anything in
-prod. This is the single most impactful defect: the headline "KEDA scale-to-zero" capability is
-non-functional on the SCRAM/TLS path.
+The [CI workflow](.github/workflows/ci.yaml#L330) has a blocking Checkov pass
+over local Terraform and a separate pass with external-module download enabled.
+The [expanded pass](.github/workflows/ci.yaml#L354) uses `--soft-fail`.
+The original claim that scanners never see registry modules is obsolete;
+expanded findings still do not fail CI. Trivy gates findings subject to its
+configured exclusions.
 
-**Fix:** add the cluster CA to each `TriggerAuthentication`, e.g. mount the
-`platform-kafka-cluster-ca-cert` secret’s `ca.crt` and reference it via a `ca` parameter
-(`secretTargetRef`/`configMapTargetRef`), matching the worker’s own CA mount. Verify with
-`kubectl describe scaledobject` showing `READY=True` against the TLS listener.
+**Remaining work:** add selected blocking checks over expanded resources or a
+Terraform plan, and demonstrate negative cases for endpoint exposure, public
+node placement, and metadata-service settings. Review the global exemptions in
+[`.trivyignore.yaml`](.trivyignore.yaml#L57), especially `AVD-AWS-0164` and its
+obsolete public-node/no-NAT rationale, plus the IMDS/egress exemptions. A green
+wrapper scan is not complete evaluated-infrastructure coverage.
 
----
+### 5. Redis persistence is implemented; availability and recovery are not proven
 
-### 2. Prod EKS API server is reachable from the entire internet
-**Confirmed by code reading** (intentional for "showcase", but prod inherits it).
-Files: `terraform/modules/eks/variables.tf:28-32`, `terraform/modules/eks/main.tf:22-23`,
-`terraform/environments/prod/main.tf:31-53`.
+[Redis](kubernetes/platform/redis/manifests/redis.yaml#L59) enables AOF with
+`appendfsync everysec` and periodic snapshots. Its
+[volume claim](kubernetes/platform/redis/manifests/redis.yaml#L95) is 1 GiB RWO.
+The old `emptyDir`, disabled-persistence, and missing-PDB assertions are obsolete.
+It still runs one replica; its
+[PDB](kubernetes/platform/redis/manifests/redis.yaml#L123) permits one unavailable
+pod, including complete voluntary downtime.
 
-```hcl
-variable "allowed_cidrs" {
-  default = ["0.0.0.0/0"]
-}
-...
-cluster_endpoint_public_access       = true
-cluster_endpoint_public_access_cidrs = var.allowed_cidrs
-```
-Prod’s `module "eks"` block never overrides `allowed_cidrs`, so the production control plane is
-exposed to `0.0.0.0/0`. Authentication still applies, but for a project that markets supply-chain
-and zero-trust rigor, an internet-open prod API endpoint is the kind of thing a hiring manager
-will circle immediately. The comment "Allow kubectl from the internet (for a showcase project)"
-lives in the shared module, so it silently applies to prod too.
+**Remaining work:** establish recovery objectives, then exercise pod replacement
+with the same volume, disk exhaustion, and backup restore. Seven-day key TTL is
+a retention setting, not an availability or recovery guarantee. Keep the
+single-instance design's limit explicit; replication or a managed service is a
+separate requirement if high availability is needed.
 
-**Fix:** in prod, set `allowed_cidrs` to the office/CI egress ranges (or front with a bastion /
-private endpoint + VPN). At minimum, make the default `[]` and force every environment to opt in.
+**AWS prerequisite:** Redis relies on a default StorageClass and Kafka requests
+`gp3`. The authored [EKS add-ons](terraform/modules/eks/main.tf#L64) do not
+include EBS CSI, and this review found no repository StorageClass definition.
+Confirm the provisioner, class, and permissions before claiming production PVC
+readiness. This is a provisioning gap to resolve or document, not an observed
+failure on a deployed AWS cluster.
 
----
+### 7. Fail-closed signature admission is intentional; the runbook needs correction
 
-## P1 — Real correctness / operational risk
+The current [ImageValidatingPolicy](kubernetes/platform/kyverno-policies/base/verify-image-signatures.yaml#L34)
+uses `Deny`, `failurePolicy: Fail`, a 30-second timeout, exact signing identity,
+and a public Rekor endpoint. It matches platform ECR images; generated GHCR
+services are outside that selector. The external dependency is accepted in
+[ADR-009](docs/adr/adr-009-sign-verify-supply-chain.md). Preserve fail-closed
+admission; this reconciliation does not authorize weakening it.
 
-### 3. Prod worker nodes run in public subnets with public IPs
-**Confirmed by code reading.**
-Files: `terraform/modules/networking/main.tf:16-21`, `terraform/modules/eks/main.tf:19,91`.
+**Remaining work:** reconcile the
+[signature-admission runbook](docs/runbooks/image-signature-admission.md#L14)
+with the CEL policy. Its example still uses legacy ClusterPolicy fields, its
+approximately 60-minute `imageVerifyCache` claim is not established for the
+configured CEL verifier, and its refresh command annotates the policy rather
+than the owning Argo Application. Do not count that command or proposed mirrors
+as a verified recovery procedure.
 
-```hcl
-enable_nat_gateway      = false
-map_public_ip_on_launch = true
-...
-subnet_ids = var.public_subnet_ids   # eks + gpu nodegroup
-```
-Private subnets are created (and tagged `internal-elb`) but **nodes never land in them** — every
-node, including future GPU nodes running the model, gets a public IP and sits directly on the
-internet. This is a cost optimization (no NAT gateway) traded against a materially larger attack
-surface. For a "production" posture this is a finding; combined with #2 it’s a weak security
-story overall.
+Test signed/unsigned images, signer mismatch, dependency unavailability, and
+cold/warm paths before claiming cache or outage recovery. Private/offline
+verification infrastructure remains a possible architecture decision, not an
+implemented control or an automatic requirement for this showcase.
 
-**Fix:** run nodes in private subnets with a NAT gateway (or VPC endpoints for S3/ECR/etc. to
-keep NAT cost low). If cost is the constraint, document it as an explicit *dev-only* shortcut and
-keep prod private.
+### 10. DNS and gateway egress narrowed; broad HTTPS remains
 
-### 4. IaC security scanners have a registry-module blind spot
-**Confirmed by code reading.**
-Files: `.github/workflows/ci.yaml` (`checkov`, `trivy-iac` jobs).
+The [gateway policy](services/llm-gateway/k8s/base/networkpolicy.yaml#L28)
+restricts egress to namespace/port combinations and CoreDNS.
+[vLLM](services/vllm-inference/k8s/base/networkpolicy.yaml#L29) also scopes DNS,
+but retains destination-unrestricted HTTPS. That permission also remains in
+[STT](services/stt-worker/k8s/base/networkpolicy.yaml#L37),
+[TTS](services/tts-worker/k8s/base/networkpolicy.yaml#L52),
+[LLM worker](services/llm-worker/k8s/base/networkpolicy.yaml#L62), and
+[audio API](services/audio-api/k8s/base/networkpolicy.yaml#L61), including their
+rendered dev overlays.
 
-Checkov runs `soft_fail: false` and Trivy config-scans the repo, which *looks* like strong IaC
-gating. But the EKS cluster and VPC are provisioned through **Terraform Registry modules**
-(`terraform-aws-modules/eks/aws`, `.../vpc/aws`). Neither Checkov (without
-`download_external_modules: true`) nor Trivy evaluates the resources *inside* those modules. So
-the actual cluster config — public endpoint `0.0.0.0/0` (#2), public-subnet nodes (#3) — is
-**never assessed**, and CI is green. The scanning is partly theater: it gates the thin local
-wrapper, not the resources that matter.
+**Remaining work:** identify required S3/model-download destinations and implement
+or explicitly accept the appropriate egress boundary per environment. Test both
+required access and denied arbitrary destinations. Current port restrictions
+do not establish destination-restricted HTTPS or complete exfiltration
+prevention. Local Cilium evidence does not establish AWS enforcement.
 
-**Fix:** enable external-module download in Checkov (`--download-external-modules true`) or add
-explicit `aws_eks_cluster`/subnet assertions; add targeted policy that fails on
-`cluster_endpoint_public_access_cidrs` containing `0.0.0.0/0`.
+### 16. Lifecycle rules exist; current derived objects remain indefinite
 
-### 5. Redis "job-state store" is non-durable and a SPOF
-**Confirmed by code reading.**
-File: `kubernetes/platform/redis/manifests/redis.yaml`.
+The [Crossplane composition](kubernetes/platform/crossplane/config/composition.yaml#L147)
+creates lifecycle rules for audio/speech expiry, noncurrent-version expiry
+across prefixes, and abandoned multipart uploads. The
+[bucket settings](kubernetes/platform/crossplane/config/audio-bucket-claim.yaml#L31)
+select 30-day audio and seven-day noncurrent-version retention;
+[IAM](terraform/modules/iam/main.tf#L109) includes lifecycle permissions.
+The original claim that lifecycle is only a TODO is obsolete.
 
-```sh
-printf 'save ""\nappendonly no\nrequirepass %s\n' ...   # no RDB, no AOF
-```
-- Storage is `emptyDir`, persistence is **fully disabled** (`save ""`, `appendonly no`).
-- Single replica, **no PDB**.
+**Remaining work:** decide retention/deletion requirements for current
+`transcripts/` and `summaries/` objects, which have no expiration rule and can
+still grow indefinitely. Verify live bucket provisioning, lifecycle behavior,
+version/multipart cleanup, and teardown. The
+[provider IRSA annotation](kubernetes/platform/crossplane/config/provider.yaml#L17)
+still needs environment wiring. Rendering does not prove cloud data deletion.
 
-`AGENTS.md` and the pipeline contract advertise a **7-day TTL** job state and a `GET /jobs/{id}`
-lookup. In reality, any Redis pod reschedule (node drain, Karpenter consolidation, OOM, image
-update) **wipes all job state**, so previously-"queued"/"done" jobs return 404 and in-flight
-dedup keys vanish. The durability claim is contradicted by the deployment. Calling it a "demo
-state store" in a comment doesn’t reconcile with the contract language elsewhere.
+## Resolved findings and verification boundaries
 
-**Fix:** for a credible story, back Redis with a PVC and enable AOF (`appendonly yes`), or use a
-managed ElastiCache in prod; add a PDB. If it’s truly throwaway, downgrade the contract language
-so the advertised guarantee matches reality.
+### 1. Kafka scaler CA configuration
 
-### 6. audio-api: per-request Kafka delivery check uses a global flush counter
-**Confirmed by code reading.**
-File: `services/audio-api/main.py:268-299`.
+Prod authentication resources for
+[worker-service](services/worker-service/k8s/overlays/prod/trigger-auth.yaml#L9),
+[STT](services/stt-worker/k8s/overlays/prod/trigger-auth.yaml#L9),
+[LLM](services/llm-worker/k8s/overlays/prod/trigger-auth.yaml#L9), and
+[TTS](services/tts-worker/k8s/overlays/prod/trigger-auth.yaml#L9) supply the CA and
+password, with username from the workload environment.
+[Kafka CA annotations](kubernetes/platform/kafka/base/kafka.yaml#L55) arrange
+reflection into `apps`. All four prod overlays render with port 9093, TLS,
+SCRAM-SHA-512, and their authentication reference.
 
-A single module-global `confluent_kafka.Producer` is shared across all requests. Each request
-registers a per-request `on_delivery` closure (correct) but then decides success on:
-```python
-remaining = await loop.run_in_executor(None, lambda: kafka_producer.flush(timeout=5))
-if delivery_errors or remaining:
-    ... mark job failed, return 503
-```
-`flush()` returns the count of **all** messages still in the producer queue — not just this
-request’s. Under concurrent uploads, request A’s `flush()` can return `remaining > 0` purely
-because request B’s message is still in flight, so A is told **"kafka delivery timeout"**, its job
-is marked `failed` in Redis, and the client gets a 503 — even though A’s own event was delivered
-fine (and will be consumed downstream). This produces phantom failures and inconsistent Redis
-state under load.
+**Proof still needed:** live TLS scaler readiness, activation from zero, and CA
+rotation. Successful local plaintext Kafka tests do not prove these paths.
 
-**Fix:** gate success on the per-request delivery callback only (`poll()` until this message’s
-callback fires, or use a `Future`/threaded producer per request), not on the global `flush()`
-remaining count. Consider one producer with `flush()` only at shutdown and per-message
-confirmation via the callback.
+### 2. Production API endpoint defaults
 
-### 7. Image-signature admission couples pod scheduling to public sigstore
-**Confirmed by code reading** (availability risk).
-File: `kubernetes/platform/kyverno-policies/base/verify-image-signatures.yaml`.
+[Production](terraform/environments/prod/main.tf#L105) defaults public access
+off. The [EKS module](terraform/modules/eks/main.tf#L37) keeps private access on,
+and [input validation](terraform/modules/eks/variables.tf#L43) requires explicit
+CIDRs for public access and rejects literal `0.0.0.0/0` in prod. Actual
+plan/applied endpoint and private operator/CI access remain unverified in AWS.
 
-```yaml
-validationFailureAction: Enforce
-failurePolicy: Fail
-background: false
-webhookTimeoutSeconds: 30
-... rekor: { url: https://rekor.sigstore.dev }
-```
-Every admission of a `*/platform-core/*` image performs keyless cosign verification against the
-**public Fulcio/Rekor**. With `failurePolicy: Fail` and `background: false`, if sigstore is slow or
-unreachable, pod creation **blocks up to 30s and then fails**. That means a sigstore outage (or
-just the prod nodes losing egress to it) can prevent *all* app pods from starting — including KEDA
-scale-from-zero events and post-incident restarts. You’ve correctly chosen fail-closed for
-security, but the operational blast radius (cluster availability tied to a third-party SaaS) isn’t
-acknowledged or mitigated.
+### 3. Private node placement
 
-**Fix:** run a Rekor/Fulcio mirror or use the TUF cached roots + `ctlog`/`tlog` offline
-verification options; or scope `failurePolicy: Fail` to a subset and document the dependency in a
-runbook with a break-glass (temporarily switch to `Ignore`).
+[Production wiring](terraform/environments/prod/main.tf#L53) and the
+[EKS module](terraform/modules/eks/main.tf#L34) use private subnets for
+control-plane ENIs and node groups. [Networking](terraform/modules/networking/main.tf#L36)
+enables NAT, disables automatic public IPs, and tags only private subnets for
+[Karpenter discovery](kubernetes/platform/karpenter/config/ec2nodeclass.yaml#L21).
+Applied routes, node IPs, and Karpenter provisioning remain unverified; its
+environment-specific role placeholder must also be wired.
 
-### 8. demo-app Helm chart: HPA vs. replicas fight; `:latest` default
-**Confirmed by code reading + `helm lint`.**
-Files: `helm/demo-app/templates/deployment.yaml:9`, `helm/demo-app/templates/hpa.yaml`,
-`helm/demo-app/values.yaml`.
+### 6. Per-request Kafka delivery acknowledgement
 
-- `hpa.enabled: true` by default **and** the Deployment hardcodes
-  `replicas: {{ .Values.replicaCount }}` (2). With both present, every `helm upgrade` / ArgoCD
-  sync rewrites `replicas` back to 2, fighting the HPA and causing scale flapping. The Deployment
-  must omit `replicas` when `hpa.enabled`.
-- `values.yaml` sets `image.tag: latest` and `image.repository: ""` with a comment "required",
-  but there’s no `{{ required ... }}` guard. A `helm install` without overriding repository
-  renders `image: ":latest"` — both an invalid ref and a violation of your own no-`:latest`
-  policy.
-- Minor: pod/container hardening here omits `seccompProfile: RuntimeDefault` that the
-  kustomize service manifests set — inconsistent.
+[Audio API](services/audio-api/main.py#L166) now waits for its own delivery
+callback/event, polls the shared producer, and offloads this work to an executor.
+Global `flush()` remains at shutdown, not as the request acceptance condition.
+[Delivery rejection coverage](services/audio-api/test_main.py#L276) and recorded
+live audio/smoke runs support the changed path. A concurrent-upload regression
+with another message still pending would prove the exact historical contention
+case more directly.
 
-**Fix:** wrap `replicas` in `{{- if not .Values.hpa.enabled }}`; use
-`required "image.repository must be set"`; drop the `:latest` default or set it to the chart
-`appVersion`.
+### 8. Helm replica ownership and defaults
 
----
+The [Deployment template](helm/demo-app/templates/deployment.yaml#L8) omits
+replicas when HPA is enabled, requires an image repository, defaults its tag to
+the chart version, and sets `RuntimeDefault` seccomp. This reconciliation's
+render checks confirmed missing-repository rejection, no Deployment replicas
+with HPA enabled, two replicas/no HPA with it disabled, and tag `1.0.0`.
+This does not establish live HPA scaling behavior.
 
-## P2 — Hardening, consistency, cost, polish
+### 9. Shared production rate limiting
 
-### 9. llm-gateway rate limiter is per-pod
-File: `services/llm-gateway/app/rate_limiter.py`, `services/llm-gateway/main.py:37`.
-The sliding window is in-process. Prod runs 2 replicas, so the *effective* per-IP limit is
-~2× `RATE_LIMIT_RPM` and is nondeterministic (depends on which pod the LB picks). It’s honestly
-labelled "good enough for demo scale", but for a service whose entire reason to exist is rate
-limiting in front of an expensive GPU, a shared store (Redis token bucket) is the expected design.
+The [Redis limiter](services/llm-gateway/app/rate_limiter.py#L87) uses an atomic
+sliding window and is selected when Redis is configured. The
+[production overlay](services/llm-gateway/k8s/overlays/prod/patch-redis.yaml#L23)
+wires Redis for two gateway replicas. Existing
+[tests](services/llm-gateway/test_main.py#L78) cover script results, Lua behavior,
+and Redis-unavailable fallback.
 
-### 10. Several NetworkPolicies quietly defeat the zero-trust narrative
-Files: `services/llm-gateway/k8s/base/networkpolicy.yaml` (egress `- {}`),
-`services/vllm-inference/k8s/base/networkpolicy.yaml` (egress `- {}`),
-`services/stt-worker/k8s/base/networkpolicy.yaml` (unscoped `:443` and `:53`).
-- llm-gateway egress is `- {}` (allow all) though it only needs vLLM:8000 + DNS + OTLP.
-- Workers allow `:443` to **any** destination and `:53` to **any** destination, whereas the
-  tenant template correctly scopes DNS to `kube-system/k8s-app=kube-dns`. A compromised worker
-  has unrestricted outbound HTTPS — the usual exfiltration path. The tenant template shows you
-  know the right pattern; the service manifests don’t follow it.
+**Accepted tradeoffs:** dev's in-memory limiter is per-pod; the Redis limiter
+intentionally fails open on Redis errors. It does not enforce a global cap
+during that outage. A real multi-replica/shared-key load test and outage exercise
+remain verification work.
 
-### 11. Tenants can bypass the llm-gateway
-File: `kubernetes/tenants/_template/network-policies.yaml:90-117`.
-`allow-to-platform` opens egress to `apps` namespace port `8000` (vLLM) for every tenant. The
-architecture exists to force traffic through llm-gateway (rate limiting, observability), but
-tenants can hit vLLM directly on 8000, bypassing it. Either point tenants at the gateway port
-(`8080`) or drop the `apps:8000` allowance.
+### 11. Direct tenant-to-vLLM bypass
 
-### 12. audio-api `/readyz` blocks the event loop
-File: `services/audio-api/main.py:122-144`.
-The upload path correctly offloads Redis to `run_in_executor`, but `/readyz` calls the
-synchronous `redis_client.ping()` directly inside the coroutine. Under a slow/hung Redis the
-readiness probe stalls the event loop for all in-flight requests. Offload it like the rest.
+[Tenant egress](kubernetes/tenants/_template/network-policies.yaml#L116) permits
+gateway ports 80/8080 instead of vLLM port 8000.
+[vLLM ingress](services/vllm-inference/k8s/base/networkpolicy.yaml#L15) additionally
+requires both `apps` namespace and gateway pod label. The reported bypass is
+removed in configuration. Positive tenant-to-gateway access is a separate issue,
+tracked as F1 below.
 
-### 13. Dead IAM roles
-File: `terraform/modules/iam/main.tf:42-56,166-184`.
-`irsa_cluster_autoscaler` is explicitly unused (comment says so) and `irsa_ecr_pull` binds
-`apps:default` — but every app uses its own named ServiceAccount and nodes already have ECR pull
-via the node role. Both create real IAM roles nobody assumes: needless attack surface and drift.
-Remove them.
+### 12. Nonblocking readiness probe
 
-### 14. CI bootstraps its own toolchain without integrity checks
-Files: `.github/workflows/ci.yaml`, `.github/workflows/docker-build.yaml`.
-kustomize, kubeconform, conftest, and trivy binaries are installed via
-`curl -sSL … | tar -xz` from GitHub releases with **no checksum/signature verification**. The
-pipeline that enforces image signing and SBOMs is itself installing unverified executables that
-then gate the build. Pin by sha256 (or use the official setup actions that verify).
+[Audio readiness](services/audio-api/main.py#L139) offloads Redis `ping()` with
+`run_in_executor`; a [basic test](services/audio-api/test_main.py#L260) exists.
+A slow-Redis concurrency regression would strengthen evidence. The client does
+not set explicit socket timeouts, so executor offload is not itself a bounded
+readiness-time guarantee.
 
-### 15. Image-promotion job is one config change away from an infinite loop
-File: `.github/workflows/docker-build.yaml:148-158` + trigger `paths: services/**`.
-The promotion step commits to `services/<app>/k8s/overlays/prod/**` — which is under the
-workflow’s own `paths` trigger. It does not loop today **only** because GitHub suppresses workflow
-runs for pushes made with the default `GITHUB_TOKEN`. The moment someone switches the checkout to
-a PAT/deploy key (a common change to satisfy branch protection), every promotion re-triggers the
-build → new SHA → new digest → new promotion → infinite commit storm. Add `[skip ci]`/path
-exclusion or an explicit guard so the safety doesn’t rest on an implicit platform behavior.
+### 13. Unused IAM declarations removed
 
-### 16. No S3 lifecycle policy, versioning on → unbounded growth
-Files: `kubernetes/platform/crossplane/config/audio-bucket-claim.yaml:8-19`,
-`terraform/modules/iam/main.tf:147-163`.
-The Crossplane composition creates **versioned** buckets, the audio services never delete objects
-(IAM grants only `GetObject`/`PutObject`, no `DeleteObject`), and the lifecycle policy is a
-**TODO**. Raw audio + transcripts + summaries + speech + every version accumulate forever — a cost
-and data-retention/compliance issue for a pipeline handling user audio. At minimum add the
-documented expiry lifecycle before calling the prod path complete.
+The `irsa_cluster_autoscaler` and `irsa_ecr_pull` declarations are gone.
+[IAM source](terraform/modules/iam/main.tf#L180) explains their omission;
+[outputs](terraform/modules/iam/outputs.tf) expose retained roles. If an older
+AWS installation exists, inspect its plan and IAM inventory: source removal
+does not prove deployed roles were destroyed.
 
-### 17. Job-state read-modify-write is non-atomic
-Files: `services/*/app/job_state.py` (`set_job_state` / `mark_*` / `set_*`).
-Each helper does `GET` → mutate JSON → `SET`. The `job_id` partition key makes intra-stage
-concurrency unlikely, but during a rebalance/redelivery two pods can process the same job briefly
-and clobber each other’s `keys` accumulation (lost update). Low probability, but for a "single
-source of truth" job document it’s worth a `WATCH`/Lua-script CAS or per-field `HSET`.
-*(Note: Redis errors themselves are correctly swallowed in all four workers — verified — so this
-is purely the concurrency window, not an error-handling gap.)*
+### 14. Reported CI binary downloads verified
 
-### 18. Smaller correctness/consistency nits
-- **k8s version drift:** `terraform/modules/eks/variables.tf:14` defaults `1.29`, prod sets
-  `1.31`, `AGENTS.md`/comments reference `1.29`. Pick one source of truth.
-- **Dedup TTL < job TTL:** workers set `dedup:<stage>:<id>` for 86400s but job state lives
-  604800s. A redelivery after 24h (slow DLQ replay, long lag) re-processes and re-emits — at
-  least-once is fine, but the dedup guarantee is narrower than it looks.
-- **Producer not idempotent:** no `enable.idempotence=true` / explicit `acks` on any
-  `confluent_kafka.Producer`. librdkafka defaults to `acks=all` (durable) but non-idempotent, so
-  internal retries can duplicate/reorder on the output hop. Downstream dedup covers it; setting
-  idempotence makes the intent explicit.
-- **Consumer-lag gauge staleness:** `worker-service/app/kafka_io.py:update_lag` labels by
-  partition and never clears revoked partitions, so the `worker_consumer_lag` gauge keeps stale
-  series after a rebalance.
+Pinned SHA256 checks precede installation for
+[Kustomize](.github/workflows/ci.yaml#L148),
+[conftest](.github/workflows/ci.yaml#L206),
+[kubeconform](.github/actions/setup-kubeconform/action.yaml#L49), and
+[Trivy](.github/actions/setup-trivy/action.yaml#L31). The
+[release workflow](.github/workflows/docker-build.yaml#L280) also checks its
+Kustomize download; Helm and kube-linter have corresponding checks. This closes
+the reported binary-integrity defects, not every possible supply-chain risk.
 
----
+### 15. Promotion recursion guarded explicitly
 
-## What’s genuinely strong (so the triage is honest)
-- The Kafka consume→produce→commit ordering (`produce_confirmed` before manual commit, crash =
-  redeliver) is correct at-least-once and well-reasoned; the inline comments explain *why*, not
-  *what*.
-- Trace-context propagation across HTTP **and** Kafka headers, with `created_at` carried forward
-  for a true end-to-end metric, is a cut above typical demos.
-- The OPA `--combine` relationship checks (NetworkPolicy actually selects each workload) and the
-  Rollout-inclusive `workloads` set are thoughtful.
-- Trivy-before-push gating and digest-pinned promotion is the right supply-chain shape (the gaps
-  above are at the edges, not the core).
+The [change detector](.github/workflows/docker-build.yaml#L94) excludes service
+`k8s/` changes from the build matrix; its output gates tests/build/promotion.
+The [promotion commit](.github/workflows/docker-build.yaml#L331) also includes
+`[skip ci]`. Normal promotion-only pushes no longer rely solely on the default
+token's workflow suppression. Actual signing/promotion still needs configured
+infrastructure and successful execution evidence.
 
-The recurring theme to fix: **several "production" claims are only true on paper** (KEDA TLS auth,
-Redis durability, IaC scanning coverage, S3 lifecycle, public-endpoint posture). For a showcase,
-either make them true or scope the claims to match what’s actually wired. That gap is exactly what
-a skeptical reviewer will probe.
+### 17. Atomic job-state merge
+
+The [shared helper](services/platform-common/src/platform_common/job_state.py#L22)
+merges accumulated keys and writes TTL in one Redis Lua call. Shared stages use
+it; [unit coverage](services/platform-common/tests/test_state_and_dedup.py#L5) and
+[real dependency tests](tests/infrastructure/test_recovery.py#L175) check retained
+keys/state. A concurrent-client merge test would strengthen the contention proof.
+Atomic merge does not enforce monotonic status transitions, and Redis errors
+remain best-effort; these are separate limits from the lost-key race.
+
+### 18. Four smaller findings corrected
+
+| Sub-finding | Current implementation | Remaining boundary |
+|---|---|---|
+| Version drift | [EKS input](terraform/modules/eks/variables.tf#L17) has no stale default; [dev](terraform/environments/dev/main.tf#L58) and [prod](terraform/environments/prod/main.tf#L58) select 1.36; CI schemas target 1.36.0 and kind uses 1.36.4 | Patch differences are intentional; pins still need coordination and EKS upgrades were not exercised |
+| Dedup TTL shorter than job TTL | [Shared stage](services/platform-common/src/platform_common/stage.py#L136) uses the same 604800-second setting for completed dedup and state; [tests](services/platform-common/tests/test_state_and_dedup.py#L31) assert it | Processing leases are shorter by design; TTL inspection is not a seven-day soak; ordinary worker-service dedup stays in-memory |
+| Non-idempotent producer retries | [Audio producer](services/audio-api/main.py#L95) and [shared worker producer](services/platform-common/src/platform_common/kafka_io.py#L90) enable idempotence | This is not transactional exactly-once processing and does not eliminate duplicates after restart |
+| Stale revoked-partition lag series | [Shared lag refresh](services/platform-common/src/platform_common/kafka_io.py#L131) clears the gauge before rebuilding current assignments | No direct rebalance regression found; stale labels can persist until the next approximately 15-second refresh |
+
+## F1. Follow-up discovered: tenant gateway access is incomplete
+
+This is separate from resolved historical finding 11. Tenant egress permits
+gateway traffic, but [gateway ingress](services/llm-gateway/k8s/base/networkpolicy.yaml#L14)
+only permits monitoring and same-namespace `llm-worker` pods; dev also permits
+Envoy. Rendered dev/prod aggregates contain no other policy selecting the gateway
+that grants direct tenant access.
+
+**Status: open, confirmed in configuration; no new live connectivity test run.**
+Decide whether generic tenants should call the authenticated gateway. If yes,
+add narrowly scoped ingress and test authorized tenant-to-gateway access while
+retaining the denial of direct vLLM access. If no, remove the misleading
+allowance/documentation. Do not reopen port 8000 as a workaround.
+
+## Evidence collected for this reconciliation
+
+- Inspected source and existing test definitions at the audited commit;
+  earlier runtime results remain in the linked QA report.
+- Rendered all four prod Kafka-worker overlays and inspected TLS/auth references.
+- Rendered demo-app with/without HPA and verified missing-repository rejection,
+  replica ownership, image tag, and seccomp.
+- Rendered dev/prod overlays for gateway, vLLM, STT, TTS, LLM worker, and audio API;
+  inspected both aggregate NetworkPolicy selector sets for F1.
+- No new AWS, signed-image admission, broker-fault, Redis-restore, or live tenant
+  connectivity verification is implied by these read-only checks.
