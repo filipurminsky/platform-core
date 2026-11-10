@@ -4,8 +4,9 @@ This record covers the reliability, developer setup and security follow-ups to
 the [November 9 DEV assessment](qa-dev-2026-11-09.md). The implementation commits
 include `041d6b444e47e00ae566c596e61db295566a102b`,
 `b51b50a9989195527a3d6362530a03c8c16ada82`,
-`3707bdfe159f7fcfe41fd7eac1f1d50913b6617c`, and
-`c7f98b8529239de72b9ebd6681f280fa4134fc1f`. Results below are scoped to the
+`3707bdfe159f7fcfe41fd7eac1f1d50913b6617c`,
+`c7f98b8529239de72b9ebd6681f280fa4134fc1f`, and
+`7ac8f0a803874a4a590e04724bf04271cc3a9bf5`. Results below are scoped to the
 commands and environments actually exercised; they do not establish AWS operation.
 The [portable evidence summary](evidence/followups-2026-11-10.json) preserves
 nonsecret outcomes beyond the hosted artifact retention window.
@@ -16,7 +17,7 @@ nonsecret outcomes beyond the hosted artifact retention window.
 |---|---|
 | Python suites | 208 passed, 1 skipped, across eight projects |
 | Audio contract suite | 4 passed |
-| Operational scripts | 43 passed after adding pod-persistence and cold-install deadline checks |
+| Operational scripts | 47 passed, including persistence, deadlines, default/override propagation and failure handling |
 | Workflow contexts | All workflows linted; 2 positive/negative regression tests passed |
 | Infrastructure security guards | 31 source/plan fixture tests passed, including rejection of unsafe configurations |
 | Generated service/portal contracts | 16 passed, including route timeouts and retry policies for app/platform registrations |
@@ -41,6 +42,9 @@ These runs are not evidence of release signing or production promotion.
 The retry and connection-regression revision `c7f98b8` also passed
 [main CI](https://github.com/filipurminsky/platform-core/actions/runs/42830429342)
 and the [15-test generated-service contract](https://github.com/filipurminsky/platform-core/actions/runs/42830429286).
+The broader platform retry repair `7ac8f0a` passed
+[main CI](https://github.com/filipurminsky/platform-core/actions/runs/42835497764)
+and the [expanded 16-test contract](https://github.com/filipurminsky/platform-core/actions/runs/42835497314).
 
 ## Real dependency and Redis backup recovery
 
@@ -202,7 +206,7 @@ The repair gives all eight app ApplicationSets and generated service
 registrations automatic retries with a 10-second initial backoff, factor two,
 and 60-second cap. Retries can pick up a corrected source revision. The
 bootstrap observer retains its finite timeout and fails if convergence does
-not complete. Another fresh published-source acceptance run is required.
+not complete. The subsequent attempts below test this repair.
 
 ## Fresh bootstrap: platform dependency retries
 
@@ -219,13 +223,70 @@ unavailable. The controller explicitly logged that it would not retry their
 failed revision. The monitoring admission hook was still waiting for its cold
 image pull. No manual resync was performed, and this attempt is also a failure.
 
-The repair now covers all 16 identified platform registrations that consume
+The repair at `7ac8f0a` covers all 16 identified platform registrations that consume
 CRDs supplied by another Application, including monitoring, Gateway, Strimzi,
 Kyverno and external-secret resources. It preserves the existing explicit
 ten-retry budgets for monitoring, monitoring rules, Crossplane configuration
 and Karpenter configuration. Strict schemas passed for all 16 registrations;
-the expanded scaffolding suite passed 16 tests. Fresh acceptance remains
-required for this broader repair.
+the expanded scaffolding suite passed 16 tests. The following fresh run
+verifies this broader repair.
+
+The third cluster was removed and repeated teardown passed. The first retained-QA
+node query returned `Forbidden` during API startup; that failed restoration
+step remains in the lifecycle record. Access subsequently recovered without an
+authorization change. A separate follow-up verified the original container
+IDs, running containers, unchanged context, Ready nodes, all 37 Applications,
+Gateway readiness and four HTTP endpoints. Its 0.2-second duration is the later
+health-check time, not the total restoration time.
+
+## Fresh published-source lifecycle: passed
+
+The fourth attempt used a clean checkout of published `7ac8f0a`, a new
+three-node kind 1.36.4 cluster, a separate kubeconfig and Gateway port 28000.
+The host already had its tools, kind node image and Docker build caches;
+Kubernetes state and the platform images inside its nodes were fresh. The
+retained QA nodes were stopped temporarily to fit the 16 GiB Docker allocation.
+No temporary Git/catalog server or manual Argo sync was used.
+
+Bootstrap built and loaded all seven app images and completed in **2354.984
+seconds (39m15s)**. Application convergence took **1744.6 seconds (29m05s)**,
+within the explicit `--timeout=1800`. All 37 Applications were synced, 36 were
+healthy, vLLM was intentionally suspended, the Gateway's current generation
+was programmed, and all four routed health checks returned HTTP 200. First-party
+Git sources observed `7ac8f0a`; the catalog contained 28 entities and three
+templates with no recorded errors.
+
+The observer recorded nine or ten retries for the formerly blocked app and
+platform consumers, followed by successful automatic sync operations. KEDA's
+CRD became established at 14:55:55 UTC. This exercised recovery after the old
+retry budget, not merely a faster startup that avoided the race.
+
+| Functional check | Observed result |
+|---|---|
+| Redis pod replacement | New Ready pod UID in 12.692 s; exact values/TTLs verified in 12.884 s on the same PVC/PV; both owned keys removed; clean source recorded |
+| Full Kafka/DLQ/audio smoke | Passed in 88.026 s: specific ping consumed, matching poison dead-letter found, STT → LLM → TTS job completed using dev mocks/stubs |
+| Tenant access | All eight assertions passed in 39.420 s; probe cleanup had no errors |
+| Public portal | Real two-fetch `fetch:template` dry-run generated 25 files through the Gateway in 4.480 s; no publication/registration actions |
+| Final platform acceptance | All 37 Applications, Gateway and four HTTP checks passed again |
+| Teardown | Named deletion and repeated deletion both exited zero; fresh cluster absent |
+| Retained QA restoration | Original container identities and context preserved; node readiness and full Application/Gateway/HTTP acceptance passed; acceptance step took 31.045 s |
+
+Startup was not error-free. Long serialized image queues caused temporary
+deployment progress-deadline failures. Kyverno retained a failed historical
+sync operation after its admission Deployment became healthy automatically;
+all manifests had been applied and no hook was omitted. All three policies
+subsequently reported ready with their webhooks configured. OpenCost restarted
+while Prometheus was unavailable, then became ready after successful queries.
+No admission enforcement or health criteria were relaxed. Policy readiness is
+not a live ECR signature-verification or dependency-outage test.
+
+The former 1200-second default would have rejected this valid cold start.
+Bootstrap and the standalone waiter now default to **2400 seconds**, preserving
+explicit overrides and the separate 600-second Helm installation budget.
+Forty minutes adds headroom above the measured convergence time; it is not a
+startup guarantee. The default change received behavioral regression checks
+within the passing 47-test script suite. The full cluster result above remains
+at `7ac8f0a` with its explicit 1800-second budget.
 
 ## Remaining boundaries
 

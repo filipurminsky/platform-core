@@ -89,12 +89,12 @@ local mode, so overnight setup can converge. Applications reconcile from the con
 remote repository/revision. To demonstrate a fork, update the repository URLs
 in GitOps configuration and publish the intended revision first.
 
-`--wait` waits up to 1200 seconds for Applications to be Synced/Healthy, the
+`--wait` waits up to 2400 seconds for Applications to be Synced/Healthy, the
 Gateway's current generation to be programmed, and routed echo, audio health,
 and portal health requests to return HTTP 200. Only the intentionally paused
 `vllm-inference` Application may be Suspended. Failure exits nonzero and prints
 the evidence directory with observed revisions and actionable diagnostics.
-Use `--timeout=1800` for slower application convergence. Cilium and Argo CD
+Use `--timeout=<seconds>` to choose a different convergence budget. Cilium and Argo CD
 each have a separate, bounded Helm readiness budget of 600 seconds, including
 cold image pulls; override it with `--install-timeout=900` when needed. Failed
 installation prints the relevant namespace, pod/event commands, and budget.
@@ -141,20 +141,17 @@ must be deliberately replaced to consume the new image; a successful image
 load alone does not demonstrate that new code is serving. `--skip-images` is
 only for a cluster where all seven exact image references are already loaded.
 
-Initial verification on 2026-11-10 covered the source checker against a clean checkout
-of published `3dc159b`, actual builds/loads of all seven images into the existing
-QA cluster, and creation/deletion of a separate empty Kubernetes 1.36.4 cluster
-with repeated named teardown. Existing clusters and the selected kubectl
-context were preserved. A subsequent fresh full-stack attempt from published
-`b51b50a` temporarily stopped the retained QA nodes to fit the 16 GiB Docker
-allocation. It exposed a cold-install failure: Cilium's five-minute Helm deadline
-expired while successful image pulls were still completing. The fresh cluster
-was removed and retained QA restored. The configurable installation budget above
-addresses that failure. A second fresh attempt at `3707bdf` passed that phase
-but exposed exhausted child-Application retries just before KEDA's CRDs became
-available. It is also recorded as a failure, without a manual resync. See the
-[follow-up acceptance record](qa-followups-2026-11-10.md) for the diagnosis,
-repair and subsequent published-source results.
+On 2026-11-10, a clean checkout of published `7ac8f0a` completed a fresh
+three-node bootstrap without manual sync in 39m15s, including 29m05s of
+application convergence. Host tools and Docker build caches were already
+available; platform images had to load into the new nodes. That run used an
+explicit `--timeout=1800`; the current 2400-second default adds headroom.
+Kafka/DLQ/audio smoke, Redis pod replacement, tenant access, public catalog and
+template generation, repeated teardown, and restoration of the retained QA
+cluster all passed. Earlier failed attempts exposed the installation deadline
+and exhausted dependency retries; their evidence is preserved in the
+[follow-up acceptance record](qa-followups-2026-11-10.md). Allow setup time
+separately from a presentation; these timings are observations, not guarantees.
 
 Bootstrap refuses to reuse nodes outside Kubernetes 1.36 or a cluster still
 using kindnet. Updating the checked-in node image does not upgrade an existing

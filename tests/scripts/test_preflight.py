@@ -144,6 +144,53 @@ class BootstrapCompatibilityTests(ScriptSandbox):
                 self.assertIn("--install-timeout must be positive seconds", result.stderr)
                 self.assertFalse(self.log.exists())
 
+    def test_convergence_budget_reaches_waiter_and_its_failure_is_propagated(self):
+        self.tool("helm", "if args[:1] == ['version']: print('v4.3.1')\n")
+        self.tool(
+            "kubectl",
+            "if args[-4:] == ['get', 'nodes', '-o', 'json']:\n"
+            "    print(json.dumps({'items':[{'status':{'nodeInfo':{'kubeletVersion':'v1.36.4'}}}]}))\n"
+            "elif args[-3:] == ['get', 'daemonset', 'kindnet']: sys.exit(1)\n"
+            "elif args[:2] == ['get', 'secret']: sys.exit(1)\n"
+            "elif args == ['apply', '-f', '-']: sys.stdin.read()\n",
+        )
+        (self.root / "scripts/wait-for-dev.py").write_text(
+            "import json, os, sys\n"
+            "with open(os.environ['COMMAND_LOG'], 'a') as stream:\n"
+            "    stream.write(json.dumps(['wait-for-dev', *sys.argv[1:]]) + '\\n')\n"
+            "sys.exit(int(os.environ.get('WAITER_EXIT', '0')))\n"
+        )
+        for arguments, expected, status in (
+            ([], "2400", 0),
+            (["--timeout=777"], "777", 0),
+            (["--timeout=777"], "777", 93),
+        ):
+            with self.subTest(expected=expected, status=status):
+                self.log.write_text("")
+                result = self.run_script(
+                    "bootstrap.sh",
+                    "--cluster-name=regression-test",
+                    "--skip-images",
+                    "--wait",
+                    *arguments,
+                    WAITER_EXIT=str(status),
+                )
+                self.assertEqual(result.returncode, status, result.stderr)
+                waiter = next(cmd for cmd in self.commands() if cmd[0] == "wait-for-dev")
+                self.assertIn(f"--timeout={expected}", waiter)
+                self.assertIn("--context=kind-regression-test", waiter)
+                if status:
+                    self.assertIn("DEV convergence and routed endpoints", result.stderr)
+                    self.assertNotIn("DEV acceptance passed", result.stdout)
+
+    def test_invalid_convergence_budget_fails_before_any_tool_or_mutation(self):
+        for value in ("0", "-1", "1m", "unlimited"):
+            with self.subTest(value=value):
+                result = self.run_script("bootstrap.sh", f"--timeout={value}")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("--timeout must be positive seconds", result.stderr)
+                self.assertFalse(self.log.exists())
+
     def test_existing_old_or_mixed_nodes_rejected_before_cilium_or_context_change(self):
         for versions in (["v1.30.0"], ["v1.36.4", "v1.30.0"], []):
             with self.subTest(versions=versions):

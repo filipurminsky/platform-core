@@ -143,7 +143,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--context", required=True)
     parser.add_argument("--gateway-url", default="http://localhost")
-    parser.add_argument("--timeout", type=int, default=1200)
+    parser.add_argument("--timeout", type=int, default=2400)
     parser.add_argument("--interval", type=int, default=15)
     parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()

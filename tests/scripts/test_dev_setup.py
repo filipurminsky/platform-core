@@ -127,6 +127,50 @@ class PublishedSourceTests(ScriptSandbox):
 
 
 class AcceptanceTests(unittest.TestCase):
+    def test_nonpositive_deadline_is_rejected_before_inspection(self):
+        for value in (0, -1):
+            with (
+                self.subTest(value=value),
+                patch.object(
+                    sys,
+                    "argv",
+                    ["wait-for-dev.py", "--context=kind-regression-test", f"--timeout={value}"],
+                ),
+                patch.object(WAIT, "inspect") as inspect,
+                patch.object(sys, "stderr"),
+                self.assertRaises(SystemExit) as error,
+            ):
+                WAIT.main()
+            self.assertEqual(error.exception.code, 2)
+            inspect.assert_not_called()
+
+    def test_default_and_explicit_deadlines_bound_the_actual_poll_loop(self):
+        for arguments, deadline in (([], 2400), (["--timeout=37"], 37)):
+            with self.subTest(deadline=deadline), tempfile.TemporaryDirectory() as directory:
+                with (
+                    patch.object(
+                        sys,
+                        "argv",
+                        [
+                            "wait-for-dev.py",
+                            "--context=kind-regression-test",
+                            f"--evidence-dir={directory}",
+                            *arguments,
+                        ],
+                    ),
+                    patch.object(
+                        WAIT, "inspect", return_value=(["operator still starting"], {})
+                    ) as inspect,
+                    patch.object(WAIT.time, "monotonic", side_effect=[0, deadline - 0.5, deadline]),
+                    patch.object(WAIT.time, "sleep") as sleep,
+                ):
+                    self.assertEqual(WAIT.main(), 1)
+                self.assertEqual(inspect.call_count, 2)
+                sleep.assert_called_once_with(0.5)
+                evidence = json.loads((Path(directory) / "result.json").read_text())
+                self.assertEqual(evidence["elapsed_seconds"], deadline)
+                self.assertEqual(evidence["failures"], ["operator still starting"])
+
     def healthy_apps(self):
         return [
             {

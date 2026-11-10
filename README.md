@@ -20,6 +20,7 @@ not a claim of production operation or measured availability.
 
 - [Showcase walkthrough](docs/showcase.md): reproduce the developer journey and failure exercises.
 - [Evidence matrix](docs/evidence.md): what each check establishes and what remains unverified.
+- [Verified DEV run](docs/qa-followups-2026-11-10.md): clean-checkout bootstrap, recovery drills, hosted CI, and cleanup evidence.
 - [Engineering case study](docs/case-study-worker-recovery.md): delivery guarantees, failure windows, and tradeoffs.
 - [Local development](docs/local-dev.md): prerequisites, startup, access, and troubleshooting.
 - [Architecture decisions](docs/architecture.md): ownership boundaries and accepted tradeoffs.
@@ -81,6 +82,8 @@ For the Kubernetes path, use Docker, kind **≥ 0.33.0**, kubectl compatible wit
 Kubernetes **1.36**, and Helm **4.3.1**. The kind configuration pins node image
 **1.36.4**. Allocate at least 16 GiB of Docker memory for one full stack; the
 observed QA nodes used about 11 GiB. Concurrent clusters and builds need more.
+The verified cold-cluster bootstrap took about 39 minutes with existing host
+tools/build caches; allow setup time separately from the demo.
 See [local development](docs/local-dev.md) for setup and prerequisites.
 
 ```bash

@@ -4,7 +4,8 @@
     "041d6b444e47e00ae566c596e61db295566a102b",
     "b51b50a9989195527a3d6362530a03c8c16ada82",
     "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c",
-    "c7f98b8529239de72b9ebd6681f280fa4134fc1f"
+    "c7f98b8529239de72b9ebd6681f280fa4134fc1f",
+    "7ac8f0a803874a4a590e04724bf04271cc3a9bf5"
   ],
   "hosted_ci": [
     {
@@ -25,6 +26,11 @@
     {
       "revision": "c7f98b8529239de72b9ebd6681f280fa4134fc1f",
       "run_id": 42830429342,
+      "conclusion": "success"
+    },
+    {
+      "revision": "7ac8f0a803874a4a590e04724bf04271cc3a9bf5",
+      "run_id": 42835497764,
       "conclusion": "success"
     }
   ],
@@ -296,6 +302,323 @@
         "platform-core-qa"
       ],
       "context_preserved": true
+    },
+    {
+      "revision": "c7f98b8529239de72b9ebd6681f280fa4134fc1f",
+      "cluster": "platform-core-fresh-20261110-attempt3",
+      "started_utc": "2026-11-10T14:05:45.209542+00:00",
+      "finished_utc": "2026-11-10T14:26:24.901304+00:00",
+      "passed": false,
+      "failure_phase": "Platform consumers exhausted default retries while monitoring CRDs were absent; app consumers continued beyond the former limit",
+      "maximum_retry_counts": {
+        "akhq": 0,
+        "alloy": 5,
+        "argo-rollouts": 5,
+        "audio-api": 10,
+        "backstage": 0,
+        "cert-manager": 0,
+        "echo-service": 10,
+        "envoy-gateway": 0,
+        "envoy-gateway-config": 0,
+        "external-secrets": 0,
+        "gateway-api-crds": 0,
+        "grafana-dashboards": 0,
+        "kafka": 0,
+        "keda": 5,
+        "kyverno": 0,
+        "kyverno-policies": 0,
+        "llm-gateway": 10,
+        "llm-worker": 10,
+        "loki": 5,
+        "loki-config": 5,
+        "monitoring": 0,
+        "monitoring-rules": 5,
+        "namespaces": 0,
+        "opencost": 5,
+        "opentelemetry-collector": 5,
+        "platform": 0,
+        "redis": 0,
+        "reflector": 0,
+        "seaweedfs": 0,
+        "strimzi-operator": 0,
+        "stt-worker": 10,
+        "tempo": 5,
+        "tenant-alpha": 0,
+        "tenant-bravo": 0,
+        "tts-worker": 10,
+        "vllm-inference": 10,
+        "worker-service": 10
+      },
+      "monitoring_crd_established_at_stop": false,
+      "manual_sync_performed": false,
+      "stopped_after_confirmed_blocker": true,
+      "steps": [
+        {
+          "name": "clone",
+          "exit_code": 0,
+          "seconds": 1.587
+        },
+        {
+          "name": "source-preflight",
+          "exit_code": 0,
+          "seconds": 1.728
+        },
+        {
+          "name": "stop-retained-qa",
+          "exit_code": 0,
+          "seconds": 60.632
+        },
+        {
+          "name": "bootstrap",
+          "exit_code": -15,
+          "seconds": 1164.402
+        },
+        {
+          "name": "teardown",
+          "exit_code": 0,
+          "seconds": 6.465
+        },
+        {
+          "name": "teardown-repeat",
+          "exit_code": 0,
+          "seconds": 0.089
+        },
+        {
+          "name": "restart-retained-qa",
+          "exit_code": 0,
+          "seconds": 0.355
+        },
+        {
+          "name": "retained-qa-node-readiness",
+          "exit_code": 1,
+          "seconds": 3.866
+        }
+      ],
+      "remaining_clusters_after_teardown": [
+        "platform-core",
+        "platform-core-qa"
+      ],
+      "context_preserved": true,
+      "qa_initial_restore_error": "Initial node readiness query returned Forbidden during API startup",
+      "qa_restore_followup": {
+        "recorded_at": "2026-11-10T14:33:30.417397+00:00",
+        "node_readiness_passed": true,
+        "container_ids_match": true,
+        "containers_running": true,
+        "context_unchanged": true,
+        "authorization_changed": false,
+        "applications": 37,
+        "acceptance_seconds": 0.2,
+        "failures": [],
+        "gateway_programmed": true,
+        "endpoints": [
+          {
+            "host": "echo.platform-core.local",
+            "path": "/",
+            "status": 200
+          },
+          {
+            "host": "echo.platform-core.local",
+            "path": "/healthz",
+            "status": 200
+          },
+          {
+            "host": "audio-api.platform-core.local",
+            "path": "/healthz",
+            "status": 200
+          },
+          {
+            "host": "backstage.platform-core.local",
+            "path": "/.backstage/health/v1/readiness",
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "revision": "7ac8f0a803874a4a590e04724bf04271cc3a9bf5",
+      "cluster": "platform-core-fresh-20261110-attempt4",
+      "started_utc": "2026-11-10T14:36:21.536168+00:00",
+      "finished_utc": "2026-11-10T15:20:00.808340+00:00",
+      "passed": true,
+      "host_tools_and_build_cache_available": true,
+      "fresh_kubernetes_state": true,
+      "explicit_convergence_timeout_seconds": 1800,
+      "bootstrap_convergence_seconds": 1744.6,
+      "manual_sync_performed": false,
+      "maximum_retry_counts": {
+        "akhq": 0,
+        "alloy": 9,
+        "argo-rollouts": 9,
+        "audio-api": 9,
+        "backstage": 0,
+        "cert-manager": 3,
+        "echo-service": 10,
+        "envoy-gateway": 0,
+        "envoy-gateway-config": 0,
+        "external-secrets": 0,
+        "gateway-api-crds": 0,
+        "grafana-dashboards": 0,
+        "kafka": 0,
+        "keda": 9,
+        "kyverno": 5,
+        "kyverno-policies": 1,
+        "llm-gateway": 9,
+        "llm-worker": 10,
+        "loki": 9,
+        "loki-config": 9,
+        "monitoring": 4,
+        "monitoring-rules": 5,
+        "namespaces": 0,
+        "opencost": 9,
+        "opentelemetry-collector": 9,
+        "platform": 0,
+        "redis": 0,
+        "reflector": 0,
+        "seaweedfs": 5,
+        "strimzi-operator": 0,
+        "stt-worker": 9,
+        "tempo": 10,
+        "tenant-alpha": 0,
+        "tenant-bravo": 0,
+        "tts-worker": 10,
+        "vllm-inference": 10,
+        "worker-service": 9
+      },
+      "final_application_health": {
+        "Healthy": 36,
+        "Suspended": 1
+      },
+      "final_synced_applications": 37,
+      "historical_kyverno_operation_failure": "Admission Deployment ProgressDeadlineExceeded while image queued; Application later Synced/Healthy without manual sync.",
+      "opencost_restarted_before_prometheus_ready": true,
+      "steps": [
+        {
+          "name": "clone",
+          "exit_code": 0,
+          "seconds": 2.513
+        },
+        {
+          "name": "source-preflight",
+          "exit_code": 0,
+          "seconds": 1.67
+        },
+        {
+          "name": "stop-retained-qa",
+          "exit_code": 0,
+          "seconds": 60.539
+        },
+        {
+          "name": "bootstrap",
+          "exit_code": 0,
+          "seconds": 2354.984
+        },
+        {
+          "name": "redis-pod-replacement",
+          "exit_code": 0,
+          "seconds": 13.49
+        },
+        {
+          "name": "full-smoke",
+          "exit_code": 0,
+          "seconds": 88.026
+        },
+        {
+          "name": "tenant-access",
+          "exit_code": 0,
+          "seconds": 39.42
+        },
+        {
+          "name": "public-catalog",
+          "exit_code": 0,
+          "seconds": 0.401
+        },
+        {
+          "name": "public-template-dryrun",
+          "exit_code": 0,
+          "seconds": 4.539
+        },
+        {
+          "name": "final-acceptance",
+          "exit_code": 0,
+          "seconds": 0.239
+        },
+        {
+          "name": "teardown",
+          "exit_code": 0,
+          "seconds": 12.149
+        },
+        {
+          "name": "teardown-repeat",
+          "exit_code": 0,
+          "seconds": 0.083
+        },
+        {
+          "name": "restart-retained-qa",
+          "exit_code": 0,
+          "seconds": 0.348
+        },
+        {
+          "name": "retained-qa-node-readiness",
+          "exit_code": 0,
+          "seconds": 9.547
+        },
+        {
+          "name": "retained-qa-acceptance",
+          "exit_code": 0,
+          "seconds": 31.045
+        }
+      ],
+      "remaining_clusters_after_teardown": [
+        "platform-core",
+        "platform-core-qa"
+      ],
+      "context_preserved": true,
+      "qa_original_container_ids_preserved": true,
+      "public_sources": {
+        "applications": 37,
+        "application_sets": 22,
+        "catalog_entities": 28,
+        "catalog_templates": [
+          "llm-service",
+          "microservice",
+          "platform-app"
+        ],
+        "git_sources_checked": 21,
+        "all_observed_expected_revision": true,
+        "public_catalog_configured": true,
+        "failures": []
+      },
+      "template_dry_run": {
+        "source": "published GitHub main; two absolute fetch:template URLs",
+        "actions": [
+          "fetch:template",
+          "fetch:template"
+        ],
+        "generated_file_count": 25,
+        "external_writes": false,
+        "elapsed_seconds": 4.48
+      },
+      "policy_readiness": [
+        {
+          "kind": "ValidatingPolicy",
+          "name": "disallow-latest-tag",
+          "ready": true,
+          "webhook_configured": true
+        },
+        {
+          "kind": "ValidatingPolicy",
+          "name": "require-pod-standards",
+          "ready": true,
+          "webhook_configured": true
+        },
+        {
+          "kind": "ImageValidatingPolicy",
+          "name": "verify-image-signatures",
+          "ready": true,
+          "webhook_configured": true
+        }
+      ]
     }
   ],
   "public_source_migration": {
@@ -444,5 +767,83 @@
         "no Kubernetes/Gateway API policy translation exercised"
       ]
     }
+  },
+  "generated_service_contract_followup": {
+    "revision": "7ac8f0a803874a4a590e04724bf04271cc3a9bf5",
+    "run_id": 42835497314,
+    "conclusion": "success",
+    "tests": 16
+  },
+  "fresh_kubernetes_redis_pod_recovery": {
+    "context": "kind-platform-core-fresh-20261110-attempt4",
+    "passed": true,
+    "cleanup": {
+      "owned_keys_deleted": 2
+    },
+    "source": {
+      "script_sha256": "5f3c2ded95b5fdfb1837933aaf627cf5b432a140bd4cd662b76ff7e70cf718a8",
+      "commit": "7ac8f0a803874a4a590e04724bf04271cc3a9bf5",
+      "worktree_dirty": false
+    },
+    "before": {
+      "image": "redis:7.4.12-alpine",
+      "pod_uid": "cf985045-fa44-4e84-b36d-0788ab79e4c4",
+      "node": "platform-core-fresh-20261110-attempt4-worker",
+      "statefulset_uid": "00d131dd-cb4c-4e0e-ad0a-62eb7ab04bea",
+      "pvc_name": "data-redis-0",
+      "pvc_uid": "b3b54a48-0487-4bdc-b257-53c86965236c",
+      "pv_name": "pvc-b3b54a48-0487-4bdc-b257-53c86965236c",
+      "pv_uid": "1a8c3245-c199-46e3-8a6d-c2e4c47c8c79",
+      "storage_class": "standard"
+    },
+    "job_id": "f5d6dcee97d5433b8f02c71b460e0dcb",
+    "after": {
+      "image": "redis:7.4.12-alpine",
+      "pod_uid": "6cf46907-a0d4-4205-a0ce-c5e8dad4d9ab",
+      "node": "platform-core-fresh-20261110-attempt4-worker",
+      "statefulset_uid": "00d131dd-cb4c-4e0e-ad0a-62eb7ab04bea",
+      "pvc_name": "data-redis-0",
+      "pvc_uid": "b3b54a48-0487-4bdc-b257-53c86965236c",
+      "pv_name": "pvc-b3b54a48-0487-4bdc-b257-53c86965236c",
+      "pv_uid": "1a8c3245-c199-46e3-8a6d-c2e4c47c8c79",
+      "storage_class": "standard"
+    },
+    "replacement_ready_seconds": 12.692,
+    "state_verified_seconds": 12.884,
+    "not_ready_poll_samples": 12,
+    "remaining_ttl_ms": [
+      604787085,
+      604787085
+    ],
+    "values_match": true,
+    "same_pvc_and_pv": true,
+    "limits": [
+      "single-instance service interruption",
+      "fsync-confirmed synthetic writes",
+      "graceful pod deletion, not node/power loss",
+      "readiness timing is not continuous client outage measurement",
+      "PVC/PV preserved; no HA or lost-volume restore claim"
+    ]
+  },
+  "fresh_tenant_access": {
+    "context": "kind-platform-core-fresh-20261110-attempt4",
+    "checks": {
+      "reverse_cross_tenant_denied": true,
+      "gateway_to_inference": true,
+      "same_tenant_allowed": true,
+      "cross_tenant_denied": true,
+      "direct_inference_denied": true,
+      "missing_key_401": true,
+      "wrong_key_401": true,
+      "authenticated_gateway_200": true
+    },
+    "passed": true,
+    "cleanup_errors": []
+  },
+  "final_local_checks": {
+    "operational_script_tests": 47,
+    "scaffolding_tests": 16,
+    "default_convergence_timeout_seconds": 2400,
+    "installation_timeout_seconds": 600
   }
 }

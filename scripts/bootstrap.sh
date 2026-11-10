@@ -18,7 +18,7 @@ BUILD_IMAGES=true
 WAIT_FOR_DEV=false
 REQUIRE_PUBLISHED_SOURCE=false
 GATEWAY_URL=http://localhost
-WAIT_TIMEOUT=1200
+WAIT_TIMEOUT=2400
 INSTALL_TIMEOUT=600
 PHASE=preflight
 
@@ -35,7 +35,7 @@ for arg in "$@"; do
     --gateway-url=*) GATEWAY_URL="${arg#*=}" ;;
     --timeout=*) WAIT_TIMEOUT="${arg#*=}" ;;
     --install-timeout=*) INSTALL_TIMEOUT="${arg#*=}" ;;
-    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH] [--skip-images] [--require-published-source] [--wait] [--gateway-url=http://localhost] [--timeout=1200] [--install-timeout=600] (timeouts in seconds)"; exit 0 ;;
+    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH] [--skip-images] [--require-published-source] [--wait] [--gateway-url=http://localhost] [--timeout=2400] [--install-timeout=600] (timeouts in seconds)"; exit 0 ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
@@ -307,9 +307,9 @@ ok "App-of-Apps applied — ArgoCD will now sync platform services + apps"
 
 # ─── Let ArgoCD converge ─────────────────────────────────────────────────────
 # Platform components install their own CRDs (Gateway API/Envoy Gateway, Strimzi,
-# KEDA, Rollouts, Kyverno, Prometheus) via sync-waves and ArgoCD self-heals until they're ready. Rather
-# than a brittle label wait, surface progress and let it converge in the
-# background — first sync pulls several Helm charts and can take a few minutes.
+# KEDA, Rollouts, Kyverno, Prometheus). Explicit sync retries let dependent apps
+# recover when those CRDs arrive late. Cold chart/image downloads can take tens
+# of minutes; --wait checks convergence within its separate, bounded budget.
 log "ArgoCD is reconciling. Watch progress with:"
 echo "    kubectl get applications -n $ARGOCD_NAMESPACE -w"
 echo "    kubectl argo rollouts get rollout echo-service -n apps --watch   # canary"

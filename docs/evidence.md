@@ -19,12 +19,12 @@ need operational evidence. A source-level resolution is not a live acceptance re
 | Connection-close recovery | `make connection-test`; [procedure](runbooks/echo-upstream-connections.md) | Controlled delayed-FIN fault produces baseline 503/UC and candidate 200 responses | Small HTTP/1.1 sample; does not prove the historical error's cause |
 | Redis persistence recovery | [Recovery drill](runbooks/redis-recovery.md); [live results](qa-followups-2026-11-10.md) | Docker replacement/backup restore and local Kubernetes pod replacement preserve fixture state/TTLs; pod drill preserves PVC/PV identity | No node-loss, lost-volume recovery or HA proof |
 | Workflow and IaC guards | `make workflow-lint`; `make iac-security`; [scope](../policy/terraform/README.md) | GitHub expression validation, negative fixtures, reviewed source posture and authored expanded-plan gate | Real AWS plan execution remains unverified |
-| Service generation | `make scaffold-test`; [live portal QA](qa-dev-2026-11-09.md) | Generated artifacts tested; actual Backstage local template dry-run produced a tested service | GitHub publishing, registration, and promotion were not executed |
+| Service generation | `make scaffold-test`; [public-source portal QA](qa-followups-2026-11-10.md) | Generated artifacts tested; actual Backstage remote-template dry-run produced 25 files through the Gateway | GitHub publishing, registration actions, and promotion were not executed |
 | Kubernetes shape and policies | `make schemas` then `make validate` | Rendering, pinned schema checks, combined OPA relationships, local checks in Makefile | Rendering is not admission, scheduling, or traffic verification |
 | Echo startup on kind | [CI `e2e-smoke`](../.github/workflows/ci.yaml) | Actual overlay deploys and serves basic requests | Does not install the full platform or prove canary recovery |
 | Release supply chain | [Release workflow](../.github/workflows/docker-build.yaml) | Intended test → scan → build → sign → verify → promote sequence | Needs successful run artifacts and real registry/admission verification |
 | Canary recovery | `./scripts/canary-demo.sh bad`; [live report](qa-dev-2026-11-09.md) | Bad-canary rejection, good-canary promotion, serving checks and original-image restoration passed on fresh kind | Local prepared images; no AWS delivery proof |
-| Full local bootstrap | [Fresh DEV report](qa-dev-2026-11-09.md); [local guide](local-dev.md) | Fresh 1.36.4/Cilium environment exercised through portal, audio, telemetry, and tenancy | Local unpublished Git snapshot; old cluster preserved, not repaired; known limits recorded |
+| Full local bootstrap | [Published-source acceptance](qa-followups-2026-11-10.md); [local guide](local-dev.md) | Clean checkout/fresh kind converged; Kafka/DLQ/audio, Redis replacement, tenant access, public portal, teardown and retained-QA restoration passed | Existing host tools/build caches; about 39-minute bootstrap; local mocks/stubs; no AWS claim |
 | Tenant isolation and gateway access | [Tenant manifests](../kubernetes/tenants/); [access runner](../tests/network/README.md); [earlier live report](qa-dev-2026-11-09.md) | Eight additional access assertions passed on 2026-11-10, including authenticated gateway access and symmetric isolation | Local Cilium evidence; no AWS networking claim |
 | AWS foundation and storage | Terraform fmt/init/validate; [prod config](../terraform/environments/prod/), [Crossplane](crossplane.md) | Static configuration and provider schema validation | No live AWS apply, bucket lifecycle, IAM, restore, or teardown verification |
 | ML inference | Mock/stub service tests | Orchestration contracts with deterministic responses | No real STT/TTS accuracy or GPU cold-start/performance claim |
@@ -42,7 +42,8 @@ excluded in CI and remain outside its schema coverage.
 
 The [November 10 follow-up report](qa-followups-2026-11-10.md) records published
 CI passes, hosted recovery artifacts, Redis backup/replacement observations,
-tenant access checks, public GitOps migration, and the portal timeout repair.
+tenant access checks, public GitOps migration, the portal timeout repair, and
+the successful clean-checkout lifecycle after correcting cold-start retries.
 It distinguishes the controlled connection-fault reproduction from the
 historical echo 503s, whose cause remains unproven.
 
