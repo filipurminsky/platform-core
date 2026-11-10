@@ -99,6 +99,7 @@ repos:
       # Bump both together. Requires Docker running. Flags mirror the CI job:
       #   --ignorefile .trivyignore.yaml  == CI's --ignorefile
       #   --skip-dirs .github             == CI's --skip-dirs
+      #   --skip-files **/Dockerfile.dockerignore == ignore build-context rules, not Dockerfiles
       # The remaining skips are local-only paths a fresh CI checkout never has, so
       # skipping them keeps the verdict matched to CI:
       #   --skip-dirs **/.terraform/**    == terraform-init vendored modules
@@ -113,6 +114,7 @@ repos:
           config --severity HIGH,CRITICAL --exit-code 1
           --ignorefile .trivyignore.yaml
           --skip-dirs .github --skip-dirs **/.terraform/**
+          --skip-files **/Dockerfile.dockerignore
           --skip-dirs .agents --skip-dirs .claude
           .
         language: docker_image

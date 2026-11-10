@@ -19,6 +19,7 @@ WAIT_FOR_DEV=false
 REQUIRE_PUBLISHED_SOURCE=false
 GATEWAY_URL=http://localhost
 WAIT_TIMEOUT=1200
+INSTALL_TIMEOUT=600
 PHASE=preflight
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
@@ -33,7 +34,8 @@ for arg in "$@"; do
     --wait) WAIT_FOR_DEV=true ;;
     --gateway-url=*) GATEWAY_URL="${arg#*=}" ;;
     --timeout=*) WAIT_TIMEOUT="${arg#*=}" ;;
-    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH] [--skip-images] [--require-published-source] [--wait] [--gateway-url=http://localhost] [--timeout=1200]"; exit 0 ;;
+    --install-timeout=*) INSTALL_TIMEOUT="${arg#*=}" ;;
+    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH] [--skip-images] [--require-published-source] [--wait] [--gateway-url=http://localhost] [--timeout=1200] [--install-timeout=600] (timeouts in seconds)"; exit 0 ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
@@ -50,6 +52,7 @@ if [[ "$WAIT_FOR_DEV" == true && "$MODE" != local ]]; then
 fi
 [[ "$CLUSTER_NAME" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || { echo 'Invalid kind cluster name.' >&2; exit 2; }
 [[ "$WAIT_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo '--timeout must be positive seconds.' >&2; exit 2; }
+[[ "$INSTALL_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo '--install-timeout must be positive seconds.' >&2; exit 2; }
 [[ "$GATEWAY_URL" =~ ^https?:// ]] || { echo '--gateway-url must use http:// or https://.' >&2; exit 2; }
 
 log()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
@@ -58,8 +61,20 @@ err()  { echo -e "\033[1;31m[ERR ]\033[0m  $*" >&2; exit 1; }
 
 failure() {
   local status=$?
+  local installation_namespace="" context_hint=""
   trap - ERR
   echo "Bootstrap failed during: $PHASE (exit $status)." >&2
+  case "$PHASE" in
+    'Cilium installation') installation_namespace=kube-system ;;
+    'Argo CD installation') installation_namespace="$ARGOCD_NAMESPACE" ;;
+  esac
+  if [[ -n "$installation_namespace" ]]; then
+    [[ "$MODE" != local ]] || context_hint="--context kind-$CLUSTER_NAME "
+    echo "Helm readiness budget: ${INSTALL_TIMEOUT}s. Inspect installation progress:" >&2
+    echo "  kubectl ${context_hint}-n $installation_namespace get pods" >&2
+    echo "  kubectl ${context_hint}-n $installation_namespace get events --sort-by=.metadata.creationTimestamp" >&2
+    echo 'If images are still downloading successfully, rerun with a larger --install-timeout (seconds). Fix pull errors or scheduling failures before retrying.' >&2
+  fi
   echo 'Run ./scripts/doctor.sh, then inspect docs/local-dev.md. Bootstrap can be rerun after fixing the cause.' >&2
   # Do not print BASH_COMMAND: secret creation commands contain credentials.
   exit "$status"
@@ -115,7 +130,8 @@ if not nodes or any(not node["status"]["nodeInfo"]["kubeletVersion"].startswith(
   # after Cilium so pod hostPorts work without kube-proxy replacement — the
   # Envoy Gateway proxy binds hostPort 80/443 on the ingress-ready node, which
   # is how kind's host :80/:443 mapping reaches the Gateway.
-  log "Installing Cilium + Hubble"
+  PHASE='Cilium installation'
+  log "Installing Cilium + Hubble (readiness budget ${INSTALL_TIMEOUT}s)"
   # Cilium only supports consecutive-minor upgrades with preflight checks.
   # Bootstrap installs new clusters or reconciles this minor; it must not jump
   # an existing 1.16 installation directly to 1.20.
@@ -135,7 +151,7 @@ if not nodes or any(not node["status"]["nodeInfo"]["kubeletVersion"].startswith(
     --set hubble.enabled=true \
     --set hubble.relay.enabled=true \
     --set hubble.ui.enabled=true \
-    --wait --timeout 5m
+    --wait --timeout "${INSTALL_TIMEOUT}s"
   log "Waiting for nodes to become Ready (Cilium now provides the CNI)"
   kubectl wait --for=condition=Ready nodes --all --timeout=180s
   ok "Cilium + Hubble ready"
@@ -160,7 +176,7 @@ elif [[ "$MODE" == "aws" ]]; then
 fi
 
 # ─── Install ArgoCD ──────────────────────────────────────────────────────────
-log "Installing ArgoCD"
+log "Installing ArgoCD (readiness budget ${INSTALL_TIMEOUT}s)"
 PHASE='Argo CD installation'
 kubectl create namespace "$ARGOCD_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 
@@ -169,7 +185,7 @@ helm upgrade --install argocd argo/argo-cd \
   --namespace "$ARGOCD_NAMESPACE" \
   --version "10.17.1" \
   --values kubernetes/bootstrap/argocd/values.yaml \
-  --wait --timeout 5m
+  --wait --timeout "${INSTALL_TIMEOUT}s"
 
 ok "ArgoCD installed"
 

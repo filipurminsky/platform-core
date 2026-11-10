@@ -112,6 +112,38 @@ class BootstrapCompatibilityTests(ScriptSandbox):
         self.assertIn("Helm >= 4.3.1 required", result.stderr)
         self.assert_no_installation()
 
+    def test_installation_budget_is_bounded_configurable_and_reported_on_failure(self):
+        self.tool(
+            "helm",
+            "if args[:1] == ['version']: print('v4.3.1')\n"
+            "elif args[:1] == ['upgrade']: sys.exit(91)\n",
+        )
+        for arguments, expected in (([], "600s"), (["--install-timeout=777"], "777s")):
+            with self.subTest(expected=expected):
+                self.log.write_text("")
+                result = self.run_script(
+                    "bootstrap.sh",
+                    "--cluster-name=regression-test",
+                    *arguments,
+                    NODE_VERSIONS='["v1.36.4"]',
+                )
+                self.assertEqual(result.returncode, 91)
+                upgrade = next(cmd for cmd in self.commands() if cmd[:2] == ["helm", "upgrade"])
+                self.assertEqual(upgrade[upgrade.index("--timeout") + 1], expected)
+                self.assertIn(f"Helm readiness budget: {expected}", result.stderr)
+                self.assertIn(
+                    "--context kind-regression-test -n kube-system get events", result.stderr
+                )
+                self.assertIn("--install-timeout", result.stderr)
+
+    def test_invalid_installation_budget_fails_before_any_tool_or_mutation(self):
+        for value in ("0", "-1", "1m", "unlimited"):
+            with self.subTest(value=value):
+                result = self.run_script("bootstrap.sh", f"--install-timeout={value}")
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("--install-timeout must be positive seconds", result.stderr)
+                self.assertFalse(self.log.exists())
+
     def test_existing_old_or_mixed_nodes_rejected_before_cilium_or_context_change(self):
         for versions in (["v1.30.0"], ["v1.36.4", "v1.30.0"], []):
             with self.subTest(versions=versions):

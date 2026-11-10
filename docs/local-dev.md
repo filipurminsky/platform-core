@@ -94,7 +94,13 @@ Gateway's current generation to be programmed, and routed echo, audio health,
 and portal health requests to return HTTP 200. Only the intentionally paused
 `vllm-inference` Application may be Suspended. Failure exits nonzero and prints
 the evidence directory with observed revisions and actionable diagnostics.
-Use `--timeout=1800` for a slower first pull. Without `--wait`, bootstrap only
+Use `--timeout=1800` for slower application convergence. Cilium and Argo CD
+each have a separate, bounded Helm readiness budget of 600 seconds, including
+cold image pulls; override it with `--install-timeout=900` when needed. Failed
+installation prints the relevant namespace, pod/event commands, and budget.
+Check for successful pull progress before increasing it: a larger timeout does
+not repair invalid image references, unavailable registries, or unschedulable pods.
+Without `--wait`, bootstrap only
 starts reconciliation; successful exit does not assert platform health.
 
 For a clean-checkout walkthrough, clone the published repository, then run:
@@ -125,13 +131,17 @@ must be deliberately replaced to consume the new image; a successful image
 load alone does not demonstrate that new code is serving. `--skip-images` is
 only for a cluster where all seven exact image references are already loaded.
 
-Verification on 2026-11-10 covered the source checker against a clean checkout
+Initial verification on 2026-11-10 covered the source checker against a clean checkout
 of published `3dc159b`, actual builds/loads of all seven images into the existing
 QA cluster, and creation/deletion of a separate empty Kubernetes 1.36.4 cluster
 with repeated named teardown. Existing clusters and the selected kubectl
-context were preserved. A second full-stack bootstrap was not attempted: the
-existing QA cluster consumed about 11 GiB of the 16 GiB Docker allocation.
-These checks do not establish fresh full-stack installation or data recovery.
+context were preserved. A subsequent fresh full-stack attempt from published
+`b51b50a` temporarily stopped the retained QA nodes to fit the 16 GiB Docker
+allocation. It exposed a cold-install failure: Cilium's five-minute Helm deadline
+expired while successful image pulls were still completing. The fresh cluster
+was removed and retained QA restored. The configurable installation budget above
+addresses that failure; successful clean-install acceptance must still be recorded
+against the updated published revision.
 
 Bootstrap refuses to reuse nodes outside Kubernetes 1.36 or a cluster still
 using kindnet. Updating the checked-in node image does not upgrade an existing
