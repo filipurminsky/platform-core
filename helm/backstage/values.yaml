@@ -41,6 +41,9 @@ service:
 # from this release's namespace.
 httpRoute:
   enabled: true
+  # GitHub tree fetches in synchronous scaffolder dry-runs exceeded Envoy's
+  # default 15s request deadline in live QA. Keep a bounded portal-only budget.
+  requestTimeout: 120s
   parentRefs:
     - name: platform
       namespace: envoy-gateway-system

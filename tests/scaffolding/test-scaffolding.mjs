@@ -139,6 +139,19 @@ test('secondary templates keep repository coordinates and deployment claims expl
   }
 });
 
+test('Backstage route gives remote template fetches a bounded request budget', () => {
+  const chart = join(repository, 'helm/backstage');
+  for (const environment of ['dev', 'prod']) {
+    const output = execFileSync('helm', ['template', 'backstage', chart, '-f', join(chart, `values-${environment}.yaml`)], { encoding: 'utf8' });
+    const objects = YAML.parseAllDocuments(output).map(document => document.toJSON());
+    assert.equal(objects.find(object => object.kind === 'HTTPRoute').spec.rules[0].timeouts.request, '120s');
+  }
+  for (const timeout of ['0s', '-1s', 'unlimited']) {
+    const result = spawnSync('helm', ['template', 'backstage', chart, '--set-string', `httpRoute.requestTimeout=${timeout}`], { encoding: 'utf8' });
+    assert.notEqual(result.status, 0, `${timeout} must not disable the request bound`);
+  }
+});
+
 test('Backstage guest authentication is dev-only and production fails closed', () => {
   const chart = join(repository, 'helm/backstage');
   const configFor = environment => {

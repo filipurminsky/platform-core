@@ -1,5 +1,5 @@
 // Exercise the gateway's pooled upstream connections around Uvicorn's 5s
-// keepalive boundary. No client retries; any unexpected response fails the run.
+// keepalive boundary. No scripted retries; any unexpected response fails the run.
 // TARGET=http://localhost:18000 HOST=echo.platform-core.local k6 run tests/load/echo-idle.js
 import http from "k6/http";
 import { check, sleep } from "k6";

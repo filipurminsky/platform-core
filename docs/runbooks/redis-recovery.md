@@ -77,3 +77,41 @@ filesystem corruption recovery, backup scheduling/offsite retention, replica
 failover, or recovery at production dataset size. Test those separately before
 committing to an RPO/RTO. For continuous availability, use a separately designed
 Redis HA deployment or managed service.
+
+## Opt-in Kubernetes pod replacement
+
+Use a disposable, fully bootstrapped dev cluster with Redis already Ready. This
+check briefly interrupts its single Redis instance; run it while application
+writers are idle. It is separate from the default Docker infrastructure suite.
+An explicit context and outage acknowledgement are required:
+
+```bash
+KUBECONFIG=/path/to/disposable-dev-kubeconfig \
+KUBE_CONTEXT=kind-platform-core-fresh \
+ALLOW_REDIS_POD_REPLACEMENT=1 \
+EVIDENCE_DIR=/tmp/redis-pod-evidence \
+python3 scripts/test-redis-persistence.py
+```
+
+The runner checks the Argo cluster's `dev` label, Redis StatefulSet ownership,
+Secret-backed auth environment, Bound PVC/PV identities and active AOF settings.
+It writes a unique synthetic `job:<uuid>` document and `dedup:tts:<uuid>` marker,
+then runs `WAITAOF` on that **same Redis CLI connection**. It deletes only the
+observed `platform/redis-0` pod, with a UID precondition, and waits up to three
+minutes for a different Ready pod UID. The StatefulSet and PVC are not modified.
+
+Recovery must retain the same StatefulSet/PVC/PV UIDs, exact record values and
+remaining TTLs. Cleanup removes only the generated keys whose values still match
+this invocation; failed cleanup makes the command fail. The runner uses the
+container's existing auth environment without reading or printing Secret values.
+It records source commit/script hash, workload/storage identities, timing,
+assertions and cleanup in `redis-pod-persistence.json` even on a failed check.
+
+The reported interval runs from the deletion request to Ready and to successful
+state verification. It includes control-plane/CLI/poll latency and is not a
+continuous external-client outage measurement. The drill uses graceful pod
+deletion and fsync-confirmed writes; it does not simulate power loss, a failed
+node, lost storage, or HA failover. On kind, the same local PV remains bound to
+its original node. The separate Docker drill above covers backup restoration
+onto a different volume. Kubernetes RDB restore, cross-node storage recovery
+and production-size recovery remain separate exercises.

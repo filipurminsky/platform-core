@@ -20,7 +20,9 @@ spec:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   rules:
-    - matches:
+    - timeouts:
+        request: {{ .Values.httpRoute.requestTimeout | quote }}
+      matches:
         - path:
             type: PathPrefix
             value: /

@@ -36,7 +36,7 @@ TARGET=http://localhost:18000 HOST=echo.platform-core.local k6 run tests/load/ec
 
 The idle profile varies bursts and pauses around the five-second server
 boundary. It requires every response to be HTTP 200 with an echo payload and
-does not retry failures. The sustained profile retains the canary's SLO
+does not retry HTTP errors. The sustained profile retains the canary's SLO
 threshold, so inspect its actual failure count as well as its exit status.
 
 Capture the policy status, effective Envoy upstream HTTP idle timeout, image
