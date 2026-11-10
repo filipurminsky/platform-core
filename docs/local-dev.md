@@ -103,13 +103,15 @@ not repair invalid image references, unavailable registries, or unschedulable po
 Without `--wait`, bootstrap only
 starts reconciliation; successful exit does not assert platform health.
 
-App ApplicationSets and generated service registrations retry failed syncs
+App ApplicationSets, platform registrations that consume external CRDs, and
+generated service registrations retry failed syncs
 automatically, with a 10-second initial backoff capped at 60 seconds. This lets
 them recover when KEDA, Rollouts or monitoring CRDs arrive during a cold start.
 Retries do not suppress errors or bypass admission. The `--wait` observer still
 has a finite deadline: inspect its diagnostics if a bad configuration or
 unavailable dependency prevents convergence. A root Application retry policy
 alone does not configure its children.
+Platform components with an existing explicit longer retry budget retain it.
 
 For a clean-checkout walkthrough, clone the published repository, then run:
 

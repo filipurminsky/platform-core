@@ -199,6 +199,9 @@ for the plan workflow and required environment inputs.
   `environment` label. Bootstrap sets `dev` for local and `prod` for AWS. Preserve
   the selector that prevents app sync until that label exists.
 - The App-of-Apps entrypoint is `kubernetes/platform/argocd/app-of-apps.yaml`.
+  Preserve explicit child sync retries for consumers of external CRDs: root
+  Application retries do not configure children, and exhausted default retries
+  can strand a cold install. Keep retry backoff capped and bootstrap waits bounded.
   Preserve environment selectors: Crossplane, Karpenter, and DCGM exporter are
   prod-only; SeaweedFS and AKHQ are dev-only; Redis and namespaces run in both.
 - `echo-service` is an Argo `Rollout`. Use its JSON6902 replica/resource patches;

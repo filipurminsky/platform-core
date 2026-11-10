@@ -71,6 +71,46 @@ test('app registrations keep retrying late operator CRDs without pinning a faile
   }
 });
 
+test('platform CRD consumers survive late dependencies while explicit operator budgets stay intact', () => {
+  // Each entry consumes CRDs supplied by a different Application. Sync waves on
+  // registrations alone do not wait for those child Applications to become healthy.
+  const dependencies = [
+    ['alloy/application.yaml', 'ServiceMonitor'],
+    ['argo-rollouts/application.yaml', 'ServiceMonitor'],
+    ['keda/application.yaml', 'ServiceMonitor'],
+    ['loki/application.yaml', 'ServiceMonitor'],
+    ['opentelemetry-collector/application.yaml', 'ServiceMonitor'],
+    ['tempo/application.yaml', 'ServiceMonitor'],
+    ['opencost/application.yaml', 'ServiceMonitor'],
+    ['dcgm-exporter/applicationset.yaml', 'ServiceMonitor (prod)'],
+    ['loki-config/application.yaml', 'PrometheusRule'],
+    ['kafka/applicationset.yaml', 'Kafka, KafkaNodePool, KafkaTopic, KafkaUser'],
+    ['kyverno-policies/applicationset.yaml', 'ValidatingPolicy, ImageValidatingPolicy'],
+    ['envoy-gateway/applicationset.yaml', 'GatewayClass, Gateway, EnvoyProxy'],
+    ['external-secrets-config/applicationset.yaml', 'ClusterSecretStore (prod)'],
+    ['redis/applicationset.yaml', 'ClusterExternalSecret (prod)'],
+    ['backstage/applicationset.yaml', 'HTTPRoute'],
+    ['akhq/applicationset.yaml', 'HTTPRoute'],
+  ];
+  const applications = path => YAML.parseAllDocuments(readFileSync(join(repository, 'kubernetes/platform', path), 'utf8'))
+    .map(document => document.toJSON()).map(object => object.kind === 'ApplicationSet' ? object.spec.template : object);
+  for (const [path, dependency] of dependencies) {
+    const [application] = applications(path);
+    const policy = application.spec.syncPolicy;
+    const message = `${path} must recover when ${dependency} becomes available after default retries`;
+    assert.deepEqual(policy.automated, { prune: true, selfHeal: true }, message);
+    assert.deepEqual(policy.retry, {
+      limit: -1, refresh: true, backoff: { duration: '10s', factor: 2, maxDuration: '60s' },
+    }, message);
+  }
+  // Preserve the existing deliberate, larger budgets for these operator/config apps.
+  for (const path of ['monitoring/application.yaml', 'monitoring/rules/application.yaml', 'crossplane/applicationset.yaml', 'karpenter/applicationset.yaml']) {
+    const retries = applications(path).map(application => application.spec.syncPolicy.retry).filter(Boolean);
+    assert.equal(retries.length, 1, path);
+    assert.equal(retries[0].limit, 10, path);
+  }
+});
+
 test('workflow expressions survive rendering and privileged release is gated', () => {
   const workflow = parse('.github/workflows/delivery.yaml');
   assert.equal(workflow.jobs.release.needs, 'test');

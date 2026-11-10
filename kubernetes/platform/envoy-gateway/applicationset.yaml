@@ -46,6 +46,15 @@ spec:
         automated:
           prune: true
           selfHeal: true
+        # External operator CRDs can become ready after the first sync attempts.
+        # Retry until they exist; the bootstrap readiness wait remains bounded.
+        retry:
+          limit: -1
+          refresh: true
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 60s
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true

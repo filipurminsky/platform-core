@@ -3,7 +3,8 @@
   "implementation_revisions": [
     "041d6b444e47e00ae566c596e61db295566a102b",
     "b51b50a9989195527a3d6362530a03c8c16ada82",
-    "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c"
+    "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c",
+    "c7f98b8529239de72b9ebd6681f280fa4134fc1f"
   ],
   "hosted_ci": [
     {
@@ -19,6 +20,11 @@
     {
       "revision": "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c",
       "run_id": 42825103170,
+      "conclusion": "success"
+    },
+    {
+      "revision": "c7f98b8529239de72b9ebd6681f280fa4134fc1f",
+      "run_id": 42830429342,
       "conclusion": "success"
     }
   ],
@@ -377,5 +383,66 @@
       "readiness timing is not continuous client outage measurement",
       "PVC/PV preserved; no HA or lost-volume restore claim"
     ]
+  },
+  "generated_service_contract": {
+    "revision": "c7f98b8529239de72b9ebd6681f280fa4134fc1f",
+    "run_id": 42830429286,
+    "conclusion": "success",
+    "tests": 15
+  },
+  "hosted_recovery_followup": {
+    "revision": "c7f98b8529239de72b9ebd6681f280fa4134fc1f",
+    "run_id": 42830620428,
+    "conclusion": "success",
+    "artifact": "infrastructure-recovery-42830620428",
+    "worker_tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "worker_test_seconds": 35.589,
+    "redis": {
+      "passed": true,
+      "replacement_seconds_until_state_verified": 4.633,
+      "restore_seconds_until_state_verified": 5.754,
+      "restored_aof_replacement_seconds_until_state_verified": 4.575,
+      "source_container_replaced": true,
+      "replacement_reused_volume": true,
+      "restore_used_separate_volume": true,
+      "backup_sha256": "b66df68029bb8d1a211f09b23c9c72aa5f82a4c04cd4d5008bcf0cfc64b8fb84",
+      "verified": [
+        "completed job",
+        "completed dedup marker",
+        "in-progress job",
+        "processing lease",
+        "remaining TTLs",
+        "post-backup write excluded",
+        "restored AOF survives forced container replacement including post-restore write"
+      ],
+      "limits": [
+        "single instance; outage during replacement",
+        "fsync-confirmed writes only",
+        "synthetic small RDB backup",
+        "no node/PVC loss or HA/failover proof",
+        "backup RPO is snapshot time"
+      ]
+    },
+    "connection": {
+      "passed": true,
+      "baseline_uc_503": 3,
+      "candidate_echo_200": 3,
+      "backend_keepalive_seconds": 5,
+      "delayed_backend_fin_seconds": 0.3,
+      "reuse_delay_seconds": 5.1,
+      "envoy_idle_seconds": {
+        "baseline": 3600,
+        "candidate": 2
+      },
+      "limits": [
+        "controlled delayed-FIN fault",
+        "not proof of historical error cause",
+        "single Envoy worker, HTTP/1.1, small local sample",
+        "no Kubernetes/Gateway API policy translation exercised"
+      ]
+    }
   }
 }
