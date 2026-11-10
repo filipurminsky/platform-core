@@ -1,6 +1,8 @@
 # Showcase walkthrough
 
-The [dated DEV acceptance report](qa-dev-2026-11-09.md) records actual live results, fixes, and remaining limits.
+The [DEV acceptance report](qa-dev-2026-11-09.md) and
+[November 10 follow-up](qa-followups-2026-11-10.md) record actual live results,
+fixes, hosted recovery evidence, and remaining limits.
 
 The central story is a developer creating a service, seeing it delivered with
 platform defaults, and diagnosing a failed change. The asynchronous pipeline
@@ -82,6 +84,7 @@ extrapolate a solo demo to organization-wide productivity.
 ```bash
 make integration-test
 make infrastructure-test
+make connection-test
 ```
 
 The first command checks contracts in process. The second uses isolated real
@@ -89,6 +92,12 @@ Kafka, Redis, and object storage to exercise the shared worker delivery and
 recovery behavior. Read [the case study](case-study-worker-recovery.md) alongside
 the suite: explain where a crash leaves the input uncommitted, when a dedup
 lease expires, and why duplicate execution remains possible.
+
+The third command demonstrates the HTTP connection timeout fix with an injected
+delayed-close fault: three baseline 503/UC responses versus three candidate
+200 responses. Explain that this is a reproducible failure mode, while the
+cause of the historical intermittent errors remains unproven. See the
+[connection runbook](runbooks/echo-upstream-connections.md) for boundaries.
 
 The suite interrupts the actual STT stub worker path after an S3 write and
 after confirmed output/dedup but before input commit; it also exercises SIGTERM

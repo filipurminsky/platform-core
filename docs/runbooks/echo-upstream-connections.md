@@ -51,3 +51,49 @@ and echo logs for the same time range. In Loki, useful filters are:
 A successful finite load run is regression evidence, not a zero-error guarantee.
 If comparing a candidate against a baseline, use the same load profile and
 record both revisions. Do not disable production policies to reproduce a race.
+
+## Controlled connection-close regression
+
+```bash
+make connection-test
+```
+
+This opt-in Docker test builds the current echo image and starts a uniquely named
+Compose project with no host ports and a 256 MiB combined memory limit. It uses
+real Envoy and echo processes. A small TCP proxy deliberately delays forwarding
+the backend's connection-close signal by 300 ms, creating a known stale pooled
+connection window after Uvicorn's five-second keepalive expires.
+
+The test warms a connection, waits 5.1 seconds, and sends another request without
+retrying. It requires three baseline requests with a 3600-second Envoy pool idle
+timeout to return **503**, each correlated by its own request marker with Envoy
+`UC` and `upstream_reset_before_response_started{connection_termination}`. It then
+requires three requests with the repository's shorter pool timeout to return
+**200** with the real echo payload. Startup/readiness failures cannot satisfy
+these assertions.
+
+The candidate timeout is read from the actual echo `BackendTrafficPolicy`; it
+must be positive and shorter than the server's timeout. The runner also checks
+the built image command against the current Dockerfile and requires the explicit
+five-second backend setting used by this fault window. A policy/image drift
+fails with an actionable error instead of silently testing a hardcoded candidate.
+If intentionally changing the server timeout, update the controlled fault window
+and its assertions together.
+
+The runner prints an evidence directory containing `result.json`, per-cycle HTTP
+results, correlated Envoy access logs, rendered Envoy configurations and the echo
+image identity. `EVIDENCE_DIR` can select an empty destination; nonempty
+directories are rejected to prevent a failed rerun retaining an earlier pass.
+The infrastructure
+recovery workflow runs this check after the worker/Redis tests and retains the
+connection evidence with its other artifacts. Cleanup removes only this run's
+containers and network, including on assertion failure.
+
+The local controlled run on 2026-11-10 reproduced all three baseline failures and
+passed all three candidate requests, including exact access-log correlation.
+This demonstrates the benefit of retiring pooled connections before the backend
+closes them **under this injected delayed-FIN fault**. It does not prove the
+cause of the earlier six QA responses: subsequent seven-minute baseline and
+candidate load runs both had zero failures. It also does not exercise Kubernetes
+policy translation, multiple Envoy workers, HTTP/2, or arbitrary network faults;
+use the live policy/status and load checks above for deployment evidence.

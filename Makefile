@@ -121,6 +121,11 @@ integration-test: ## Run cross-service audio pipeline integration tests (uses au
 infrastructure-test: ## Run isolated Kafka/Redis/S3 worker recovery tests (requires Docker)
 	./scripts/test-infrastructure.sh
 
+.PHONY: connection-test
+connection-test: ## Build echo and verify controlled Envoy connection-close regression (Docker)
+	docker build -f services/echo-service/Dockerfile -t echo-service:connection-test services/
+	ECHO_IMAGE=echo-service:connection-test ./scripts/test-echo-connections.sh
+
 .PHONY: scaffold-test
 scaffold-test: ## Render and test generated services (requires Node, uv, kustomize, conftest)
 	npm ci --prefix tests/scaffolding

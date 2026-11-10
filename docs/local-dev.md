@@ -103,6 +103,14 @@ not repair invalid image references, unavailable registries, or unschedulable po
 Without `--wait`, bootstrap only
 starts reconciliation; successful exit does not assert platform health.
 
+App ApplicationSets and generated service registrations retry failed syncs
+automatically, with a 10-second initial backoff capped at 60 seconds. This lets
+them recover when KEDA, Rollouts or monitoring CRDs arrive during a cold start.
+Retries do not suppress errors or bypass admission. The `--wait` observer still
+has a finite deadline: inspect its diagnostics if a bad configuration or
+unavailable dependency prevents convergence. A root Application retry policy
+alone does not configure its children.
+
 For a clean-checkout walkthrough, clone the published repository, then run:
 
 ```bash
@@ -140,8 +148,11 @@ context were preserved. A subsequent fresh full-stack attempt from published
 allocation. It exposed a cold-install failure: Cilium's five-minute Helm deadline
 expired while successful image pulls were still completing. The fresh cluster
 was removed and retained QA restored. The configurable installation budget above
-addresses that failure; successful clean-install acceptance must still be recorded
-against the updated published revision.
+addresses that failure. A second fresh attempt at `3707bdf` passed that phase
+but exposed exhausted child-Application retries just before KEDA's CRDs became
+available. It is also recorded as a failure, without a manual resync. See the
+[follow-up acceptance record](qa-followups-2026-11-10.md) for the diagnosis,
+repair and subsequent published-source results.
 
 Bootstrap refuses to reuse nodes outside Kubernetes 1.36 or a cluster still
 using kindnet. Updating the checked-in node image does not upgrade an existing

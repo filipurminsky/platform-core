@@ -52,3 +52,12 @@ spec:
         automated:
           prune: true
           selfHeal: true
+        # Operator CRDs may become ready after the initial sync retry budget.
+        # Keep reconciling; bootstrap still has its own bounded readiness wait.
+        retry:
+          limit: -1
+          refresh: true
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 60s

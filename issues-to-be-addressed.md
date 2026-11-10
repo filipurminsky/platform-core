@@ -40,7 +40,7 @@ remaining work.
 | 2 | P0 | Production EKS API public by default | Resolved | Private endpoint default; public access requires explicit CIDRs |
 | 3 | P1 | Worker nodes in public subnets | Resolved | Private subnet wiring, NAT, and private Karpenter discovery tags |
 | 4 | P1 | Registry modules invisible to IaC scanners | Resolved | Blocking source guards, negative fixtures and expanded-plan gate added; AWS execution remains unverified |
-| 5 | P1 | Redis loses state on reschedule; single point of failure | Partial | Container replacement and backup/AOF restore verified; Kubernetes recovery and availability remain |
+| 5 | P1 | Redis loses state on reschedule; single point of failure | Partial | Container/Pod replacement and backup/AOF restore verified; node/volume-loss recovery and availability remain |
 | 6 | P1 | Audio delivery depends on global flush count | Resolved | Request-specific delivery acknowledgement controls acceptance |
 | 7 | P1 | Signature admission depends on public services | Partial | CEL runbook corrected; external dependency retained; live outage/admission proof remains |
 | 8 | P1 | Helm HPA/replica conflict and invalid image defaults | Resolved | Conditional replicas, required repository, version default, seccomp |
@@ -74,7 +74,7 @@ is configured. Public-IP/IMDS exemptions were removed and the node-egress
 exception narrowed. See the [guard definitions and limits](policy/terraform/README.md).
 The local source/fixture checks passed; a real AWS plan remains unverified.
 
-### 5. Redis container recovery is verified; Kubernetes recovery and availability remain
+### 5. Redis persistence recovery is verified; availability remains
 
 [Redis](kubernetes/platform/redis/manifests/redis.yaml#L59) enables AOF with
 `appendfsync everysec` and periodic snapshots. Its
@@ -88,10 +88,14 @@ pod, including complete voluntary downtime.
 verified forced container replacement on the same volume, RDB restore onto a
 separate volume, and another forced replacement using the restored AOF. Exact
 job/dedup values and remaining TTLs survived; the snapshot recovery point was
-checked. This is not Kubernetes PVC reattachment or high availability.
+checked. A subsequent [local Kubernetes drill](docs/qa-followups-2026-11-10.md)
+replaced `redis-0` with a different Ready pod UID, preserved the StatefulSet/PVC/PV
+identities, and verified exact job/dedup values and elapsed TTLs in 12.026 seconds.
+Only the two owned synthetic keys were removed. This is graceful pod replacement
+on local storage, not node/volume loss or high availability.
 
-**Remaining work:** establish recovery objectives, then exercise Kubernetes pod
-replacement, node/volume loss, disk exhaustion, and offsite backups. Seven-day key TTL is
+**Remaining work:** establish recovery objectives, then exercise node/volume
+loss, disk exhaustion, and offsite backups. Seven-day key TTL is
 a retention setting, not an availability or recovery guarantee. Keep the
 single-instance design's limit explicit; replication or a managed service is a
 separate requirement if high availability is needed.

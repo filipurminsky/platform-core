@@ -1,0 +1,381 @@
+{
+  "date": "2026-11-10",
+  "implementation_revisions": [
+    "041d6b444e47e00ae566c596e61db295566a102b",
+    "b51b50a9989195527a3d6362530a03c8c16ada82",
+    "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c"
+  ],
+  "hosted_ci": [
+    {
+      "revision": "041d6b444e47e00ae566c596e61db295566a102b",
+      "run_id": 42819076566,
+      "conclusion": "success"
+    },
+    {
+      "revision": "b51b50a9989195527a3d6362530a03c8c16ada82",
+      "run_id": 42822089970,
+      "conclusion": "success"
+    },
+    {
+      "revision": "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c",
+      "run_id": 42825103170,
+      "conclusion": "success"
+    }
+  ],
+  "hosted_recovery": {
+    "revision": "041d6b444e47e00ae566c596e61db295566a102b",
+    "run_id": 42819126097,
+    "conclusion": "success",
+    "artifact": "infrastructure-recovery-42819126097",
+    "worker_tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "worker_test_seconds": 38.581,
+    "redis": {
+      "passed": true,
+      "replacement_seconds_until_state_verified": 4.944,
+      "restore_seconds_until_state_verified": 5.931,
+      "restored_aof_replacement_seconds_until_state_verified": 4.941,
+      "source_container_replaced": true,
+      "replacement_reused_volume": true,
+      "restore_used_separate_volume": true,
+      "backup_sha256": "11b7d61c04d0687b0c739dd25b2487da9eee75616e5ae6ea47dc1e06671ceeca",
+      "verified": [
+        "completed job",
+        "completed dedup marker",
+        "in-progress job",
+        "processing lease",
+        "remaining TTLs",
+        "post-backup write excluded",
+        "restored AOF survives forced container replacement including post-restore write"
+      ],
+      "limits": [
+        "single instance; outage during replacement",
+        "fsync-confirmed writes only",
+        "synthetic small RDB backup",
+        "no node/PVC loss or HA/failover proof",
+        "backup RPO is snapshot time"
+      ]
+    }
+  },
+  "local_redis_recovery": {
+    "passed": true,
+    "replacement_seconds_until_state_verified": 4.55,
+    "restore_seconds_until_state_verified": 5.861,
+    "restored_aof_replacement_seconds_until_state_verified": 4.689,
+    "source_container_replaced": true,
+    "replacement_reused_volume": true,
+    "restore_used_separate_volume": true,
+    "backup_sha256": "8bb36984a958584a603f500485f8d3d3e2ce7d9bb586c782c59790299815953c",
+    "verified": [
+      "completed job",
+      "completed dedup marker",
+      "in-progress job",
+      "processing lease",
+      "remaining TTLs",
+      "post-backup write excluded",
+      "restored AOF survives forced container replacement including post-restore write"
+    ],
+    "limits": [
+      "single instance; outage during replacement",
+      "fsync-confirmed writes only",
+      "synthetic small RDB backup",
+      "no node/PVC loss or HA/failover proof",
+      "backup RPO is snapshot time"
+    ]
+  },
+  "tenant_access": {
+    "context": "kind-platform-core-qa",
+    "checks": {
+      "reverse_cross_tenant_denied": true,
+      "gateway_to_inference": true,
+      "same_tenant_allowed": true,
+      "cross_tenant_denied": true,
+      "direct_inference_denied": true,
+      "missing_key_401": true,
+      "wrong_key_401": true,
+      "authenticated_gateway_200": true
+    },
+    "passed": true,
+    "cleanup_errors": []
+  },
+  "echo": {
+    "context": "kind-platform-core-qa",
+    "historical_503_reproduced": false,
+    "root_cause_proven": false,
+    "upstream_idle_timeout_seconds": 2,
+    "server_keepalive_seconds": 5,
+    "added_http_retry_policy": false,
+    "baseline_sustained": {
+      "requests": 44682,
+      "http_errors": 0,
+      "exit_code": 0,
+      "p95_ms": 184.69
+    },
+    "candidate_sustained": {
+      "requests": 45319,
+      "http_errors": 0,
+      "exit_code": 0,
+      "p95_ms": 186.34,
+      "max_ms": 25270
+    },
+    "baseline_idle": {
+      "requests": 6000,
+      "http_errors": 0,
+      "exit_code": 0
+    },
+    "candidate_idle": {
+      "requests": 6000,
+      "http_errors": 0,
+      "exit_code": 0
+    },
+    "limits": [
+      "finite functional observations",
+      "candidate wall-clock summaries exceeded configured profiles",
+      "not a controlled performance benchmark",
+      "no proof the historical 503 cause was eliminated"
+    ],
+    "controlled_fin_regression": {
+      "passed": true,
+      "baseline_uc_503": 3,
+      "candidate_echo_200": 3,
+      "backend_keepalive_seconds": 5,
+      "delayed_backend_fin_seconds": 0.3,
+      "reuse_delay_seconds": 5.1,
+      "envoy_idle_seconds": {
+        "baseline": 3600,
+        "candidate": 2
+      },
+      "limits": [
+        "controlled delayed-FIN fault",
+        "not proof of historical error cause",
+        "single Envoy worker, HTTP/1.1, small local sample",
+        "no Kubernetes/Gateway API policy translation exercised"
+      ]
+    }
+  },
+  "limits": [
+    "no AWS deployment or real AWS plan",
+    "no ECR signing/admission outage exercise",
+    "no external service publication or production promotion",
+    "no real GPU inference or HA guarantee"
+  ],
+  "fresh_bootstrap_attempts": [
+    {
+      "revision": "b51b50a9989195527a3d6362530a03c8c16ada82",
+      "cluster": "platform-core-fresh-20261110",
+      "started_utc": "2026-11-10T13:13:18.084962+00:00",
+      "finished_utc": "2026-11-10T13:22:30.754935+00:00",
+      "passed": false,
+      "failure_phase": "Cilium Helm readiness exceeded the former 300s deadline during successful cold image pulls",
+      "steps": [
+        {
+          "name": "clone",
+          "exit_code": 0,
+          "seconds": 5.539
+        },
+        {
+          "name": "source-preflight",
+          "exit_code": 0,
+          "seconds": 1.764
+        },
+        {
+          "name": "stop-retained-qa",
+          "exit_code": 0,
+          "seconds": 60.635
+        },
+        {
+          "name": "bootstrap",
+          "exit_code": 1,
+          "seconds": 325.087
+        },
+        {
+          "name": "teardown",
+          "exit_code": 0,
+          "seconds": 1.659
+        },
+        {
+          "name": "teardown-repeat",
+          "exit_code": 0,
+          "seconds": 0.057
+        },
+        {
+          "name": "restart-retained-qa",
+          "exit_code": 0,
+          "seconds": 0.35
+        },
+        {
+          "name": "retained-qa-node-readiness",
+          "exit_code": 0,
+          "seconds": 3.781
+        },
+        {
+          "name": "retained-qa-acceptance",
+          "exit_code": 0,
+          "seconds": 153.324
+        }
+      ],
+      "remaining_clusters_after_teardown": [
+        "platform-core",
+        "platform-core-qa"
+      ],
+      "context_preserved": true
+    },
+    {
+      "revision": "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c",
+      "cluster": "platform-core-fresh-20261110-attempt2",
+      "started_utc": "2026-11-10T13:31:37.112138+00:00",
+      "finished_utc": "2026-11-10T13:57:54.599144+00:00",
+      "passed": false,
+      "failure_phase": "Argo CD exhausted sync retries before KEDA CRDs became established and refuses another automatic sync at the same revision",
+      "crd_established_utc": "2026-11-10T13:47:24Z",
+      "failed_applications": {
+        "llm-worker": "2026-11-10T13:47:23Z",
+        "stt-worker": "2026-11-10T13:47:24Z",
+        "vllm-inference": "2026-11-10T13:47:24Z"
+      },
+      "controller_confirmation_utc": "2026-11-10T13:50:36Z",
+      "manual_sync_performed": false,
+      "stopped_after_confirmed_blocker": true,
+      "steps": [
+        {
+          "name": "clone",
+          "exit_code": 0,
+          "seconds": 1.593
+        },
+        {
+          "name": "source-preflight",
+          "exit_code": 0,
+          "seconds": 1.871
+        },
+        {
+          "name": "stop-retained-qa",
+          "exit_code": 0,
+          "seconds": 60.573
+        },
+        {
+          "name": "bootstrap",
+          "exit_code": -15,
+          "seconds": 1424.558
+        },
+        {
+          "name": "teardown",
+          "exit_code": 0,
+          "seconds": 6.824
+        },
+        {
+          "name": "teardown-repeat",
+          "exit_code": 0,
+          "seconds": 0.066
+        },
+        {
+          "name": "restart-retained-qa",
+          "exit_code": 0,
+          "seconds": 0.332
+        },
+        {
+          "name": "retained-qa-node-readiness",
+          "exit_code": 0,
+          "seconds": 4.573
+        },
+        {
+          "name": "retained-qa-acceptance",
+          "exit_code": 0,
+          "seconds": 76.406
+        }
+      ],
+      "remaining_clusters_after_teardown": [
+        "platform-core",
+        "platform-core-qa"
+      ],
+      "context_preserved": true
+    }
+  ],
+  "public_source_migration": {
+    "context": "kind-platform-core-qa",
+    "initial_revision": "041d6b444e47e00ae566c596e61db295566a102b",
+    "convergence_seconds": 212.9,
+    "applications": 37,
+    "application_sets": 22,
+    "catalog_entities": 28,
+    "catalog_templates": 3,
+    "temporary_git_and_catalog_servers_stopped": true,
+    "acceptance_after_server_stop": true,
+    "limits": [
+      "child sources still track main",
+      "not complete external service onboarding"
+    ]
+  },
+  "portal_public_template_fetch": {
+    "files_generated": 25,
+    "before_fix": {
+      "gateway_status": 504,
+      "envoy_flag": "UT",
+      "envoy_detail": "response_timeout",
+      "seconds": 15.007,
+      "direct_backend_seconds": 18.912
+    },
+    "after_fix": {
+      "revision": "b51b50a9989195527a3d6362530a03c8c16ada82",
+      "route_timeout_seconds": 120,
+      "gateway_dry_run_passed": true,
+      "seconds": 36.625
+    },
+    "limits": [
+      "fetch-only dry run",
+      "no repository publication, catalog registration action, or promotion PR"
+    ]
+  },
+  "kubernetes_redis_pod_recovery": {
+    "context": "kind-platform-core-qa",
+    "passed": true,
+    "cleanup": {
+      "owned_keys_deleted": 2
+    },
+    "source": {
+      "script_sha256": "5f3c2ded95b5fdfb1837933aaf627cf5b432a140bd4cd662b76ff7e70cf718a8",
+      "commit": "3707bdfe159f7fcfe41fd7eac1f1d50913b6617c",
+      "worktree_dirty": true
+    },
+    "before": {
+      "image": "redis:7.4.12-alpine",
+      "pod_uid": "eaeade38-94dd-4c22-99da-8df66cd124c6",
+      "node": "platform-core-qa-worker2",
+      "statefulset_uid": "4ee08994-c0ed-4634-9b3d-05baf926dcc5",
+      "pvc_name": "data-redis-0",
+      "pvc_uid": "cf141029-65bc-4473-9a37-61a682d64625",
+      "pv_name": "pvc-cf141029-65bc-4473-9a37-61a682d64625",
+      "pv_uid": "e8c9ec48-f547-4ed9-be9b-d238dfbe6b21",
+      "storage_class": "standard"
+    },
+    "job_id": "ea6dc7035b354bb99c81eaeb351f2e10",
+    "after": {
+      "image": "redis:7.4.12-alpine",
+      "pod_uid": "d27a0262-7544-4052-a6e9-f56c7e7c0950",
+      "node": "platform-core-qa-worker2",
+      "statefulset_uid": "4ee08994-c0ed-4634-9b3d-05baf926dcc5",
+      "pvc_name": "data-redis-0",
+      "pvc_uid": "cf141029-65bc-4473-9a37-61a682d64625",
+      "pv_name": "pvc-cf141029-65bc-4473-9a37-61a682d64625",
+      "pv_uid": "e8c9ec48-f547-4ed9-be9b-d238dfbe6b21",
+      "storage_class": "standard"
+    },
+    "replacement_ready_seconds": 11.81,
+    "state_verified_seconds": 12.026,
+    "not_ready_poll_samples": 11,
+    "remaining_ttl_ms": [
+      604787937,
+      604787937
+    ],
+    "values_match": true,
+    "same_pvc_and_pv": true,
+    "limits": [
+      "single-instance service interruption",
+      "fsync-confirmed synthetic writes",
+      "graceful pod deletion, not node/power loss",
+      "readiness timing is not continuous client outage measurement",
+      "PVC/PV preserved; no HA or lost-volume restore claim"
+    ]
+  }
+}

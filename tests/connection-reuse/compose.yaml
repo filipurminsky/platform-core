@@ -1,0 +1,40 @@
+# Isolated controlled fault: no host ports, no application configuration changes.
+services:
+  echo:
+    image: ${ECHO_IMAGE:-echo-service:latest}
+    pull_policy: never
+    environment:
+      OTEL_SDK_DISABLED: "true"
+    mem_limit: 96m
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+  proxy:
+    image: python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
+    command: [python, /fixture/proxy.py]
+    volumes: [.:/fixture:ro]
+    mem_limit: 32m
+    read_only: true
+    cap_drop: [ALL]
+  baseline:
+    image: docker.io/envoyproxy/envoy:distroless-v1.40.2@sha256:09ca6f2140a61ad8df11779a4a30d52b48433d444466328494f9188c9c35eded
+    command: [-c, /config/baseline.yaml, --concurrency, "1", --log-level, warning]
+    volumes: ["${CONNECTION_EVIDENCE_DIR:?runner supplies evidence directory}:/config:ro"]
+    mem_limit: 48m
+    read_only: true
+    cap_drop: [ALL]
+  candidate:
+    image: docker.io/envoyproxy/envoy:distroless-v1.40.2@sha256:09ca6f2140a61ad8df11779a4a30d52b48433d444466328494f9188c9c35eded
+    command: [-c, /config/candidate.yaml, --concurrency, "1", --log-level, warning]
+    volumes: ["${CONNECTION_EVIDENCE_DIR:?runner supplies evidence directory}:/config:ro"]
+    mem_limit: 48m
+    read_only: true
+    cap_drop: [ALL]
+  tests:
+    image: python:3.14.10-slim@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f
+    command: [python, /fixture/test_reuse.py]
+    user: "${TEST_UID:?runner supplies uid}:${TEST_GID:?runner supplies gid}"
+    volumes: [".:/fixture:ro", "${CONNECTION_EVIDENCE_DIR:?runner supplies evidence directory}:/evidence"]
+    mem_limit: 32m
+    read_only: true
+    cap_drop: [ALL]

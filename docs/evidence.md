@@ -16,7 +16,8 @@ need operational evidence. A source-level resolution is not a live acceptance re
 | Python service behavior | `make test`; [test workflow](../.github/workflows/test-apps.yaml) | Unit-level behavior in separate service environments | External dependencies commonly use fakes |
 | Audio stage contracts | `make integration-test`; [tests](../tests/integration/) | Cross-service event/state/object-key compatibility | In-process infrastructure; not broker or container operation |
 | Real dependency recovery | `make infrastructure-test`; [suite](../tests/infrastructure/) | Real Kafka, Redis, object-store behavior and controlled worker recovery | Isolated local test; does not establish Kubernetes or AWS behavior |
-| Redis persistence recovery | [Recovery drill](runbooks/redis-recovery.md) | Forced replacement, independent RDB restore and restored-AOF replacement preserve fixture state/TTLs | Container volumes; no Kubernetes PVC, node-loss or HA proof |
+| Connection-close recovery | `make connection-test`; [procedure](runbooks/echo-upstream-connections.md) | Controlled delayed-FIN fault produces baseline 503/UC and candidate 200 responses | Small HTTP/1.1 sample; does not prove the historical error's cause |
+| Redis persistence recovery | [Recovery drill](runbooks/redis-recovery.md); [live results](qa-followups-2026-11-10.md) | Docker replacement/backup restore and local Kubernetes pod replacement preserve fixture state/TTLs; pod drill preserves PVC/PV identity | No node-loss, lost-volume recovery or HA proof |
 | Workflow and IaC guards | `make workflow-lint`; `make iac-security`; [scope](../policy/terraform/README.md) | GitHub expression validation, negative fixtures, reviewed source posture and authored expanded-plan gate | Real AWS plan execution remains unverified |
 | Service generation | `make scaffold-test`; [live portal QA](qa-dev-2026-11-09.md) | Generated artifacts tested; actual Backstage local template dry-run produced a tested service | GitHub publishing, registration, and promotion were not executed |
 | Kubernetes shape and policies | `make schemas` then `make validate` | Rendering, pinned schema checks, combined OPA relationships, local checks in Makefile | Rendering is not admission, scheduling, or traffic verification |
@@ -31,13 +32,19 @@ need operational evidence. A source-level resolution is not a live acceptance re
 
 `make validate` covers local non-cluster checks defined in the Makefile, including
 `make scaffold-test` (locked npm install followed by generated-service tests).
-`make infrastructure-test` is a separate Docker gate. Hosted
+`make infrastructure-test` and `make connection-test` are separate Docker gates. Hosted
 CI additionally runs security scans, container builds, and a kind smoke job.
 The schema setup downloads pinned CRDs and converts their served schemas; a
 missing schema is not silently treated as valid. Some kinds are explicitly
 excluded in CI and remain outside its schema coverage.
 
 ## Current verification notes
+
+The [November 10 follow-up report](qa-followups-2026-11-10.md) records published
+CI passes, hosted recovery artifacts, Redis backup/replacement observations,
+tenant access checks, public GitOps migration, and the portal timeout repair.
+It distinguishes the controlled connection-fault reproduction from the
+historical echo 503s, whose cause remains unproven.
 
 The [tool-upgrade record](tool-upgrades.md) contains results from that specific
 upgrade session. It is historical evidence, not a pass result for every later

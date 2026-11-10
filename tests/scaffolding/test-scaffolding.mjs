@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
@@ -49,6 +49,26 @@ test('registration limits delivery to reviewed repository and resource kinds', (
   assert(!project.spec.namespaceResourceWhitelist.some(resource => ['*', 'Secret', 'RoleBinding', 'Role'].includes(resource.kind)));
   assert.equal(applicationSet.spec.template.spec.project, project.metadata.name);
   assert.deepEqual(applicationSet.spec.generators[0].clusters.selector.matchExpressions[0].values, ['dev', 'prod']);
+});
+
+test('app registrations keep retrying late operator CRDs without pinning a failed revision', () => {
+  const apps = join(repository, 'kubernetes/apps');
+  const registrations = readdirSync(apps, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => join(apps, entry.name, 'applicationset.yaml'));
+  assert.equal(registrations.length, 8, 'cover every platform app registration');
+  registrations.push(join(registration, 'applicationset.yaml'));
+  for (const path of registrations) {
+    const applicationSet = YAML.parseAllDocuments(readFileSync(path, 'utf8'))
+      .map(document => document.toJSON()).find(object => object.kind === 'ApplicationSet');
+    // Check the generated child's policy, not the ApplicationSet controller policy.
+    // A finite retry budget caused cold installs to remain failed after KEDA was ready.
+    const policy = applicationSet.spec.template.spec.syncPolicy;
+    assert.deepEqual(policy.automated, { prune: true, selfHeal: true }, path);
+    assert.equal(policy.retry?.limit, -1, `${path}: late CRDs must not exhaust retries`);
+    assert.equal(policy.retry.refresh, true, `${path}: retries must pick up a corrected revision`);
+    assert.deepEqual(policy.retry.backoff, { duration: '10s', factor: 2, maxDuration: '60s' }, path);
+  }
 });
 
 test('workflow expressions survive rendering and privileged release is gated', () => {

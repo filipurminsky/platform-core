@@ -109,6 +109,15 @@ write, SIGKILL after confirmed output/dedup before commit, SIGTERM during retry,
 and invalid-event DLQ handling. These targeted checks make recovery properties
 observable without claiming that every distributed failure has been tested.
 
+The [subsequent recovery drill](runbooks/redis-recovery.md) also tested the state
+store itself. A first restore attempt exposed that starting Redis with AOF
+enabled does not load an RDB-only backup as expected. The corrected procedure
+loads the snapshot, enables AOF, then replaces the restored instance and checks
+both recovered records and a new write. The [hosted acceptance record](qa-followups-2026-11-10.md)
+ties those assertions to a successful workflow artifact. Restoring Redis still
+does not atomically rewind Kafka offsets or object storage: older dedup state
+can permit repeated work, so idempotent handlers remain necessary.
+
 ## How to present the result
 
 Use a run's actual job ID and timeline: input accepted, interruption observed,

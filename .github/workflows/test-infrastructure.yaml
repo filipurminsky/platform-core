@@ -5,8 +5,12 @@ on:
     paths:
       - services/platform-common/**
       - services/stt-worker/**
+      - services/echo-service/**
       - tests/infrastructure/**
+      - tests/connection-reuse/**
       - scripts/test-infrastructure.sh
+      - scripts/test-echo-connections.sh
+      - Makefile
       - .github/workflows/test-infrastructure.yaml
   workflow_dispatch: {}
 
@@ -21,10 +25,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Set up uv and Python 3.14
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+          enable-cache: false
+      - name: Select Python 3.14 for host-side runners
+        run: |
+          uv python install 3.14
+          dirname "$(uv python find 3.14)" >> "$GITHUB_PATH"
       - name: Exercise real infrastructure and worker interruption
         env:
           INFRA_EVIDENCE_DIR: ${{ runner.temp }}/infrastructure-evidence
-        run: ./scripts/test-infrastructure.sh
+        run: |
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 14), sys.version'
+          ./scripts/test-infrastructure.sh
+      - name: Verify controlled Envoy connection-close recovery
+        env:
+          EVIDENCE_DIR: ${{ runner.temp }}/infrastructure-evidence/connection
+        run: make connection-test
       - name: Preserve test results and worker/infrastructure diagnostics
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

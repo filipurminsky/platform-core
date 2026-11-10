@@ -76,6 +76,7 @@ make lint                  # Ruff lint and format check, apps + shared library
 make test                  # pytest separately in each Python project
 make integration-test      # cross-service audio contract tests using the audio-api venv
 make infrastructure-test   # isolated real Kafka/Redis/S3 recovery tests; requires Docker
+make connection-test       # controlled Envoy connection-close regression; requires Docker
 make script-test           # operational-script regressions and shell syntax checks
 make scaffold-test         # npm ci + generated-service tests; Node/npm, uv, kustomize, conftest
 make workflow-lint         # pinned actionlint + invalid-context regression fixtures
