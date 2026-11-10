@@ -1,0 +1,74 @@
+name: Full DEV acceptance (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: Linux x64 runner label (DEV_ACCEPTANCE_RUNNER repository variable overrides)
+        type: string
+        default: ubuntu-24.04
+      image_pull_concurrency:
+        description: Concurrent image pulls per node (1 is the comparison baseline)
+        type: choice
+        options: ["1", "2"]
+        default: "1"
+
+permissions:
+  contents: read
+
+# Public GitOps sources track main. Never run a branch checkout against a
+# different deployed source, and never interrupt an earlier cleanup for a new run.
+concurrency:
+  group: full-dev-acceptance
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    # Configure an ephemeral Linux AMD64 larger runner if the standard public
+    # runner fails the resource gate. Private standard runners have only 8 GB.
+    # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+    runs-on: ${{ vars.DEV_ACCEPTANCE_RUNNER || inputs.runner_label || 'ubuntu-24.04' }}
+    timeout-minutes: 180
+    steps:
+      - name: Reject non-main dispatch before acceptance
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo '::error::Full DEV acceptance must be dispatched on main because GitOps sources track published main.'
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up uv and Python 3.14
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.14"
+          version: "0.13.7"
+          enable-cache: false
+      - name: Select Python 3.14
+        run: |
+          uv python install 3.14
+          dirname "$(uv python find 3.14)" >> "$GITHUB_PATH"
+      - name: Check memory, CPUs and Docker storage before creating resources
+        run: python3 .github/scripts/check-dev-resources.py --output="$RUNNER_TEMP/dev-acceptance-resources.json"
+      - name: Verify or install pinned lifecycle tools
+        run: ./.github/scripts/setup-dev-acceptance.sh
+      - name: Exercise published-source lifecycle and owned-resource cleanup
+        # Leave room for the runner's separate install, convergence, functional
+        # check and cleanup budgets; observed bootstrap alone took 39 minutes.
+        timeout-minutes: 150
+        env:
+          PULL_CONCURRENCY: ${{ inputs.image_pull_concurrency }}
+        run: |
+          make dev-acceptance DEV_ACCEPTANCE_ARGS="--expected-revision=$GITHUB_SHA --evidence-dir=$RUNNER_TEMP/dev-acceptance --timeout=2400 --install-timeout=600 --image-pull-concurrency=$PULL_CONCURRENCY"
+      # The runner writes explicit sanitized JSON summaries. Never upload the
+      # evidence root, local logs, private diagnostics, kubeconfigs or Secrets.
+      - name: Preserve sanitized acceptance evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dev-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/dev-acceptance/summary/*.json
+            ${{ runner.temp }}/dev-acceptance-resources.json
+          if-no-files-found: warn
+          retention-days: 7

@@ -20,6 +20,8 @@ REQUIRE_PUBLISHED_SOURCE=false
 GATEWAY_URL=http://localhost
 WAIT_TIMEOUT=2400
 INSTALL_TIMEOUT=600
+IMAGE_CACHE=""
+IMAGE_CACHE_REPORT=""
 PHASE=preflight
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
@@ -35,7 +37,9 @@ for arg in "$@"; do
     --gateway-url=*) GATEWAY_URL="${arg#*=}" ;;
     --timeout=*) WAIT_TIMEOUT="${arg#*=}" ;;
     --install-timeout=*) INSTALL_TIMEOUT="${arg#*=}" ;;
-    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH] [--skip-images] [--require-published-source] [--wait] [--gateway-url=http://localhost] [--timeout=2400] [--install-timeout=600] (timeouts in seconds)"; exit 0 ;;
+    --image-cache=*) IMAGE_CACHE="${arg#*=}" ;;
+    --image-cache-report=*) IMAGE_CACHE_REPORT="${arg#*=}" ;;
+    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH] [--skip-images] [--require-published-source] [--wait] [--gateway-url=http://localhost] [--timeout=2400] [--install-timeout=600] [--image-cache=DIR] [--image-cache-report=PATH] (timeouts in seconds)"; exit 0 ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
@@ -54,6 +58,14 @@ fi
 [[ "$WAIT_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo '--timeout must be positive seconds.' >&2; exit 2; }
 [[ "$INSTALL_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo '--install-timeout must be positive seconds.' >&2; exit 2; }
 [[ "$GATEWAY_URL" =~ ^https?:// ]] || { echo '--gateway-url must use http:// or https://.' >&2; exit 2; }
+if [[ -n "$IMAGE_CACHE" && "$MODE" != local ]]; then
+  echo '--image-cache is supported only for local kind clusters.' >&2
+  exit 2
+fi
+if [[ -n "$IMAGE_CACHE_REPORT" && -z "$IMAGE_CACHE" ]]; then
+  echo '--image-cache-report requires --image-cache.' >&2
+  exit 2
+fi
 
 log()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
@@ -83,6 +95,11 @@ trap failure ERR
 
 # ─── Dependency checks ───────────────────────────────────────────────────────
 ./scripts/doctor.sh --mode="$MODE" --preflight
+if [[ -n "$IMAGE_CACHE" ]]; then
+  CACHE_SOURCE_REVISION=$(git rev-parse HEAD)
+  python3 scripts/dev-image-cache.py validate --cache-dir="$IMAGE_CACHE" \
+    --source-revision="$CACHE_SOURCE_REVISION" --kind-config="$KIND_CONFIG"
+fi
 if [[ "$REQUIRE_PUBLISHED_SOURCE" == true ]]; then
   python3 scripts/verify-dev-source.py
 else
@@ -120,6 +137,16 @@ if not nodes or any(not node["status"]["nodeInfo"]["kubeletVersion"].startswith(
   ok "kind cluster created"
   # A rerun can start with another cluster selected in kubeconfig.
   kubectl config use-context "kind-${CLUSTER_NAME}"
+
+  # Restore only explicitly requested, revision-bound OCI images. Never restore
+  # node disks or workload state, and keep local app builds below independent.
+  if [[ -n "$IMAGE_CACHE" ]]; then
+    PHASE='verified platform image cache import'
+    cache_arguments=(import --cluster="$CLUSTER_NAME" --cache-dir="$IMAGE_CACHE"
+      --source-revision="$CACHE_SOURCE_REVISION")
+    [[ -z "$IMAGE_CACHE_REPORT" ]] || cache_arguments+=(--report="$IMAGE_CACHE_REPORT")
+    python3 scripts/dev-image-cache.py "${cache_arguments[@]}"
+  fi
 
   # ─── Cilium + Hubble (eBPF dataplane, local-first) ─────────────────────────
   # Installed here, before ArgoCD, because the cluster has no CNI yet and nothing

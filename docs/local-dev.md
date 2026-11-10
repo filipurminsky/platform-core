@@ -153,6 +153,13 @@ and exhausted dependency retries; their evidence is preserved in the
 [follow-up acceptance record](qa-followups-2026-11-10.md). Allow setup time
 separately from a presentation; these timings are observations, not guarantees.
 
+`make dev-acceptance` now packages that lifecycle into a repository-owned runner
+with isolated ports/kubeconfig, phase evidence, bounded cleanup, and an optional
+explicit pause/restore of a retained platform cluster. See
+[full DEV acceptance](dev-acceptance.md) for its command-line options, manual CI,
+and controlled startup comparison procedure. It deletes its disposable cluster;
+use ordinary bootstrap above when you want to retain an environment.
+
 Bootstrap refuses to reuse nodes outside Kubernetes 1.36 or a cluster still
 using kindnet. Updating the checked-in node image does not upgrade an existing
 cluster. Preserve an older environment and use a separate name/config instead:

@@ -103,6 +103,44 @@ class BootstrapCompatibilityTests(ScriptSandbox):
             if command[0] == "kubectl":
                 self.assertEqual(command[1:3], ["--context", "kind-regression-test"])
 
+    def test_cache_validates_before_mutation_and_imports_before_cilium(self):
+        self.tool("git", "print('a' * 40)\n")
+        (self.root / "scripts/dev-image-cache.py").write_text(
+            "import json, os, sys\n"
+            "with open(os.environ['COMMAND_LOG'], 'a') as stream:\n"
+            "    stream.write(json.dumps(['cache', *sys.argv[1:]]) + '\\n')\n"
+            "sys.exit(42 if os.environ.get('INVALID_CACHE') else 0)\n"
+        )
+        for invalid in (True, False):
+            with self.subTest(invalid=invalid):
+                self.log.write_text("")
+                result = self.run_script(
+                    "bootstrap.sh",
+                    "--cluster-name=regression-test",
+                    "--image-cache=fixture",
+                    NODE_VERSIONS='["v1.36.4"]',
+                    INVALID_CACHE="1" if invalid else "",
+                )
+                commands = self.commands()
+                validation = next(
+                    i for i, cmd in enumerate(commands) if cmd[:2] == ["cache", "validate"]
+                )
+                if invalid:
+                    self.assertEqual(result.returncode, 42)
+                    self.assert_no_installation()
+                else:
+                    self.assertEqual(result.returncode, 91)
+                    mutation = next(i for i, cmd in enumerate(commands) if "use-context" in cmd)
+                    restoration = next(
+                        i for i, cmd in enumerate(commands) if cmd[:2] == ["cache", "import"]
+                    )
+                    installation = next(
+                        i for i, cmd in enumerate(commands) if cmd[:3] == ["helm", "repo", "add"]
+                    )
+                    self.assertLess(validation, mutation)
+                    self.assertLess(mutation, restoration)
+                    self.assertLess(restoration, installation)
+
     def test_old_helm_rejected_before_installation(self):
         self.tool("helm", "print('v3.18.0')\n")
         result = self.run_script(

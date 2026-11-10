@@ -154,6 +154,10 @@ doctor: ## Inspect local tools, Docker and the selected cluster without changing
 	./scripts/doctor.sh
 
 # ── Cluster lifecycle + demos ───────────────────────────────────────────────────
+.PHONY: dev-acceptance
+dev-acceptance: ## Run fresh published-source DEV lifecycle with cleanup (Docker; opt-in)
+	python3 scripts/dev-acceptance.py $(DEV_ACCEPTANCE_ARGS)
+
 .PHONY: up
 up: ## Bootstrap a local kind cluster (zero AWS cost)
 	./scripts/bootstrap.sh --mode=local

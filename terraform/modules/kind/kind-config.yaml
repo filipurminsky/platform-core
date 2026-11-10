@@ -4,6 +4,15 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: platform-core
+# Explicit per-node baseline for measured cold/warm comparisons. The acceptance
+# runner can select two concurrent pulls; keep one until the benchmark passes.
+# kubeadm applies this KubeletConfiguration to every node in the cluster.
+kubeadmConfigPatches:
+  - |
+    apiVersion: kubelet.config.k8s.io/v1beta1
+    kind: KubeletConfiguration
+    serializeImagePulls: false
+    maxParallelImagePulls: 1
 networking:
   # Default CNI (kindnet) is disabled — scripts/bootstrap.sh installs Cilium
   # (eBPF dataplane + Hubble flow visibility) before ArgoCD reconciles. Nodes

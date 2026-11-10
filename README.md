@@ -97,6 +97,11 @@ Applications, Gateway programming, and routed health endpoints. Without `--wait`
 bootstrap only starts reconciliation. Child GitOps sources track main, so this
 is not an immutable fleet pin. Local edits are not deployed by Argo CD.
 
+Run `make dev-acceptance` for a disposable full-stack rehearsal covering Redis
+recovery, Kafka/DLQ/audio, tenant isolation, public template generation, and
+verified teardown. See [acceptance and startup measurements](docs/dev-acceptance.md)
+for resource requirements, evidence, optional image caching, and manual CI.
+
 ## Validation
 
 Python projects use Python **3.14** and separate uv environments/lockfiles.

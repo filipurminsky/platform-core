@@ -4,6 +4,11 @@ The [DEV acceptance report](qa-dev-2026-11-09.md) and
 [November 10 follow-up](qa-followups-2026-11-10.md) record actual live results,
 fixes, hosted recovery evidence, and remaining limits.
 
+Use `make dev-acceptance` for a complete disposable rehearsal before presenting.
+The [acceptance guide](dev-acceptance.md) explains its recovery, tenant, portal,
+cleanup checks, and startup measurements. Keep a separate retained cluster for
+the interactive demo below.
+
 The central story is a developer creating a service, seeing it delivered with
 platform defaults, and diagnosing a failed change. The asynchronous pipeline
 provides a second example of the same platform's recovery and observability
