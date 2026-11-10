@@ -126,13 +126,23 @@ scaffold-test: ## Render and test generated services (requires Node, uv, kustomi
 	npm ci --prefix tests/scaffolding
 	npm test --prefix tests/scaffolding
 
+.PHONY: workflow-lint
+workflow-lint: ## Validate GitHub workflow contexts (pinned tool; curl/network needed on first run)
+	./scripts/validate-workflows.sh
+	python3 -m unittest discover -s tests/workflows -v
+
+.PHONY: iac-security
+iac-security: ## Block unsafe IaC wiring and test negative fixtures (requires conftest)
+	python3 policy/terraform/security.py source
+	python3 -m unittest discover -s tests/iac -v
+
 .PHONY: script-test
 script-test: ## Run operational-script regression checks without a cluster
 	python3 -m unittest discover -s tests/scripts -v
 	@for script in scripts/*.sh scripts/kubeconform-k8s; do bash -n "$$script"; done
 
 .PHONY: validate
-validate: lint test integration-test script-test scaffold-test kustomize helm-validate policy kube-lint tf-fmt tf-validate ## Non-cluster checks; run make schemas first (security/build/e2e remain separate)
+validate: workflow-lint iac-security lint test integration-test script-test scaffold-test kustomize helm-validate policy kube-lint tf-fmt tf-validate ## Non-cluster checks; run make schemas first (security/build/e2e remain separate)
 
 .PHONY: doctor
 doctor: ## Inspect local tools, Docker and the selected cluster without changing them

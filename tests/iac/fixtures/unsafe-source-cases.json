@@ -1,0 +1,183 @@
+[
+  {
+    "name": "public_prod_default",
+    "path": [
+      "terraform/environments/prod/main.tf",
+      "variable",
+      "api_public_access",
+      0,
+      "default"
+    ],
+    "value": true,
+    "code": "API_DEFAULT"
+  },
+  {
+    "name": "world_prod_allowlist",
+    "path": [
+      "terraform/environments/prod/main.tf",
+      "variable",
+      "api_allowed_cidrs",
+      0,
+      "default"
+    ],
+    "value": [
+      "0.0.0.0/0"
+    ],
+    "code": "API_CIDRS"
+  },
+  {
+    "name": "hardcoded_public_prod",
+    "path": [
+      "terraform/environments/prod/main.tf",
+      "module",
+      "eks",
+      0,
+      "endpoint_public_access"
+    ],
+    "value": true,
+    "code": "API_DEFAULT"
+  },
+  {
+    "name": "public_subnet_wiring",
+    "path": [
+      "terraform/environments/prod/main.tf",
+      "module",
+      "eks",
+      0,
+      "private_subnet_ids"
+    ],
+    "value": "${module.networking.public_subnet_ids}",
+    "code": "PRIVATE_NODES"
+  },
+  {
+    "name": "disabled_private_endpoint",
+    "path": [
+      "terraform/modules/eks/main.tf",
+      "module",
+      "eks",
+      0,
+      "endpoint_private_access"
+    ],
+    "value": false,
+    "code": "API_PRIVATE"
+  },
+  {
+    "name": "public_nodes",
+    "path": [
+      "terraform/modules/eks/main.tf",
+      "module",
+      "eks",
+      0,
+      "eks_managed_node_groups",
+      "platform",
+      "subnet_ids"
+    ],
+    "value": "${var.public_subnet_ids}",
+    "code": "PRIVATE_NODES"
+  },
+  {
+    "name": "public_ip_assignment",
+    "path": [
+      "terraform/modules/networking/main.tf",
+      "module",
+      "vpc",
+      0,
+      "map_public_ip_on_launch"
+    ],
+    "value": true,
+    "code": "PUBLIC_IP"
+  },
+  {
+    "name": "imds_optional",
+    "path": [
+      "terraform/modules/eks/main.tf",
+      "module",
+      "eks",
+      0,
+      "eks_managed_node_groups",
+      "platform",
+      "metadata_options",
+      "http_tokens"
+    ],
+    "value": "optional",
+    "code": "IMDS"
+  },
+  {
+    "name": "imds_hop_two",
+    "path": [
+      "terraform/modules/eks/main.tf",
+      "module",
+      "eks",
+      0,
+      "eks_managed_node_groups",
+      "platform",
+      "metadata_options",
+      "http_put_response_hop_limit"
+    ],
+    "value": 2,
+    "code": "IMDS"
+  },
+  {
+    "name": "karpenter_imds_optional",
+    "path": [
+      "kubernetes/platform/karpenter/config/ec2nodeclass.yaml",
+      "spec",
+      "metadataOptions",
+      "httpTokens"
+    ],
+    "value": "optional",
+    "code": "IMDS"
+  },
+  {
+    "name": "karpenter_public_discovery",
+    "path": [
+      "terraform/modules/networking/main.tf",
+      "module",
+      "vpc",
+      0,
+      "public_subnet_tags",
+      "karpenter.sh/discovery"
+    ],
+    "value": "${local.name}",
+    "code": "KARPENTER_SUBNETS"
+  },
+  {
+    "name": "removed_cidr_validation",
+    "path": [
+      "terraform/modules/eks/variables.tf",
+      "variable",
+      "allowed_cidrs",
+      0,
+      "validation"
+    ],
+    "value": [],
+    "code": "API_CIDRS"
+  },
+  {
+    "name": "global_imds_exemption",
+    "path": [
+      ".trivyignore.yaml",
+      "misconfigurations"
+    ],
+    "value": [
+      {
+        "id": "AVD-AWS-0130"
+      }
+    ],
+    "code": "SECURITY_EXEMPTION"
+  },
+  {
+    "name": "bypass_managed_metadata_template",
+    "path": [
+      "terraform/modules/eks/main.tf",
+      "module",
+      "eks",
+      0,
+      "eks_managed_node_groups",
+      "platform",
+      "create_launch_template"
+    ],
+    "value": false,
+    "code": "IMDS"
+  }
+]

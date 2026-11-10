@@ -90,6 +90,15 @@ module "eks" {
       max_size       = var.node_max
       desired_size   = var.node_desired
 
+      # Workload credentials use IRSA, not the node role through IMDS. Keep
+      # this explicit rather than relying on upstream launch-template defaults.
+      # Host-networked pods still need their own security review: hop limit is
+      # defense in depth, not isolation from containers sharing the host network.
+      metadata_options = {
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 1
+      }
+
       labels = {
         role = "platform"
       }

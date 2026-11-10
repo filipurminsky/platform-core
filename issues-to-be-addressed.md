@@ -2,13 +2,15 @@
 
 **Reconciled:** 2026-11-09 · **Audited source:** `9e6c659dd35337e9a92691ffd430140134d940db`
 
+**Follow-up:** 2026-11-10 — implementation and local recovery/access evidence updated below.
+
 This is the current disposition of the 18 findings from the 2026-06-15 review
 of `harden-eks-netpol-cleanup`. The
 [original review is preserved at the audited commit](https://github.com/filipurminsky/platform-core/blob/9e6c659dd35337e9a92691ffd430140134d940db/issues-to-be-addressed.md).
 Historical excerpts and severities describe that earlier review, not defects
 all still present today.
 
-**Result: 13 findings resolved in implementation; five partially addressed.**
+**Result: 14 findings resolved in implementation; four partially addressed.**
 A separate tenant-to-gateway access mismatch found during reconciliation is
 tracked as **F1** below.
 
@@ -19,7 +21,7 @@ tracked as **F1** below.
 - **Accepted tradeoff:** an existing documented decision, not new risk acceptance
   by this review. Mitigation or verification may still be outstanding.
 
-This reconciliation used source inspection and read-only rendering. It did not
+The initial reconciliation used source inspection and read-only rendering. It did not
 apply infrastructure, change policies, rerun service suites, or execute cloud or
 signing operations. Previously recorded tests and local acceptance are linked
 where relevant; see the [evidence matrix](docs/evidence.md) and
@@ -37,10 +39,10 @@ remaining work.
 | 1 | P0 | KEDA Kafka TLS lacks cluster CA | Resolved | All four prod authentication resources reference the CA; live TLS/rotation proof remains |
 | 2 | P0 | Production EKS API public by default | Resolved | Private endpoint default; public access requires explicit CIDRs |
 | 3 | P1 | Worker nodes in public subnets | Resolved | Private subnet wiring, NAT, and private Karpenter discovery tags |
-| 4 | P1 | Registry modules invisible to IaC scanners | Partial | Expanded Checkov scan exists but is informational, not blocking |
-| 5 | P1 | Redis loses state on reschedule; single point of failure | Partial | PVC/AOF/PDB added; single-instance availability and recovery proof remain |
+| 4 | P1 | Registry modules invisible to IaC scanners | Resolved | Blocking source guards, negative fixtures and expanded-plan gate added; AWS execution remains unverified |
+| 5 | P1 | Redis loses state on reschedule; single point of failure | Partial | Container replacement and backup/AOF restore verified; Kubernetes recovery and availability remain |
 | 6 | P1 | Audio delivery depends on global flush count | Resolved | Request-specific delivery acknowledgement controls acceptance |
-| 7 | P1 | Signature admission depends on public services | Partial | Dependency explicitly accepted; fail-closed policy retained; runbook/cache claims need correction |
+| 7 | P1 | Signature admission depends on public services | Partial | CEL runbook corrected; external dependency retained; live outage/admission proof remains |
 | 8 | P1 | Helm HPA/replica conflict and invalid image defaults | Resolved | Conditional replicas, required repository, version default, seccomp |
 | 9 | P2 | Rate limit multiplies across gateway replicas | Resolved | Production uses shared atomic Redis limiter; documented fallback tradeoffs remain |
 | 10 | P2 | Broad application egress | Partial | Gateway allow-all egress and unrestricted DNS fixed; unrestricted HTTPS destinations remain |
@@ -53,9 +55,9 @@ remaining work.
 | 17 | P2 | Redis job-state merge is non-atomic | Resolved | Shared atomic Lua merge preserves accumulated keys and TTL |
 | 18 | P2 | Versions, dedup TTL, producer retries, stale lag labels | Resolved | All four sub-findings corrected; targeted proof gaps remain |
 
-## Partially addressed findings
+## Findings with follow-up work
 
-### 4. Expanded IaC scanning is visible but not a blocking gate
+### 4. Selected infrastructure controls now have blocking gates
 
 The [CI workflow](.github/workflows/ci.yaml#L330) has a blocking Checkov pass
 over local Terraform and a separate pass with external-module download enabled.
@@ -64,14 +66,15 @@ The original claim that scanners never see registry modules is obsolete;
 expanded findings still do not fail CI. Trivy gates findings subject to its
 configured exclusions.
 
-**Remaining work:** add selected blocking checks over expanded resources or a
-Terraform plan, and demonstrate negative cases for endpoint exposure, public
-node placement, and metadata-service settings. Review the global exemptions in
-[`.trivyignore.yaml`](.trivyignore.yaml#L57), especially `AVD-AWS-0164` and its
-obsolete public-node/no-NAT rationale, plus the IMDS/egress exemptions. A green
-wrapper scan is not complete evaluated-infrastructure coverage.
+**2026-11-10:** `make iac-security` parses source wiring and runs positive and
+negative fixtures for endpoint exposure, node placement, public IP assignment,
+and IMDS settings. The [plan workflow](.github/workflows/terraform-plan.yaml)
+blocks unsafe evaluated resources, including nested registry modules, when AWS
+is configured. Public-IP/IMDS exemptions were removed and the node-egress
+exception narrowed. See the [guard definitions and limits](policy/terraform/README.md).
+The local source/fixture checks passed; a real AWS plan remains unverified.
 
-### 5. Redis persistence is implemented; availability and recovery are not proven
+### 5. Redis container recovery is verified; Kubernetes recovery and availability remain
 
 [Redis](kubernetes/platform/redis/manifests/redis.yaml#L59) enables AOF with
 `appendfsync everysec` and periodic snapshots. Its
@@ -81,8 +84,14 @@ It still runs one replica; its
 [PDB](kubernetes/platform/redis/manifests/redis.yaml#L123) permits one unavailable
 pod, including complete voluntary downtime.
 
-**Remaining work:** establish recovery objectives, then exercise pod replacement
-with the same volume, disk exhaustion, and backup restore. Seven-day key TTL is
+**2026-11-10:** the isolated [recovery drill](docs/runbooks/redis-recovery.md)
+verified forced container replacement on the same volume, RDB restore onto a
+separate volume, and another forced replacement using the restored AOF. Exact
+job/dedup values and remaining TTLs survived; the snapshot recovery point was
+checked. This is not Kubernetes PVC reattachment or high availability.
+
+**Remaining work:** establish recovery objectives, then exercise Kubernetes pod
+replacement, node/volume loss, disk exhaustion, and offsite backups. Seven-day key TTL is
 a retention setting, not an availability or recovery guarantee. Keep the
 single-instance design's limit explicit; replication or a managed service is a
 separate requirement if high availability is needed.
@@ -94,7 +103,7 @@ Confirm the provisioner, class, and permissions before claiming production PVC
 readiness. This is a provisioning gap to resolve or document, not an observed
 failure on a deployed AWS cluster.
 
-### 7. Fail-closed signature admission is intentional; the runbook needs correction
+### 7. Fail-closed signature admission is intentional; outage proof remains
 
 The current [ImageValidatingPolicy](kubernetes/platform/kyverno-policies/base/verify-image-signatures.yaml#L34)
 uses `Deny`, `failurePolicy: Fail`, a 30-second timeout, exact signing identity,
@@ -103,13 +112,10 @@ services are outside that selector. The external dependency is accepted in
 [ADR-009](docs/adr/adr-009-sign-verify-supply-chain.md). Preserve fail-closed
 admission; this reconciliation does not authorize weakening it.
 
-**Remaining work:** reconcile the
-[signature-admission runbook](docs/runbooks/image-signature-admission.md#L14)
-with the CEL policy. Its example still uses legacy ClusterPolicy fields, its
-approximately 60-minute `imageVerifyCache` claim is not established for the
-configured CEL verifier, and its refresh command annotates the policy rather
-than the owning Argo Application. Do not count that command or proposed mirrors
-as a verified recovery procedure.
+**2026-11-10:** the [signature-admission runbook](docs/runbooks/image-signature-admission.md)
+now uses CEL fields, removes unsupported cache-TTL claims, distinguishes explicit
+denials from webhook failures, and refreshes the owning Argo Application.
+It preserves fail-closed admission and does not claim an offline recovery path.
 
 Test signed/unsigned images, signer mismatch, dependency unavailability, and
 cold/warm paths before claiming cache or outage recovery. Private/offline
@@ -283,21 +289,19 @@ remain best-effort; these are separate limits from the lost-key race.
 | Non-idempotent producer retries | [Audio producer](services/audio-api/main.py#L95) and [shared worker producer](services/platform-common/src/platform_common/kafka_io.py#L90) enable idempotence | This is not transactional exactly-once processing and does not eliminate duplicates after restart |
 | Stale revoked-partition lag series | [Shared lag refresh](services/platform-common/src/platform_common/kafka_io.py#L131) clears the gauge before rebuilding current assignments | No direct rebalance regression found; stale labels can persist until the next approximately 15-second refresh |
 
-## F1. Follow-up discovered: tenant gateway access is incomplete
+## F1. Tenant gateway access — resolved in source and local acceptance
 
-This is separate from resolved historical finding 11. Tenant egress permits
-gateway traffic, but [gateway ingress](services/llm-gateway/k8s/base/networkpolicy.yaml#L14)
-only permits monitoring and same-namespace `llm-worker` pods; dev also permits
-Envoy. Rendered dev/prod aggregates contain no other policy selecting the gateway
-that grants direct tenant access.
+This is separate from resolved historical finding 11. Gateway ingress now allows
+platform-enrolled tenant namespaces on port 8080, while tenant egress selects
+only gateway pods in `apps`. Application authentication remains required.
 
-**Status: open, confirmed in configuration; no new live connectivity test run.**
-Decide whether generic tenants should call the authenticated gateway. If yes,
-add narrowly scoped ingress and test authorized tenant-to-gateway access while
-retaining the denial of direct vLLM access. If no, remove the misleading
-allowance/documentation. Do not reopen port 8000 as a workaround.
+The [repeatable acceptance runner](tests/network/README.md) passed eight local
+Cilium checks on 2026-11-10: authenticated HTTP 200, missing/wrong-key HTTP 401,
+same-tenant connectivity, symmetric cross-tenant denial, a live inference
+positive control and denial of direct inference even with a spoofed gateway pod
+label. Probe cleanup passed. This does not establish EKS network enforcement.
 
-## Evidence collected for this reconciliation
+## Evidence collected for the initial 2026-11-09 reconciliation
 
 - Inspected source and existing test definitions at the audited commit;
   earlier runtime results remain in the linked QA report.

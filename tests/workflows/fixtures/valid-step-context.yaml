@@ -1,0 +1,9 @@
+name: Valid step context
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          EVIDENCE: ${{ runner.temp }}/evidence
+        run: mkdir -p "$EVIDENCE"

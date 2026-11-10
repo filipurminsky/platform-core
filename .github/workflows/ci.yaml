@@ -42,6 +42,15 @@ env:
   CHECKOV_VERSION: "3.4.3"
 
 jobs:
+  workflow-validation:
+    name: GitHub workflow validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make workflow-lint
+
   secret-scan:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
@@ -218,6 +227,9 @@ jobs:
       - name: Evaluate combined policies in both environments
         run: make policy
 
+      - name: Block unsafe infrastructure wiring and exercise negative fixtures
+        run: make iac-security
+
   script-test:
     name: Operational script regression tests
     runs-on: ubuntu-latest
@@ -344,9 +356,9 @@ jobs:
       # Informational scan that DOES resolve the registry modules, so the actual
       # EKS/VPC/subnet resource config is evaluated (closes the "registry-module
       # blind spot"). soft_fail so it reports rather than gates: upstream modules
-      # emit many IAM-policy findings we don't own. (Our own network posture —
-      # private nodes, private-only prod API endpoint, CIDR-restricted dev
-      # endpoint — is enforced by the gating scan above, not exempted here.)
+      # emit many IAM-policy findings we don't own. The blocking iac-security
+      # gate above checks our source wiring with negative fixtures; the plan
+      # workflow also checks expanded resource settings when AWS is configured.
       # The CLI is used rather than bridgecrewio/checkov-action: with external
       # modules resolved the result set is huge (1200+ checks), and the action's
       # entrypoint tries to base64-encode all of it into $GITHUB_ENV ("Argument
@@ -377,12 +389,14 @@ jobs:
       # Catches misconfigurations across Terraform, Kubernetes manifests and
       # Dockerfiles (privileged pods, missing securityContext, broad IAM, etc.).
       # Reviewed, path-scoped exceptions live in .trivyignore.yaml (the .yaml
-      # extension selects Trivy's structured ignore parser).
+      # extension selects Trivy's structured ignore parser). Build-context ignore
+      # files are not Dockerfiles; exclude those from Dockerfile parsing.
       - name: Trivy config scan
         run: |
           trivy config --exit-code 1 --severity HIGH,CRITICAL \
             --ignorefile .trivyignore.yaml \
             --skip-dirs .github \
+            --skip-files '**/Dockerfile.dockerignore' \
             .
 
   kubernetes-validate:
@@ -449,6 +463,15 @@ jobs:
         run: |
           kubectl apply --server-side \
             -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml"
+
+      # The app overlay includes an Envoy BackendTrafficPolicy. This smoke
+      # only port-forwards the Service; it validates CRD admission, not actual
+      # Envoy routing or the timeout behavior (covered by full DEV QA).
+      - name: Install Envoy Gateway extension CRDs
+        run: |
+          kubectl apply --server-side \
+            -f "https://github.com/envoyproxy/gateway/releases/download/${ENVOY_GATEWAY_VERSION}/envoy-gateway-crds.yaml"
+          kubectl wait --for=condition=Established crd/backendtrafficpolicies.gateway.envoyproxy.io --timeout=90s
 
       - name: Install Argo Rollouts (controller + CRDs + gatewayAPI plugin)
         run: |

@@ -46,6 +46,11 @@ This service is deployed using a `Rollout` instead of a plain `Deployment`.
 - **Dev Overlay**: Scales to 1 replica, reduces resource limits.
 - **Prod Overlay**: Scales to 3 replicas, enforces immutable image digests.
 
+The route's BackendTrafficPolicy closes idle upstream connections after two
+seconds, before Uvicorn's explicit five-second keepalive timeout. It does not
+retry errors or change canary weights. See the
+[connection diagnostics and load profiles](../../docs/runbooks/echo-upstream-connections.md).
+
 ## Local Development
 
 ```bash

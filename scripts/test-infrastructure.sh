@@ -21,9 +21,9 @@ compose=(docker compose -p "$PROJECT" -f tests/infrastructure/compose.yaml)
 cleanup() {
   result=$?
   trap - EXIT
-  "${compose[@]}" logs --no-color kafka redis objectstore > "$INFRA_EVIDENCE_DIR/infrastructure.log" 2>&1 || true
+  "${compose[@]}" --profile recovery logs --no-color kafka redis redis-restore objectstore > "$INFRA_EVIDENCE_DIR/infrastructure.log" 2>&1 || true
   # Preserve failure if cleanup fails, and fail successful tests on leaked fixtures.
-  "${compose[@]}" down --volumes --remove-orphans --rmi local --timeout 10 || result=1
+  "${compose[@]}" --profile recovery down --volumes --remove-orphans --rmi local --timeout 10 || result=1
   echo "Infrastructure evidence: $INFRA_EVIDENCE_DIR"
   exit "$result"
 }
@@ -35,3 +35,4 @@ git diff --stat >> "$INFRA_EVIDENCE_DIR/run.txt"
 "${compose[@]}" build tests
 "${compose[@]}" up -d --wait --wait-timeout 240 kafka redis objectstore
 "${compose[@]}" run --rm --no-deps --user "$(id -u):$(id -g)" tests 2>&1 | tee "$INFRA_EVIDENCE_DIR/tests.log"
+python3 tests/infrastructure/redis_recovery_runner.py "$PROJECT" 2>&1 | tee "$INFRA_EVIDENCE_DIR/redis-recovery.log"

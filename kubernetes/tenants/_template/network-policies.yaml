@@ -10,7 +10,7 @@
 #                                may reach tenant workloads
 #   5. allow-from-monitoring   — Prometheus may scrape /metrics
 #   6. allow-to-platform       — egress to shared services: Kafka (platform ns)
-#                                and vLLM (apps ns)
+#                                and authenticated llm-gateway (apps ns)
 # ---------------------------------------------------------------------------
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -108,7 +108,7 @@ spec:
         - protocol: TCP
           port: 9093   # Kafka TLS
     # The llm-gateway (apps namespace) is the only sanctioned entrypoint to the
-    # model — it enforces per-IP rate limiting and observability. Tenants reach
+    # model — it enforces authentication, rate limiting and observability. Tenants reach
     # the gateway, NOT vllm-inference (:8000) directly; routing them to :8000
     # would bypass the gateway the architecture exists to funnel them through
     # (and vllm-inference's own NetworkPolicy already restricts ingress to the
@@ -117,6 +117,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: apps
+          podSelector:
+            matchLabels:
+              app: llm-gateway
       ports:
         - protocol: TCP
           port: 80     # llm-gateway Service port

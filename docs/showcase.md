@@ -26,9 +26,14 @@ Use the configured tool versions from [CI](../.github/workflows/ci.yaml).
 `make schemas` downloads validation inputs; it does not install a cluster.
 
 For a presentation, retain a run log and prepare a healthy disposable kind
-cluster ahead of time. Argo CD consumes the configured remote revision, so
-local edits need to be published and repository URLs configured before a
-GitOps demonstration can show them.
+cluster ahead of time. Use a clean checkout of published GitHub `main` and run
+`./scripts/bootstrap.sh --mode=local --check --require-published-source` to
+verify that local image inputs match the starting published revision. Ordinary
+bootstrap supports development with local edits; those edits need to be
+published before Argo CD or the portal catalog can consume them. Child
+Applications/catalog templates track `main`; record observed revisions because
+the branch may advance during setup. No temporary Git or catalog server is
+part of this walkthrough. See [the clean-checkout procedure](local-dev.md#bootstrap-and-observe).
 
 ## 2. Show the developer service contract
 
@@ -100,16 +105,27 @@ failure or explain its cause.
 ## 4. Prepare and inspect the platform
 
 ```bash
-./scripts/bootstrap.sh --mode=local
-kubectl get applications -n argocd
-kubectl get pods -A
-kubectl get gateway platform -n envoy-gateway-system
-kubectl argo rollouts -n apps get rollout echo-service
+./scripts/bootstrap.sh --mode=local --require-published-source --wait
+kubectl --context kind-platform-core get applications -n argocd
+kubectl --context kind-platform-core get pods -A
+kubectl --context kind-platform-core get gateway platform -n envoy-gateway-system
+kubectl --context kind-platform-core argo rollouts -n apps get rollout echo-service
 curl --fail -H 'Host: echo.platform-core.local' http://localhost/
 ```
 
-Resolve degraded Applications before the canary demonstration. Bootstrap
-completion is not full convergence. Confirm Prometheus is scraping echo and
+Bootstrap builds and loads the seven exact dev image tags before registering
+GitOps applications. `--wait` checks Application health/sync, Gateway programming,
+and four routed HTTP requests, retaining JSON evidence with observed source
+revisions. Without that flag, bootstrap completion is not full convergence.
+Recheck an existing cluster without reinstalling or rebuilding:
+
+```bash
+python3 scripts/wait-for-dev.py --context=kind-platform-core --timeout=1200
+```
+
+For alternate kind port mappings, pass `--gateway-url=http://localhost:18000`
+to bootstrap or the checker. Resolve degraded Applications before the canary
+demonstration. Confirm Prometheus is scraping echo and
 the Gateway routes reach the stable workload. See [local troubleshooting](local-dev.md).
 The default dev pipeline uses a vLLM mock and stub STT/TTS; label it accordingly
 in screenshots and recordings.
@@ -131,8 +147,8 @@ collects evidence. It uses the dedicated long-running
 [`tests/canary-load/`](../tests/canary-load/) overlay and keeps that load running
 through restoration, which has a 600-second timeout. Inspect its printed output
 directory and any cleanup errors. Script regressions cover evidence validation, false-positive rejection, and
-smoke-test failure handling. Full cleanup/restoration and live canary behavior
-remain unverified on a healthy cluster.
+smoke-test failure handling. The dated DEV acceptance report records earlier
+live canary results; capture a new result for the revision being presented.
 
 ```bash
 ./scripts/canary-demo.sh bad
@@ -170,6 +186,8 @@ pending rather than presenting it as a successful exercise.
 ```
 
 Run teardown only for the disposable cluster used for the demonstration; its
-storage is removed. External service repositories, registration PRs, image
+storage is removed. If bootstrap used a custom name, pass the same
+`--cluster-name=NAME` to teardown. Repeating teardown for that absent cluster is
+safe; unrelated clusters and port-forwards are left alone. External service repositories, registration PRs, image
 packages, and any AWS resources need their own lifecycle cleanup. The automated
 infrastructure test manages its own isolated test resources.

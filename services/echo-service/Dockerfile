@@ -50,4 +50,5 @@ USER 10001
 
 EXPOSE 8080
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "warning"]
+# Keep the server idle timeout above BackendTrafficPolicy's 2s pool timeout.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "warning", "--timeout-keep-alive", "5"]

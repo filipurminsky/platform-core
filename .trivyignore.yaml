@@ -27,7 +27,7 @@ misconfigurations:
   # KSV053 (no pods/exec) & KSV056 (no service/network control) — tenant-admin
   # is intentionally a "full control over workload resources" role: teams need
   # kubectl exec/port-forward to debug their pods and must manage their own
-  # Services and Ingresses. The platform-owned guardrails (ResourceQuota,
+  # Services and HTTPRoutes. The platform-owned guardrails (ResourceQuota,
   # LimitRange, NetworkPolicy, RBAC) remain read-only to tenants — that is the
   # boundary that actually matters, and it is enforced.
   - id: AVD-KSV-0053
@@ -54,23 +54,14 @@ misconfigurations:
     paths:
       - "helm/backstage/templates/configmap.yaml"
 
-  # AWS-0164 (subnet auto-assigns public IPs) — intentional cost trade-off.
-  # This showcase runs EKS worker nodes in public subnets so they reach the
-  # internet directly via the Internet Gateway, which avoids paying for a NAT
-  # gateway (enable_nat_gateway = false). Nodes therefore need public IPs
-  # (map_public_ip_on_launch = true). Fires inside the upstream
-  # terraform-aws-modules/vpc module on aws_subnet.public; accepted as a
-  # deliberate design choice, not configurable away without reintroducing NAT.
-  - id: AVD-AWS-0164
-
-  # AWS-0130 (IMDSv2 token required) & AWS-0104 (egress to public internet) —
-  # both originate inside the upstream terraform-aws-modules/eks module that
-  # Trivy downloads and scans; they are not our source and are not configurable
-  # from the module call site without forking it. Worker-node egress to the
-  # internet is required to pull container images and reach the EKS API.
-  # Accepted as third-party module risk.
-  - id: AVD-AWS-0130
+  # EKS nodes use private subnets/NAT; public-IP and IMDSv1 checks remain
+  # enforced. Node egress to HTTPS registries/AWS APIs is still required.
+  # Limit this exception to the upstream EKS node-security-group definition,
+  # rather than suppressing broad egress findings across authored resources.
   - id: AVD-AWS-0104
+    paths:
+      - "**/terraform-aws-modules/eks/aws/node_groups.tf"
+      - "**/.terraform/modules/eks.eks/node_groups.tf"
 
   # AWS-0057 (least-privilege IAM — no wildcards) — fires on the Crossplane S3
   # provider policy. The wildcard is irreducible here: Crossplane is a
@@ -94,8 +85,8 @@ misconfigurations:
   # (iam:*InstanceProfile on instance-profile/*) and call
   # arc-zonal-shift:GetManagedResource on * — these wildcards are irreducible and
   # mirror AWS's own published Karpenter controller policy. Not configurable from
-  # our module call site; same accepted-upstream-module-risk basis as
-  # AWS-0130/0104 above.
+  # our module call site; same scoped-upstream-module-risk basis as
+  # the node-egress exception above.
   - id: AVD-AWS-0057
     paths:
       - "**/modules/karpenter/policy.tf"

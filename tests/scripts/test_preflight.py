@@ -103,6 +103,15 @@ class BootstrapCompatibilityTests(ScriptSandbox):
             if command[0] == "kubectl":
                 self.assertEqual(command[1:3], ["--context", "kind-regression-test"])
 
+    def test_old_helm_rejected_before_installation(self):
+        self.tool("helm", "print('v3.18.0')\n")
+        result = self.run_script(
+            "bootstrap.sh", "--cluster-name=regression-test", NODE_VERSIONS='["v1.36.4"]'
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Helm >= 4.3.1 required", result.stderr)
+        self.assert_no_installation()
+
     def test_existing_old_or_mixed_nodes_rejected_before_cilium_or_context_change(self):
         for versions in (["v1.30.0"], ["v1.36.4", "v1.30.0"], []):
             with self.subTest(versions=versions):

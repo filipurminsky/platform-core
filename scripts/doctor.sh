@@ -24,7 +24,7 @@ if [[ "$MODE" == local ]]; then
   for tool in docker kind openssl; do check_tool "$tool"; done
   if command -v docker >/dev/null; then
     if docker info --format 'Docker: {{.ServerVersion}}, memory: {{.MemTotal}} bytes' 2>/dev/null; then
-      echo 'Allocate at least 8 GiB to Docker for the full local platform; see docs/local-dev.md.'
+      echo 'Plan at least 16 GiB for one full local platform; observed QA nodes used about 11 GiB. Concurrent clusters/builds need more; see docs/local-dev.md.'
     else
       echo '[FAIL] Docker is unavailable. Start Docker Desktop and check docker context show.' >&2
       failed=1
@@ -44,7 +44,17 @@ else
   check_tool aws
   echo 'AWS prerequisite: applied prod Terraform, output wiring, and network access to the private EKS API.'
 fi
-if command -v helm >/dev/null; then helm version --short; fi
+if command -v helm >/dev/null; then
+  helm_version=$(helm version --short)
+  echo "Helm: $helm_version"
+  python3 - "$helm_version" <<'PY' || failed=1
+import re
+import sys
+match = re.match(r"v?(\d+)\.(\d+)\.(\d+)", sys.argv[1])
+if not match or tuple(map(int, match.groups())) < (4, 3, 1):
+    sys.exit("[FAIL] Helm >= 4.3.1 required; use the repository's pinned toolchain before bootstrap.")
+PY
+fi
 if [[ "$PREFLIGHT" == false ]] && command -v kubectl >/dev/null; then
   context=$(kubectl config current-context 2>/dev/null || true)
   if [[ -z "$context" ]]; then

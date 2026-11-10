@@ -67,3 +67,13 @@ kustomize build kubernetes/tenants/team-charlie | kubeconform -strict -summary
 - **PSA per workload type** — `team-alpha` runs `restricted`; `team-bravo`
   runs `baseline` because GPU/vLLM containers need capabilities `restricted`
   forbids.
+
+### Authenticated inference access
+
+Tenant namespace enrollment (`platform.io/tenant`, controlled by platform
+administrators) permits connections to `llm-gateway.apps.svc.cluster.local:80`.
+Tenant egress selects gateway pods specifically, and gateway ingress admits
+platform-enrolled namespaces on container port 8080. Clients must still present
+an issued bearer API key; namespace membership is not application authentication.
+Direct access to vLLM remains denied, including when a tenant pod copies the
+`app=llm-gateway` label. See the [repeatable access test](../../tests/network/README.md).

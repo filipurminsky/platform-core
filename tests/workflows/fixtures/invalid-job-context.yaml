@@ -1,0 +1,9 @@
+name: Invalid job context regression
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      EVIDENCE: ${{ runner.temp }}/evidence
+    steps:
+      - run: echo test

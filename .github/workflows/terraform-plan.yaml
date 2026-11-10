@@ -5,6 +5,8 @@ on:
     paths:
       - "terraform/**"
       - ".github/workflows/terraform-plan.yaml"
+      - "policy/terraform/**"
+      - "tests/iac/**"
 
 # Least privilege: nothing at workflow level; the job asks for what it needs.
 permissions: {}
@@ -81,15 +83,28 @@ jobs:
         id: plan
         working-directory: terraform/environments/${{ matrix.env }}
         run: |
-          terraform plan -no-color -lock=false 2>&1 | tee /tmp/plan-${{ matrix.env }}.txt
+          terraform plan -no-color -lock=false -out="$RUNNER_TEMP/plan-${{ matrix.env }}.tfplan" 2>&1 | tee /tmp/plan-${{ matrix.env }}.txt
           exit "${PIPESTATUS[0]}"
         continue-on-error: true
+
+      # JSON plans may contain sensitive values: keep them runner-local and
+      # print only policy failures, never the raw JSON or an uploaded artifact.
+      - name: Enforce expanded infrastructure resource security
+        id: security
+        if: steps.plan.outcome == 'success'
+        continue-on-error: true
+        env:
+          TF_ENV: ${{ matrix.env }}
+        run: |
+          terraform -chdir="terraform/environments/$TF_ENV" show -json "$RUNNER_TEMP/plan-$TF_ENV.tfplan" > "$RUNNER_TEMP/plan-$TF_ENV.json"
+          python3 policy/terraform/security.py plan "$RUNNER_TEMP/plan-$TF_ENV.json"
 
       - name: Post plan to PR
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           TF_ENV: ${{ matrix.env }}
           PLAN_OUTCOME: ${{ steps.plan.outcome }}
+          SECURITY_OUTCOME: ${{ steps.security.outcome }}
         with:
           script: |
             const fs = require('fs');
@@ -98,9 +113,11 @@ jobs:
             try { plan = fs.readFileSync(`/tmp/plan-${env}.txt`, 'utf8'); } catch (e) { plan = '(no output)'; }
             // Truncate to stay within GitHub comment size limits
             if (plan.length > 60000) plan = plan.substring(0, 60000) + '\n...(truncated)';
-            const icon = process.env.PLAN_OUTCOME === 'success' ? '✅' : '❌';
+            const icon = process.env.PLAN_OUTCOME === 'success' && process.env.SECURITY_OUTCOME === 'success' ? '✅' : '❌';
 
             const output = `#### Terraform Plan — \`${env}\` ${icon}
+
+            Plan: ${process.env.PLAN_OUTCOME}; resource security: ${process.env.SECURITY_OUTCOME}.
 
             <details><summary>Show Plan</summary>
 
@@ -119,6 +136,6 @@ jobs:
               body: output
             });
 
-      - name: Fail if plan failed
-        if: steps.plan.outcome == 'failure'
+      - name: Fail if plan or security checks failed
+        if: steps.plan.outcome != 'success' || steps.security.outcome != 'success'
         run: exit 1

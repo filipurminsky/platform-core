@@ -1,0 +1,161 @@
+[
+  {
+    "name": "private_api_disabled",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      0,
+      "values",
+      "vpc_config",
+      0,
+      "endpoint_private_access"
+    ],
+    "value": false,
+    "code": "API_PRIVATE"
+  },
+  {
+    "name": "public_api_unknown",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      0,
+      "values",
+      "vpc_config",
+      0,
+      "endpoint_public_access"
+    ],
+    "value": null,
+    "code": "API_PUBLIC"
+  },
+  {
+    "name": "public_subnet",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      3,
+      "values",
+      "map_public_ip_on_launch"
+    ],
+    "value": true,
+    "code": "PUBLIC_IP"
+  },
+  {
+    "name": "subnet_unknown",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      3,
+      "values",
+      "map_public_ip_on_launch"
+    ],
+    "value": null,
+    "code": "PUBLIC_IP"
+  },
+  {
+    "name": "imds_v1",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      1,
+      "values",
+      "metadata_options",
+      0,
+      "http_tokens"
+    ],
+    "value": "optional",
+    "code": "IMDS"
+  },
+  {
+    "name": "imds_unknown",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      1,
+      "values",
+      "metadata_options"
+    ],
+    "value": null,
+    "code": "IMDS"
+  },
+  {
+    "name": "imds_hop_two",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      1,
+      "values",
+      "metadata_options",
+      0,
+      "http_put_response_hop_limit"
+    ],
+    "value": 2,
+    "code": "IMDS"
+  },
+  {
+    "name": "public_node_interface",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      1,
+      "values",
+      "network_interfaces",
+      0,
+      "associate_public_ip_address"
+    ],
+    "value": true,
+    "code": "PUBLIC_IP"
+  },
+  {
+    "name": "implicit_node_template",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      2,
+      "values",
+      "launch_template"
+    ],
+    "value": [],
+    "code": "IMDS"
+  },
+  {
+    "name": "uninspected_external_launch_template",
+    "path": [
+      "planned_values",
+      "root_module",
+      "child_modules",
+      0,
+      "resources",
+      1,
+      "type"
+    ],
+    "value": "aws_s3_bucket",
+    "code": "IMDS"
+  }
+]

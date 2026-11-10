@@ -25,7 +25,25 @@ services:
     image: redis:7.4.12-alpine
     environment:
       TEST_REDIS_PASSWORD: ${TEST_REDIS_PASSWORD:?runner supplies ephemeral credentials}
-    command: [sh, -c, 'exec redis-server --save "" --appendonly no --requirepass "$$TEST_REDIS_PASSWORD"']
+    command: [sh, -c, 'exec redis-server --dir /data --save 900 1 --save 300 10 --appendonly yes --appendfsync everysec --requirepass "$$TEST_REDIS_PASSWORD"']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$TEST_REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  redis-restore:
+    profiles: [recovery]
+    image: redis:7.4.12-alpine
+    environment:
+      TEST_REDIS_PASSWORD: ${TEST_REDIS_PASSWORD:?runner supplies ephemeral credentials}
+    # Redis must load RDB with AOF initially disabled, then the verifier enables
+    # AOF and waits for its rewrite. Starting with AOF enabled skips the RDB.
+    command: [sh, -c, 'mode=yes; if [ ! -d /data/appendonlydir ]; then cp /backup/redis-backup.rdb /data/dump.rdb; mode=no; fi; exec redis-server --dir /data --save 900 1 --save 300 10 --appendonly "$$mode" --appendfsync everysec --requirepass "$$TEST_REDIS_PASSWORD"']
+    volumes:
+      - redis-restore-data:/data
+      - ${INFRA_EVIDENCE_DIR:?runner supplies evidence directory}:/backup:ro
     healthcheck:
       test: [CMD-SHELL, 'REDISCLI_AUTH="$$TEST_REDIS_PASSWORD" redis-cli ping | grep -q PONG']
       interval: 2s
@@ -65,6 +83,9 @@ services:
       - /tmp
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+volumes:
+  redis-data:
+  redis-restore-data:
 configs:
   s3-credentials:
     content: |

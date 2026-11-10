@@ -8,6 +8,16 @@ spec:
       app: llm-gateway
   policyTypes: [Ingress, Egress]
   ingress:
+    # Platform-owned namespace labels enroll tenants. Authentication is still
+    # enforced by the gateway; this only permits the network connection.
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: platform.io/tenant
+                operator: Exists
+      ports:
+        - port: 8080
+          protocol: TCP
     # Prometheus scraping /metrics. North-south traffic from Envoy Gateway is
     # allowed ONLY in dev (overlays/dev/patch-netpol-gateway.yaml) — prod ships
     # no HTTPRoute, so the gateway is cluster-internal there.

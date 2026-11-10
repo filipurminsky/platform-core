@@ -78,6 +78,8 @@ make integration-test      # cross-service audio contract tests using the audio-
 make infrastructure-test   # isolated real Kafka/Redis/S3 recovery tests; requires Docker
 make script-test           # operational-script regressions and shell syntax checks
 make scaffold-test         # npm ci + generated-service tests; Node/npm, uv, kustomize, conftest
+make workflow-lint         # pinned actionlint + invalid-context regression fixtures
+make iac-security          # parsed source posture + negative source/plan fixtures
 
 # Targeted checks (replace echo-service with the affected project)
 (cd services/echo-service && uv run --frozen pytest -q)
@@ -149,7 +151,7 @@ Plain kubeconform does not install the repository wrapper or CRD cache. Use the
 explicit CI skip list only for exempted kinds; never mask missing schemas with
 a blanket ignore flag.
 
-`make validate` runs the non-cluster aggregate: Python lint/tests, in-process
+`make validate` runs the non-cluster aggregate: workflow and IaC security guards, Python lint/tests, in-process
 integration, operational-script and generated-service tests, manifest/chart
 schema validation, combined OPA policy, both kube-linter configurations, and
 Terraform formatting/validation. Run `make schemas` first. Security scans,
@@ -309,6 +311,8 @@ them when the task calls for cluster lifecycle or demos:
 
 ```bash
 ./scripts/bootstrap.sh --mode=local
+# Reproducible published-source acceptance (all child GitOps sources track main):
+./scripts/bootstrap.sh --mode=local --require-published-source --wait
 # AWS: apply the Terraform foundation and wire outputs before bootstrap --mode=aws.
 kubectl argo rollouts get rollout echo-service -n apps --watch
 ./scripts/prepare-canary-images.sh  # build/load runnable good and faulty dev images

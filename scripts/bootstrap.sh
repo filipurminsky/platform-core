@@ -14,6 +14,11 @@ CLUSTER_NAME="platform-core"
 KIND_CONFIG="terraform/modules/kind/kind-config.yaml"
 ENVIRONMENT=""   # derived from MODE below: local→dev, aws→prod
 CHECK_ONLY=false
+BUILD_IMAGES=true
+WAIT_FOR_DEV=false
+REQUIRE_PUBLISHED_SOURCE=false
+GATEWAY_URL=http://localhost
+WAIT_TIMEOUT=1200
 PHASE=preflight
 
 # ─── Parse args ──────────────────────────────────────────────────────────────
@@ -23,7 +28,12 @@ for arg in "$@"; do
     --cluster-name=*) CLUSTER_NAME="${arg#*=}" ;;
     --kind-config=*) KIND_CONFIG="${arg#*=}" ;;
     --check) CHECK_ONLY=true ;;
-    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH]"; exit 0 ;;
+    --skip-images) BUILD_IMAGES=false ;;
+    --require-published-source) REQUIRE_PUBLISHED_SOURCE=true ;;
+    --wait) WAIT_FOR_DEV=true ;;
+    --gateway-url=*) GATEWAY_URL="${arg#*=}" ;;
+    --timeout=*) WAIT_TIMEOUT="${arg#*=}" ;;
+    --help) echo "Usage: $0 [--mode=local|--mode=aws] [--check] [--cluster-name=NAME] [--kind-config=PATH] [--skip-images] [--require-published-source] [--wait] [--gateway-url=http://localhost] [--timeout=1200]"; exit 0 ;;
     *) echo "Unknown argument: $arg"; exit 1 ;;
   esac
 done
@@ -34,6 +44,13 @@ case "$MODE" in
   aws)   ENVIRONMENT="prod" ;;
   *)     echo "Unknown mode: $MODE (expected local|aws)"; exit 1 ;;
 esac
+if [[ "$WAIT_FOR_DEV" == true && "$MODE" != local ]]; then
+  echo '--wait is a local DEV acceptance check; do not use it for AWS.' >&2
+  exit 2
+fi
+[[ "$CLUSTER_NAME" =~ ^[a-z0-9][a-z0-9.-]*$ ]] || { echo 'Invalid kind cluster name.' >&2; exit 2; }
+[[ "$WAIT_TIMEOUT" =~ ^[1-9][0-9]*$ ]] || { echo '--timeout must be positive seconds.' >&2; exit 2; }
+[[ "$GATEWAY_URL" =~ ^https?:// ]] || { echo '--gateway-url must use http:// or https://.' >&2; exit 2; }
 
 log()  { echo -e "\033[1;34m[INFO]\033[0m  $*"; }
 ok()   { echo -e "\033[1;32m[ OK ]\033[0m  $*"; }
@@ -51,6 +68,11 @@ trap failure ERR
 
 # ─── Dependency checks ───────────────────────────────────────────────────────
 ./scripts/doctor.sh --mode="$MODE" --preflight
+if [[ "$REQUIRE_PUBLISHED_SOURCE" == true ]]; then
+  python3 scripts/verify-dev-source.py
+else
+  log 'GitOps reads published main, not local edits. Use --require-published-source for a reproducible walkthrough.'
+fi
 if [[ "$CHECK_ONLY" == true ]]; then
   ok "Preflight passed; no cluster resources changed."
   exit 0
@@ -117,6 +139,15 @@ if not nodes or any(not node["status"]["nodeInfo"]["kubeletVersion"].startswith(
   log "Waiting for nodes to become Ready (Cilium now provides the CNI)"
   kubectl wait --for=condition=Ready nodes --all --timeout=180s
   ok "Cilium + Hubble ready"
+
+  # The dev overlays use these exact local image names. Build/load before Argo
+  # creates workloads; make images deliberately uses different development tags.
+  PHASE='local application images'
+  if [[ "$BUILD_IMAGES" == true ]]; then
+    ./scripts/dev-images.sh --cluster-name="$CLUSTER_NAME"
+  else
+    log 'Skipping local images. All seven dev image tags must already be loaded into this kind cluster.'
+  fi
 
 elif [[ "$MODE" == "aws" ]]; then
   PHASE='EKS connectivity'
@@ -247,6 +278,12 @@ fi
 log "Applying platform-apps AppProject"
 PHASE='GitOps registration'
 kubectl apply -f kubernetes/platform/argocd/appproject-apps.yaml
+if [[ "$MODE" == local ]]; then
+  # This project is bootstrap-owned. The production change-freeze must not
+  # prevent an unattended local setup from converging between 00:00–06:00 UTC.
+  kubectl -n "$ARGOCD_NAMESPACE" patch appproject platform-apps --type=merge \
+    -p '{"spec":{"syncWindows":[]}}'
+fi
 
 log "Applying ArgoCD App-of-Apps (root)"
 kubectl apply -f kubernetes/platform/argocd/app-of-apps.yaml
@@ -261,11 +298,20 @@ log "ArgoCD is reconciling. Watch progress with:"
 echo "    kubectl get applications -n $ARGOCD_NAMESPACE -w"
 echo "    kubectl argo rollouts get rollout echo-service -n apps --watch   # canary"
 kubectl -n "$ARGOCD_NAMESPACE" rollout status deploy/argocd-server --timeout=180s
+if [[ "$WAIT_FOR_DEV" == true ]]; then
+  PHASE='DEV convergence and routed endpoints'
+  python3 scripts/wait-for-dev.py --context="kind-$CLUSTER_NAME" \
+    --gateway-url="$GATEWAY_URL" --timeout="$WAIT_TIMEOUT"
+fi
 
 # ─── Access info (local mode only) ───────────────────────────────────────────
 if [[ "$MODE" == "local" ]]; then
   echo ""
-  ok "Bootstrap kicked off. ArgoCD will keep syncing in the background."
+  if [[ "$WAIT_FOR_DEV" == true ]]; then
+    ok "DEV acceptance passed. ArgoCD continues reconciling published main."
+  else
+    ok "Bootstrap kicked off. ArgoCD will keep syncing in the background; run scripts/wait-for-dev.py to check convergence."
+  fi
   echo ""
   echo 'Retrieve the initial Argo CD password when needed: make argocd-password'
   echo ""

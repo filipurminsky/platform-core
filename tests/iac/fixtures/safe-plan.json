@@ -1,0 +1,61 @@
+{
+  "planned_values": {
+    "root_module": {
+      "child_modules": [
+        {
+          "address": "module.eks",
+          "resources": [
+            {
+              "address": "module.eks.aws_eks_cluster.this",
+              "type": "aws_eks_cluster",
+              "values": {
+                "vpc_config": [
+                  {
+                    "endpoint_private_access": true,
+                    "endpoint_public_access": false,
+                    "public_access_cidrs": []
+                  }
+                ]
+              }
+            },
+            {
+              "address": "module.eks.aws_launch_template.platform",
+              "type": "aws_launch_template",
+              "values": {
+                "metadata_options": [
+                  {
+                    "http_tokens": "required",
+                    "http_put_response_hop_limit": 1
+                  }
+                ],
+                "network_interfaces": [
+                  {
+                    "associate_public_ip_address": false
+                  }
+                ]
+              }
+            },
+            {
+              "address": "module.eks.aws_eks_node_group.platform",
+              "type": "aws_eks_node_group",
+              "values": {
+                "launch_template": [
+                  {
+                    "name": "platform"
+                  }
+                ]
+              }
+            },
+            {
+              "address": "module.vpc.aws_subnet.private",
+              "type": "aws_subnet",
+              "values": {
+                "map_public_ip_on_launch": false
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

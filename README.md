@@ -79,19 +79,20 @@ GitOps, admission, or autoscaling.
 
 For the Kubernetes path, use Docker, kind **≥ 0.33.0**, kubectl compatible with
 Kubernetes **1.36**, and Helm **4.3.1**. The kind configuration pins node image
-**1.36.4**. Allow at least 8 GB of Docker memory as an initial allocation;
-full-stack resource requirements and startup duration must be measured on your
-machine. See [local development](docs/local-dev.md) for setup and prerequisites.
+**1.36.4**. Allocate at least 16 GiB of Docker memory for one full stack; the
+observed QA nodes used about 11 GiB. Concurrent clusters and builds need more.
+See [local development](docs/local-dev.md) for setup and prerequisites.
 
 ```bash
 ./scripts/bootstrap.sh --mode=local --check
-./scripts/bootstrap.sh --mode=local
-kubectl get applications -n argocd -w
+./scripts/bootstrap.sh --mode=local --require-published-source --wait
 ```
 
-Bootstrap starts asynchronous reconciliation. An exit status of zero does not
-mean every application is healthy. Argo CD reads the configured remote Git
-revision; uncommitted local changes are not deployed by bootstrap.
+Bootstrap builds and loads all seven dev images. `--require-published-source`
+checks that deployment inputs match published main; `--wait` checks all expected
+Applications, Gateway programming, and routed health endpoints. Without `--wait`,
+bootstrap only starts reconciliation. Child GitOps sources track main, so this
+is not an immutable fleet pin. Local edits are not deployed by Argo CD.
 
 ## Validation
 

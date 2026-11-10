@@ -66,24 +66,72 @@ docker compose -f services/docker-compose.yml down
 
 On macOS, Homebrew can install the tools, but verify the installed versions
 against the repository pins rather than assuming its current packages match.
-Start with at least 8 GB allocated to Docker; this is guidance, not a measured
-minimum for every platform component. Record host resources and timings with
-any published demo result.
+Plan at least 16 GiB allocated to Docker for one full platform. The existing
+three-node QA cluster used about 11 GiB on 2026-11-10; builds, tests, and other
+containers need additional headroom. This is an observed planning baseline,
+not a certified minimum. Use Compose when that budget is unavailable. Record
+host resources and timings with any published demo result.
 
 ### Bootstrap and observe
 
 ```bash
 ./scripts/bootstrap.sh --mode=local --check
-./scripts/bootstrap.sh --mode=local
-kubectl get applications -n argocd -w
+./scripts/bootstrap.sh --mode=local --wait
 ```
 
 Bootstrap creates or reuses `kind-platform-core`, installs Cilium with portmap
 chaining before waiting for node readiness, installs Argo CD, creates local
-Secrets, labels the destination cluster `environment=dev`, and applies the root
-App-of-Apps. Applications then reconcile asynchronously from the configured
+Secrets, builds all seven application images using the `services/` build context,
+loads the exact `<service>:latest` names into every kind node, labels the
+destination cluster `environment=dev`, and applies the root App-of-Apps.
+The bootstrap-owned application project omits the production change-freeze in
+local mode, so overnight setup can converge. Applications reconcile from the configured
 remote repository/revision. To demonstrate a fork, update the repository URLs
 in GitOps configuration and publish the intended revision first.
+
+`--wait` waits up to 1200 seconds for Applications to be Synced/Healthy, the
+Gateway's current generation to be programmed, and routed echo, audio health,
+and portal health requests to return HTTP 200. Only the intentionally paused
+`vllm-inference` Application may be Suspended. Failure exits nonzero and prints
+the evidence directory with observed revisions and actionable diagnostics.
+Use `--timeout=1800` for a slower first pull. Without `--wait`, bootstrap only
+starts reconciliation; successful exit does not assert platform health.
+
+For a clean-checkout walkthrough, clone the published repository, then run:
+
+```bash
+git clone https://github.com/filipurminsky/platform-core.git platform-core-demo
+cd platform-core-demo
+./scripts/bootstrap.sh --mode=local --check --require-published-source
+./scripts/bootstrap.sh --mode=local --require-published-source --wait
+```
+
+The optional source check rejects unpublished HEADs and modified/untracked
+deployment inputs before creating a cluster. Ordinary development bootstrap
+still permits local changes, but those changes do not become GitOps desired
+state until published. The check records the starting GitHub `main` SHA;
+child Applications and portal templates **track `main`**, which can advance
+during setup. The acceptance evidence records each Application's observed
+revision. This is not an immutable fleet revision pin, and no host-local Git
+or catalog HTTP server is needed. Use a published revision that includes these
+commands; the previous QA snapshot is not proof of a clean bootstrap from a
+new revision.
+
+Rerunning bootstrap reuses the cluster and local credentials, reconciles Helm
+releases, and reloads the images. It does not delete data or restart existing
+application pods. For a routine repeatability check, rerun from the same
+checkout. If rebuilding changed code under dev's mutable tags, existing pods
+must be deliberately replaced to consume the new image; a successful image
+load alone does not demonstrate that new code is serving. `--skip-images` is
+only for a cluster where all seven exact image references are already loaded.
+
+Verification on 2026-11-10 covered the source checker against a clean checkout
+of published `3dc159b`, actual builds/loads of all seven images into the existing
+QA cluster, and creation/deletion of a separate empty Kubernetes 1.36.4 cluster
+with repeated named teardown. Existing clusters and the selected kubectl
+context were preserved. A second full-stack bootstrap was not attempted: the
+existing QA cluster consumed about 11 GiB of the 16 GiB Docker allocation.
+These checks do not establish fresh full-stack installation or data recovery.
 
 Bootstrap refuses to reuse nodes outside Kubernetes 1.36 or a cluster still
 using kindnet. Updating the checked-in node image does not upgrade an existing
@@ -93,9 +141,12 @@ cluster. Preserve an older environment and use a separate name/config instead:
 cp terraform/modules/kind/kind-config.yaml /tmp/platform-core-qa-kind.yaml
 # Edit the copied config's hostPort mappings if 80/443 are occupied.
 ./scripts/bootstrap.sh --mode=local --cluster-name=platform-core-qa \
-  --kind-config=/tmp/platform-core-qa-kind.yaml
+  --kind-config=/tmp/platform-core-qa-kind.yaml --gateway-url=http://localhost:18000 --wait
 ```
 
+The example assumes the copied config maps container port 80 to host port 18000
+(and 443 to a separate free port). `--gateway-url` configures acceptance probes;
+it does not alter the kind port mappings or the portal's browser base URL.
 The cluster name changes the kubectl context to `kind-platform-core-qa`.
 Allow enough Docker memory for every running cluster; the dated
 [dev QA report](qa-dev-2026-11-09.md) records the resources and limitations of
@@ -165,12 +216,10 @@ or repository publishing work. Follow the generated service README and
 | Gateway returns 401 | `llm-gateway-api-keys` Secret keys and request Authorization header | Use an accepted bearer key; never print Secrets in diagnostic bundles |
 | Missing GPU/Kafka-exporter panels | Dev/prod component selectors | These components are intentionally absent in dev |
 
-Dev application manifests can reference local image tags. When needed, build
-with `services/` as context and load the exact referenced name, for example:
+Bootstrap now builds/loads all dev application images. To repeat just that step:
 
 ```bash
-docker build -f services/echo-service/Dockerfile -t echo-service:latest services/
-kind load docker-image echo-service:latest --name platform-core
+./scripts/dev-images.sh --cluster-name=platform-core
 ```
 
 Loading an image does not restart an existing pod. Apply an intentional dev
@@ -189,9 +238,14 @@ outcomes, and evidence capture before running scripts that change workload state
 
 ```bash
 ./scripts/teardown.sh --mode=local
+# For the custom cluster from the example above:
+./scripts/teardown.sh --mode=local --cluster-name=platform-core-qa
 ```
 
-Teardown removes the disposable cluster and its local storage. Save anything
+Choose exactly the teardown command for the disposable cluster you created.
+Teardown removes that named cluster and its local storage; rerunning it for an
+already absent cluster is safe. It does not kill unrelated port-forwards or
+delete other clusters. Stop your own forwards in their terminals. Save anything
 you need first. Relabeling an existing cluster from dev to prod is not an AWS
 migration: infrastructure, secrets, storage, network, and image prerequisites
 must be prepared separately.

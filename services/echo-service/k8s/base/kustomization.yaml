@@ -6,6 +6,7 @@ resources:
   - service.yaml
   - service-canary.yaml
   - httproute.yaml
+  - backendtrafficpolicy.yaml
   - analysistemplate.yaml
   - networkpolicy.yaml
   - servicemonitor.yaml

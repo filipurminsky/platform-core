@@ -1,0 +1,17 @@
+# Retire idle pooled connections before Uvicorn's explicit 5s keepalive limit.
+# This targets both stable and canary backends without retrying failed requests.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: echo-service
+  labels:
+    app: echo-service
+    app.kubernetes.io/part-of: platform-core
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: echo-service
+  timeout:
+    http:
+      connectionIdleTimeout: 2s
