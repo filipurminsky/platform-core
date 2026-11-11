@@ -62,6 +62,9 @@ python3 scripts/dev-acceptance.py \
 
 The evidence directory must not already exist. The command prints each phase,
 its progress and exit code. Inspect `logs/<phase>.log` when a phase fails.
+Cache-export subprocess failures also retain private stderr in
+`logs/cache-export-stderr.log`; only the operation, node and exit code enter the
+upload-safe cache summary.
 `summary/result.json` records functional results and cleanup errors; cleanup
 failure makes the overall command fail. Only `summary/*.json` is intended for
 artifact upload. The cloned source and kubeconfig live in a separate private
@@ -91,6 +94,15 @@ Add the same explicit pause/restore options to both commands when needed. These
 are cold **cluster** runs: new kind nodes have no platform image cache, while
 host tools, the kind node image, and Docker service build caches may already
 exist. Report those conditions rather than calling this a cold host.
+
+Every acceptance run explicitly retains containerd's compressed image layers
+(`discard_unpacked_layers=false`), and the sampler verifies that setting on each
+node. Kind normally discards those layers after unpacking, which can leave a
+running image without the content needed for OCI export. Retention uses additional
+disk space; it is identical for all three configurations. The ordinary bootstrap
+template retains kind's default behavior. Exporting from an older cluster with
+layer discarding enabled fails with instructions to create a fresh acceptance
+cluster; changing the setting cannot restore blobs already discarded.
 
 The performance summary records resource samples and image-pull observations.
 Compare the combined bootstrap and application convergence duration, then check
@@ -124,7 +136,8 @@ scheduling can still cause registry pulls. Record the import cost within warm
 bootstrap time, the export cost separately, archive sizes, observed cache hits,
 and any remaining registry pulls. A warm-run gain is not evidence that parallel
 pulls improved an uncached run. Cache archives remain local and are excluded
-from the CI evidence artifact.
+from the CI evidence artifact. Archives use OCI format without the optional
+Docker-compatible manifest, and synthetic containerd import aliases are excluded.
 
 Keep the host awake throughout a measurement. The sampler compares UTC elapsed
 time with its monotonic clock and rejects a discrepancy greater than five
@@ -154,6 +167,11 @@ from laptop sleep and changing local workloads:
 ```bash
 gh workflow run dev-acceptance.yaml --ref main -f run_benchmark=true
 ```
+
+Preparation, serial startup, parallel startup/export, warm startup/import, and
+comparison appear as separate Actions steps. They share one job and runner;
+each phase requires successful completion of its predecessor at the same source
+revision. A failed phase prevents later measurements from running.
 
 Before timing the first run, the workflow builds all seven service images and
 pulls the pinned kind node image. Thus every measured run starts with those host

@@ -63,6 +63,8 @@ def load_run(directory, concurrency, cache_mode):
         raise ValueError(
             f"{directory}: measured kubelet pull configuration is missing or mismatched"
         )
+    if performance.get("containerd_image_retention_matches") is not True:
+        raise ValueError(f"{directory}: retained OCI image content was not verified on every node")
     if performance["source_revision"] != result["source_revision"]:
         raise ValueError(f"{directory}: sampler and acceptance revisions differ")
     if (

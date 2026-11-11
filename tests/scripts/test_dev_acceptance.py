@@ -473,6 +473,11 @@ class CommandPlanTests(unittest.TestCase):
             self.assertIn("--require-published-source", bootstrap)
             self.assertIn("--cluster-name=" + runner.cluster, bootstrap)
             self.assertNotIn("--skip-images", bootstrap)
+            cache_export = next(command for name, command, _ in calls if name == "cache-export")
+            self.assertIn(
+                "--diagnostic-log=" + str(runner.evidence / "logs/cache-export-stderr.log"),
+                cache_export,
+            )
             smoke = next(kwargs for name, _, kwargs in calls if name == "smoke")
             self.assertEqual(smoke["env"]["KUBE_CONTEXT"], runner.context)
             self.assertEqual(smoke["env"]["KUBECONFIG"], str(runner.private / "kubeconfig"))

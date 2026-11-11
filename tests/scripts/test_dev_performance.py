@@ -1,7 +1,10 @@
 """Guard cache integrity, measured pull settings and sanitized benchmark evidence."""
 
 import importlib.util
+import io
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +24,9 @@ def module(name):
 CACHE = module("dev-image-cache")
 PERF = module("dev-performance")
 COMPARE = module("compare-dev-performance")
+RETAINED_CONTENT = (
+    '[plugins."io.containerd.grpc.v1.cri".containerd]\ndiscard_unpacked_layers = false\n'
+)
 
 
 class ClockGuardTests(unittest.TestCase):
@@ -133,11 +139,13 @@ class PullConfigurationTests(unittest.TestCase):
 
     def test_one_or_two_pulls_change_only_kubelet_limit_and_keep_node_pins(self):
         original = (ROOT / "terraform/modules/kind/kind-config.yaml").read_text()
-        self.assertEqual(PERF.configure_pull_concurrency(original, 1), original)
+        serial = PERF.configure_pull_concurrency(original, 1)
+        self.assertEqual(serial, original.rstrip() + "\n" + PERF.CONTENT_RETENTION_PATCH)
         parallel = PERF.configure_pull_concurrency(original, 2)
         self.assertEqual(
-            parallel.replace("maxParallelImagePulls: 2", "maxParallelImagePulls: 1"), original
+            parallel.replace("maxParallelImagePulls: 2", "maxParallelImagePulls: 1"), serial
         )
+        self.assertEqual(PERF.configure_pull_concurrency(serial, 1), serial)
         for invalid in (0, 3, -1):
             with self.assertRaises(ValueError):
                 PERF.configure_pull_concurrency(original, invalid)
@@ -147,6 +155,23 @@ class PullConfigurationTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 PERF.configure_pull_concurrency(invalid, 2)
+
+    def test_retention_requires_explicit_false_in_v2_or_v3_runtime_config(self):
+        for text in (
+            RETAINED_CONTENT,
+            '[plugins."io.containerd.cri.v1.images"]\ndiscard_unpacked_layers = false\n',
+        ):
+            self.assertEqual(
+                PERF.containerd_image_retention(text), {"discard_unpacked_layers": False}
+            )
+        self.assertIsNone(PERF.containerd_image_retention("")["discard_unpacked_layers"])
+        self.assertTrue(
+            PERF.containerd_image_retention(RETAINED_CONTENT.replace("false", "true"))[
+                "discard_unpacked_layers"
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "unsupported containerd"):
+            PERF.configure_image_content_retention("containerdConfigPatches: []\n")
 
     def test_stats_convert_real_docker_units_and_keep_per_core_cpu(self):
         rows = PERF.parse_stats(
@@ -240,6 +265,8 @@ class ImageCacheTests(unittest.TestCase):
         for reference in (
             "docker.io/library/audio-api:latest",
             "docker.io/library/echo-service@" + self.identity,
+            "import-2026-11-10@" + self.identity,
+            "sha256:" + "c" * 64,
             "registry.example.com/platform:v1",
         ):
             inventory += f"{reference} application/vnd.oci.image.manifest.v1+json {self.identity} 10MB linux/arm64 -\n"
@@ -290,6 +317,75 @@ class ImageCacheTests(unittest.TestCase):
                 CACHE.export_cache(self.directory, self.revision, self.nodes)
             run.assert_not_called()
 
+    def test_export_uses_oci_only_and_preserves_digest_references(self):
+        destination = self.directory / "export"
+        images = {"registry.example.com/platform@" + self.identity: self.identity}
+
+        def export(arguments, **kwargs):
+            self.assertIn("--skip-manifest-json", arguments)
+            self.assertIn("--local", arguments)
+            self.assertIn(next(iter(images)), arguments)
+            kwargs["stdout"].write(b"OCI archive")
+
+        with (
+            patch.object(CACHE, "command", return_value=RETAINED_CONTENT),
+            patch.object(CACHE.subprocess, "run", side_effect=export),
+            patch.object(CACHE, "node_inventory", return_value=images),
+        ):
+            manifest = CACHE.export_cache(destination, self.revision, self.nodes)
+        self.assertEqual(manifest["nodes"]["worker"]["images"], images)
+        CACHE.validate_cache(destination, self.revision, self.nodes)
+
+    def test_failed_export_preserves_safe_context_and_private_diagnostics(self):
+        destination = self.directory / "failed-export"
+        report = self.directory / "summary.json"
+        diagnostic = self.directory / "private.log"
+        private_stderr = b"unable to create manifests file: token=PRIVATE"
+        error = subprocess.CalledProcessError(1, ["ctr"], stderr=private_stderr)
+        with (
+            patch.object(CACHE, "command", return_value=RETAINED_CONTENT),
+            patch.object(CACHE, "nodes_for", return_value=self.nodes),
+            patch.object(CACHE, "node_inventory", return_value=self.images),
+            patch.object(CACHE.subprocess, "run", side_effect=error),
+            patch.object(sys, "stdout", new_callable=io.StringIO) as stdout,
+            patch.object(
+                sys,
+                "argv",
+                [
+                    "dev-image-cache.py",
+                    "export",
+                    "--cluster=fixture",
+                    f"--cache-dir={destination}",
+                    f"--source-revision={self.revision}",
+                    f"--report={report}",
+                    f"--diagnostic-log={diagnostic}",
+                ],
+            ),
+        ):
+            self.assertEqual(CACHE.main(), 1)
+        result = json.loads(report.read_text())
+        self.assertEqual(result["stage"], "export-archive")
+        self.assertEqual(result["node"], "control-plane")
+        self.assertEqual(result["exit_code"], 1)
+        self.assertNotIn("PRIVATE", report.read_text() + stdout.getvalue())
+        self.assertEqual(diagnostic.read_bytes(), private_stderr)
+        self.assertEqual(diagnostic.stat().st_mode & 0o777, 0o600)
+        self.assertFalse((destination / "manifest.json").exists())
+        self.assertEqual(list(destination.iterdir()), [])
+
+    def test_export_rejects_discarded_content_before_any_archive_is_created(self):
+        for config in ("", RETAINED_CONTENT.replace("false", "true")):
+            destination = self.directory / "discarded"
+            with (
+                self.subTest(config=config),
+                patch.object(CACHE, "command", return_value=config),
+                patch.object(CACHE, "node_inventory") as inventory,
+            ):
+                with self.assertRaisesRegex(ValueError, "fresh cluster"):
+                    CACHE.export_cache(destination, self.revision, self.nodes)
+                inventory.assert_not_called()
+                self.assertFalse(destination.exists())
+
 
 class ComparisonTests(unittest.TestCase):
     def setUp(self):
@@ -328,6 +424,7 @@ class ComparisonTests(unittest.TestCase):
                         },
                         "suitable_for_comparison": True,
                         "kubelet_pull_config_matches": True,
+                        "containerd_image_retention_matches": True,
                         "source_revision": "a" * 40,
                         "image_pull_concurrency_per_node": concurrency,
                         "cache_mode": mode,
@@ -409,6 +506,8 @@ class ComparisonTests(unittest.TestCase):
     def test_changed_hardware_revision_or_failed_acceptance_is_not_a_controlled_comparison(self):
         for filename, field, value in (
             ("performance.json", "docker", {}),
+            ("performance.json", "containerd_image_retention_matches", False),
+            ("performance.json", "containerd_image_retention_matches", None),
             ("result.json", "source_revision", "c" * 40),
             ("result.json", "passed", False),
         ):

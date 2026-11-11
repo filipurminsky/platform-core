@@ -1,0 +1,254 @@
+{
+  "attempts": [
+    {
+      "source_revision": "5177ac6f5450779a901fa788caa3deb1dcf283cf",
+      "workflow_url": "https://github.com/filipurminsky/platform-core/actions/runs/42990053557",
+      "artifact_id": 13843785127,
+      "artifact_sha256": "499b8b02101479715faa72031082b9c44c283f7d5d232119acf0346546c5cc07",
+      "comparison_accepted": false,
+      "reason": "Cache export failed after cold2 functional checks; warm2 did not run. No complete three-run comparison.",
+      "preparation": {
+        "passed": true,
+        "source_revision": "5177ac6f5450779a901fa788caa3deb1dcf283cf",
+        "included_in_startup_comparison": false,
+        "kind_node_image": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+        "phase": "complete",
+        "app_image_ids": {
+          "platform-core/echo-service:dev": "sha256:309644a2ab2ac5fb91f5073e5353841a253b22f999e9553d391e4f8e0e387a5f",
+          "platform-core/worker-service:dev": "sha256:7c7b13d144f5c21a0a9ca391287af5ffd72f101236d27ea960d948510109ec41",
+          "platform-core/llm-gateway:dev": "sha256:0144c5de555ef63a418c3ee185e8b04ef4e98554dc1aff009fa57c8bd1a66ec3",
+          "platform-core/audio-api:dev": "sha256:b639c74121e71e39713d232d3796c2a000baac8b2c6f6f3b622e694161cb94b3",
+          "platform-core/stt-worker:dev": "sha256:fa43a533444ab81fc3f3b3767bdd0812cc77831b99c4a092326efb6efdbdeb6e",
+          "platform-core/tts-worker:dev": "sha256:79656f9047fafd11a5548d034eee6009cd3fc554b350896ffedde94e3648d0be",
+          "platform-core/llm-worker:dev": "sha256:526c560778376c2690a0085fb98d425cd1cc9b6e9107c8efd3f06f1d9037d4da"
+        },
+        "scope": "Host app-build layers and pinned kind node image; new nodes have no imported platform OCI cache",
+        "elapsed_seconds": 45.582
+      },
+      "runs": {
+        "cold1": {
+          "passed": true,
+          "functional_checks_passed": true,
+          "cleanup_errors": [],
+          "failure": null,
+          "owned_cluster_absent": true,
+          "context_preserved": true,
+          "original_running_containers_preserved": true,
+          "steps": [
+            {
+              "name": "clone",
+              "exit_code": 0,
+              "seconds": 0.616,
+              "interrupted": false
+            },
+            {
+              "name": "preflight",
+              "exit_code": 0,
+              "seconds": 0.515,
+              "interrupted": false
+            },
+            {
+              "name": "bootstrap",
+              "exit_code": 0,
+              "seconds": 152.247,
+              "interrupted": false
+            },
+            {
+              "name": "convergence",
+              "exit_code": 0,
+              "seconds": 566.985,
+              "interrupted": false
+            },
+            {
+              "name": "redis",
+              "exit_code": 0,
+              "seconds": 14.714,
+              "interrupted": false
+            },
+            {
+              "name": "smoke",
+              "exit_code": 0,
+              "seconds": 99.282,
+              "interrupted": false
+            },
+            {
+              "name": "tenant",
+              "exit_code": 0,
+              "seconds": 58.389,
+              "interrupted": false
+            },
+            {
+              "name": "portal",
+              "exit_code": 0,
+              "seconds": 3.072,
+              "interrupted": false
+            },
+            {
+              "name": "final-health",
+              "exit_code": 0,
+              "seconds": 0.366,
+              "interrupted": false
+            },
+            {
+              "name": "final-source",
+              "exit_code": 0,
+              "seconds": 0.466,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-1",
+              "exit_code": 0,
+              "seconds": 37.858,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-2",
+              "exit_code": 0,
+              "seconds": 0.064,
+              "interrupted": false
+            }
+          ],
+          "clock_guard": {
+            "passed": true,
+            "threshold_seconds": 5,
+            "max_absolute_drift_seconds": 0.0
+          },
+          "measured_pull_concurrency": 1,
+          "kubelet_pull_config_matches": true,
+          "resources_and_pulls": {
+            "peak_cluster_memory_bytes": 12320113689,
+            "peak_cluster_cpu_percent": 461.56,
+            "successful_pull_events": 112,
+            "already_present_events": 43,
+            "registry_pull_events": 69
+          },
+          "all_functional_phase_exit_codes_zero": true
+        },
+        "cold2": {
+          "passed": false,
+          "functional_checks_passed": null,
+          "cleanup_errors": [],
+          "failure": {
+            "error_type": "RuntimeError",
+            "message": "cache-export failed; inspect its local log"
+          },
+          "owned_cluster_absent": true,
+          "context_preserved": true,
+          "original_running_containers_preserved": true,
+          "steps": [
+            {
+              "name": "clone",
+              "exit_code": 0,
+              "seconds": 0.716,
+              "interrupted": false
+            },
+            {
+              "name": "preflight",
+              "exit_code": 0,
+              "seconds": 0.966,
+              "interrupted": false
+            },
+            {
+              "name": "bootstrap",
+              "exit_code": 0,
+              "seconds": 159.948,
+              "interrupted": false
+            },
+            {
+              "name": "convergence",
+              "exit_code": 0,
+              "seconds": 492.96,
+              "interrupted": false
+            },
+            {
+              "name": "redis",
+              "exit_code": 0,
+              "seconds": 13.937,
+              "interrupted": false
+            },
+            {
+              "name": "smoke",
+              "exit_code": 0,
+              "seconds": 98.472,
+              "interrupted": false
+            },
+            {
+              "name": "tenant",
+              "exit_code": 0,
+              "seconds": 60.467,
+              "interrupted": false
+            },
+            {
+              "name": "portal",
+              "exit_code": 0,
+              "seconds": 3.074,
+              "interrupted": false
+            },
+            {
+              "name": "final-health",
+              "exit_code": 0,
+              "seconds": 0.416,
+              "interrupted": false
+            },
+            {
+              "name": "final-source",
+              "exit_code": 0,
+              "seconds": 0.365,
+              "interrupted": false
+            },
+            {
+              "name": "cache-export",
+              "exit_code": 1,
+              "seconds": 0.767,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-1",
+              "exit_code": 0,
+              "seconds": 35.4,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-2",
+              "exit_code": 0,
+              "seconds": 0.064,
+              "interrupted": false
+            }
+          ],
+          "clock_guard": {
+            "passed": true,
+            "threshold_seconds": 5,
+            "max_absolute_drift_seconds": 0.0
+          },
+          "measured_pull_concurrency": 2,
+          "kubelet_pull_config_matches": true,
+          "resources_and_pulls": {
+            "peak_cluster_memory_bytes": 12410308002,
+            "peak_cluster_cpu_percent": 463.93,
+            "successful_pull_events": 118,
+            "already_present_events": 46,
+            "registry_pull_events": 72
+          },
+          "all_functional_phase_exit_codes_zero": true
+        }
+      }
+    }
+  ],
+  "focused_local_oci_roundtrip": {
+    "passed": true,
+    "scope": "two sequential fresh single-node clusters; pinned kind node images (no registry pull); OCI export/import",
+    "export_seconds": 5.023,
+    "archive_bytes": 386199552,
+    "exported_refs": 14,
+    "import_seconds": 5.009,
+    "cri_missing_refs": [],
+    "cri_managed_labels": true,
+    "exact_image_digests": true,
+    "clusters_preserved": true,
+    "context_preserved": true,
+    "original_containers_preserved": true,
+    "elapsed_seconds": 37.261,
+    "cache_helper_sha256": "8eab3e9b1fd29bf7ec10aa0711dc58016f83ed0a42d2c9410da335ecf12bfe66",
+    "source_state": "working tree repair after 5177ac6; helper content identified by SHA256"
+  }
+}

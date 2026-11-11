@@ -9,12 +9,36 @@ import shutil
 import signal
 import subprocess
 import time
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
+CONTENT_RETENTION_PATCH = """containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".containerd]
+      discard_unpacked_layers = false
+"""
+
+
+def configure_image_content_retention(config_text):
+    """Keep compressed OCI content on every measured node, including cold baselines."""
+    if "containerdConfigPatches:" in config_text:
+        if config_text.count(CONTENT_RETENTION_PATCH) != 1:
+            raise ValueError("kind config contains unsupported containerd patches")
+        return config_text
+    return config_text.rstrip() + "\n" + CONTENT_RETENTION_PATCH
+
+
+def containerd_image_retention(text):
+    plugins = tomllib.loads(text).get("plugins", {})
+    settings = plugins.get("io.containerd.cri.v1.images")
+    if settings is None:
+        settings = plugins.get("io.containerd.grpc.v1.cri", {}).get("containerd", {})
+    return {"discard_unpacked_layers": settings.get("discard_unpacked_layers")}
+
 
 def configure_pull_concurrency(config_text, concurrency):
-    """Change only the reviewed, explicit kubelet pull limit in the kind config."""
+    """Set the measured pull limit and matched OCI retention for all acceptance runs."""
     if concurrency not in (1, 2):
         raise ValueError("image-pull-concurrency must be 1 or 2")
     if len(re.findall(r"^    serializeImagePulls: false$", config_text, re.M)) != 1:
@@ -24,7 +48,9 @@ def configure_pull_concurrency(config_text, concurrency):
         raise ValueError(
             "kind config must contain exactly one reviewed maxParallelImagePulls limit"
         )
-    return re.sub(pattern, f"    maxParallelImagePulls: {concurrency}", config_text, flags=re.M)
+    return configure_image_content_retention(
+        re.sub(pattern, f"    maxParallelImagePulls: {concurrency}", config_text, flags=re.M)
+    )
 
 
 def command(args, timeout=20):
@@ -227,7 +253,7 @@ def monitor(args):
     signal.signal(signal.SIGINT, request_stop)
     clock = ClockGuard()
     started = clock.started_monotonic
-    samples, events, errors, kubelets = [], {}, [], {}
+    samples, events, errors, kubelets, containerd_configs = [], {}, [], {}, {}
 
     def stopping():
         clock.observe()
@@ -289,6 +315,15 @@ def monitor(args):
                         kubelets[node] = kubelet_pull_config(
                             command(
                                 ["docker", "exec", node, "cat", "/var/lib/kubelet/config.yaml"],
+                                timeout=10,
+                            )
+                        )
+                    # The image's original config can be visible before kind
+                    # applies its patches. Retry until retention is observed.
+                    if containerd_configs.get(node, {}).get("discard_unpacked_layers") is not False:
+                        containerd_configs[node] = containerd_image_retention(
+                            command(
+                                ["docker", "exec", node, "cat", "/etc/containerd/config.toml"],
                                 timeout=10,
                             )
                         )
@@ -414,6 +449,12 @@ def monitor(args):
             clock_guard=clock.evidence(),
             suitable_for_comparison=clock.passed,
             kubelet_pull_config=kubelets,
+            containerd_image_retention=containerd_configs,
+            containerd_image_retention_matches=bool(containerd_configs)
+            and set(containerd_configs) == set(kubelets)
+            and all(
+                config["discard_unpacked_layers"] is False for config in containerd_configs.values()
+            ),
             kubelet_pull_config_matches=bool(kubelets)
             and all(
                 config
@@ -430,7 +471,13 @@ def monitor(args):
             report["failure_reason"] = "clock-discontinuity"
         write_report(args.output, report)
         if ended or not clock.passed:
-            return 0 if clock.passed and report["kubelet_pull_config_matches"] else 1
+            return (
+                0
+                if clock.passed
+                and report["kubelet_pull_config_matches"]
+                and report["containerd_image_retention_matches"]
+                else 1
+            )
         deadline = time.monotonic() + args.interval
         while time.monotonic() < deadline and not stopping():
             time.sleep(min(0.5, max(0, deadline - time.monotonic())))

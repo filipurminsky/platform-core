@@ -12,6 +12,7 @@ import json
 import re
 import subprocess
 import time
+import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,9 +27,27 @@ APPS = {
 }
 
 
-def command(args, **kwargs):
-    return subprocess.run(
-        args, check=True, capture_output=True, text=True, timeout=60, **kwargs
+class CacheCommandError(RuntimeError):
+    """Keep safe operation context separate from private subprocess diagnostics."""
+
+    def __init__(self, stage, node, error):
+        super().__init__(f"{stage} failed; inspect the local diagnostic log")
+        self.stage = stage
+        self.node = node
+        self.exit_code = getattr(error, "returncode", None)
+        self.stderr = error.stderr or b""
+
+
+def run_command(args, *, stage, node=None, **kwargs):
+    try:
+        return subprocess.run(args, check=True, **kwargs)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise CacheCommandError(stage, node, error) from error
+
+
+def command(args, *, stage="inspect-nodes", node=None, **kwargs):
+    return run_command(
+        args, stage=stage, node=node, capture_output=True, text=True, timeout=60, **kwargs
     ).stdout
 
 
@@ -45,7 +64,9 @@ def inventory(text):
             raise ValueError("unexpected containerd image inventory")
         reference = fields[0]
         name = reference.split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0]
-        if reference.startswith("sha256:") or name in APPS:
+        # ctr import creates synthetic index names as well as runnable references.
+        # They can retain old local app content after its named tag is replaced.
+        if reference.startswith(("sha256:", "import-")) or name in APPS:
             continue
         images[reference] = fields[2]
     return images
@@ -53,7 +74,11 @@ def inventory(text):
 
 def node_inventory(node):
     return inventory(
-        command(["docker", "exec", node, "ctr", "--namespace", "k8s.io", "images", "list"])
+        command(
+            ["docker", "exec", node, "ctr", "--namespace", "k8s.io", "images", "list"],
+            stage="inventory-images",
+            node=node,
+        )
     )
 
 
@@ -90,7 +115,7 @@ def expected_nodes(config):
         raise ValueError("kind config must explicitly pin one node image digest for every node")
     try:
         image = json.loads(command(["docker", "image", "inspect", pins[0]]))[0]
-    except subprocess.CalledProcessError as error:
+    except CacheCommandError as error:
         raise ValueError(
             f"cache preflight needs the pinned node image locally; run docker pull {pins[0]}"
         ) from error
@@ -136,7 +161,11 @@ def validate_cache(cache_dir, revision, nodes):
             not re.fullmatch(r"sha256:[a-f0-9]{64}", value) for value in images.values()
         ):
             raise ValueError(f"cache image identities missing or invalid for {suffix}")
-        if any(ref.split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0] in APPS for ref in images):
+        if any(
+            ref.startswith(("sha256:", "import-"))
+            or ref.split("@", 1)[0].rsplit("/", 1)[-1].split(":", 1)[0] in APPS
+            for ref in images
+        ):
             raise ValueError(
                 "cache contains a local app image; current source must be built separately"
             )
@@ -146,6 +175,24 @@ def validate_cache(cache_dir, revision, nodes):
 def export_cache(cache_dir, revision, nodes):
     if cache_dir.exists() and any(cache_dir.iterdir()):
         raise ValueError("cache directory must be empty; existing archives are never overwritten")
+    for suffix, node in nodes.items():
+        config = tomllib.loads(
+            command(
+                ["docker", "exec", node["container"], "cat", "/etc/containerd/config.toml"],
+                stage="check-content-retention",
+                node=suffix,
+            )
+        )
+        plugins = config.get("plugins", {})
+        settings = plugins.get("io.containerd.cri.v1.images")
+        if settings is None:
+            settings = plugins.get("io.containerd.grpc.v1.cri", {}).get("containerd", {})
+        if settings.get("discard_unpacked_layers") is not False:
+            raise ValueError(
+                f"{suffix}: compressed image layers are not retained. Create a fresh cluster "
+                "with discard_unpacked_layers=false before pulling images; use dev-acceptance.py "
+                "for a matched benchmark. Changing an existing node cannot restore discarded blobs."
+            )
     cache_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "schema_version": 1,
@@ -162,7 +209,7 @@ def export_cache(cache_dir, revision, nodes):
         temporary = archive.with_suffix(".partial")
         try:
             with temporary.open("xb") as stream:
-                subprocess.run(
+                run_command(
                     [
                         "docker",
                         "exec",
@@ -173,14 +220,18 @@ def export_cache(cache_dir, revision, nodes):
                         "images",
                         "export",
                         "--local",
+                        # OCI is the actual interchange format. The optional
+                        # Docker manifest cannot represent some imported indexes.
+                        "--skip-manifest-json",
                         "--platform",
                         node["platform"],
                         "-",
                         *sorted(images),
                     ],
+                    stage="export-archive",
+                    node=suffix,
                     stdout=stream,
                     stderr=subprocess.PIPE,
-                    check=True,
                     timeout=1200,
                 )
             temporary.replace(archive)
@@ -202,7 +253,7 @@ def import_cache(cache_dir, revision, nodes):
     manifest = validate_cache(cache_dir, revision, nodes)
     for suffix, node in nodes.items():
         with (cache_dir / f"{suffix}.tar").open("rb") as stream:
-            subprocess.run(
+            run_command(
                 [
                     "docker",
                     "exec",
@@ -220,10 +271,11 @@ def import_cache(cache_dir, revision, nodes):
                     "io.cri-containerd.image=managed",
                     "-",
                 ],
+                stage="import-archive",
+                node=suffix,
                 stdin=stream,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
-                check=True,
                 timeout=1200,
             )
         actual = node_inventory(node["container"])
@@ -241,6 +293,7 @@ def main():
     parser.add_argument("--cache-dir", type=Path, required=True)
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--diagnostic-log", type=Path, help="Private stderr file; never upload")
     args = parser.parse_args()
     if args.operation == "validate" and not args.kind_config:
         parser.error("validate requires --kind-config and never changes a cluster")
@@ -272,9 +325,19 @@ def main():
             manifest_sha256=digest(args.cache_dir / "manifest.json"),
             nodes=manifest["nodes"],
         )
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError, CacheCommandError) as error:
         # Captured command stderr can contain registry credentials; retain only safe error types.
         report["error"] = str(error) if isinstance(error, ValueError) else type(error).__name__
+        if isinstance(error, CacheCommandError):
+            report.update(stage=error.stage, node=error.node, exit_code=error.exit_code)
+            if args.diagnostic_log:
+                args.diagnostic_log.parent.mkdir(parents=True, exist_ok=True)
+                diagnostic = error.stderr
+                if isinstance(diagnostic, str):
+                    diagnostic = diagnostic.encode()
+                with args.diagnostic_log.open("xb") as stream:
+                    stream.write(diagnostic)
+                args.diagnostic_log.chmod(0o600)
     report["elapsed_seconds"] = round(time.monotonic() - started, 3)
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)

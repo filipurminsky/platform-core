@@ -596,6 +596,7 @@ class Acceptance:
                     "--cache-dir=" + str(self.args.write_image_cache),
                     "--source-revision=" + revision,
                     "--report=" + str(self.summary / "image-cache-export.json"),
+                    "--diagnostic-log=" + str(self.evidence / "logs/cache-export-stderr.log"),
                 ],
                 timeout=900,
             )

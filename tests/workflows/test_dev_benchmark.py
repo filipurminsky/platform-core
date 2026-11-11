@@ -11,9 +11,9 @@ SCRIPT = ROOT / ".github/scripts/run-dev-benchmark.sh"
 
 
 class DevBenchmark(unittest.TestCase):
-    def run_benchmark(self, directory, fail_phase=""):
+    def run_benchmark(self, directory, fail_phase="", phase="all", revision="a" * 40):
         binary = directory / "bin"
-        binary.mkdir()
+        binary.mkdir(exist_ok=True)
         executable = binary / "python3"
         executable.write_text(
             '#!/bin/bash\nprintf "%s\\0" "$@" >> "$CALL_LOG"\n'
@@ -23,12 +23,12 @@ class DevBenchmark(unittest.TestCase):
         executable.chmod(0o755)
         log = directory / "calls"
         result = subprocess.run(
-            ["bash", str(SCRIPT)],
+            ["bash", str(SCRIPT), phase],
             env={
                 **os.environ,
                 "PATH": str(binary) + os.pathsep + os.environ["PATH"],
                 "RUNNER_TEMP": str(directory),
-                "GITHUB_SHA": "a" * 40,
+                "GITHUB_SHA": revision,
                 "CALL_LOG": str(log),
                 "FAIL_PHASE": fail_phase,
             },
@@ -87,6 +87,72 @@ class DevBenchmark(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(calls, [])
             self.assertEqual(marker.read_text(), "existing")
+
+    def test_individual_phases_reuse_one_runner_and_execute_the_same_commands(self):
+        with tempfile.TemporaryDirectory(prefix="benchmark space ") as temp:
+            directory = Path(temp)
+            for count, phase in enumerate(("prepare", "cold1", "cold2", "warm2", "compare"), 1):
+                result, calls = self.run_benchmark(directory, phase=phase)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(len(calls), count)
+                self.assertEqual(
+                    (directory / "dev-benchmark" / f".{phase}-complete").read_text(),
+                    "a" * 40 + "\n",
+                )
+            self.assertEqual(calls[0][0], ".github/scripts/prepare-dev-benchmark.py")
+            self.assertIn("--image-pull-concurrency=1", calls[1])
+            self.assertIn(f"--write-image-cache={directory}/dev-benchmark-image-cache", calls[2])
+            self.assertIn(f"--image-cache={directory}/dev-benchmark-image-cache", calls[3])
+            self.assertEqual(calls[4][0], "scripts/compare-dev-performance.py")
+
+    def test_failed_phase_cannot_be_followed_by_a_later_individual_phase(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            for phase in ("prepare", "cold1"):
+                result, _ = self.run_benchmark(directory, phase=phase)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            result, calls = self.run_benchmark(directory, fail_phase="cold2", phase="cold2")
+            self.assertEqual(result.returncode, 7)
+            self.assertEqual(len(calls), 3)
+            self.assertFalse((directory / "dev-benchmark/.cold2-complete").exists())
+            result, calls = self.run_benchmark(directory, phase="warm2")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("requires successful cold2", result.stderr)
+            self.assertEqual(len(calls), 3)
+
+    def test_phase_rejects_missing_predecessor_changed_revision_and_repetition(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            result, calls = self.run_benchmark(directory, phase="cold1")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(calls, [])
+            result, _ = self.run_benchmark(directory, phase="prepare")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, calls = self.run_benchmark(directory, phase="cold1", revision="b" * 40)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(len(calls), 1)
+            result, _ = self.run_benchmark(directory, phase="cold1")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, calls = self.run_benchmark(directory, phase="cold1")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("already completed", result.stderr)
+            self.assertEqual(len(calls), 2)
+
+    def test_workflow_exposes_each_phase_in_order_with_success_guards(self):
+        workflow = (ROOT / ".github/workflows/dev-acceptance.yaml").read_text()
+        steps = workflow.split("      - name: ")
+        benchmark_steps = [
+            step for step in steps if "run: ./.github/scripts/run-dev-benchmark.sh " in step
+        ]
+        self.assertEqual(len(benchmark_steps), 5)
+        for step, phase in zip(
+            benchmark_steps, ("prepare", "cold1", "cold2", "warm2", "compare"), strict=True
+        ):
+            self.assertIn("if: ${{ inputs.run_benchmark }}", step)
+            self.assertIn(f"run: ./.github/scripts/run-dev-benchmark.sh {phase}\n", step)
+            self.assertNotIn("always()", step)
+            self.assertNotIn("continue-on-error", step)
+        self.assertEqual(workflow.count("runs-on:"), 1)
 
     def test_actual_workflow_artifact_patterns_exclude_private_files_and_cache(self):
         workflow = (ROOT / ".github/workflows/dev-acceptance.yaml").read_text()

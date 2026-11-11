@@ -65,12 +65,29 @@ jobs:
           PULL_CONCURRENCY: ${{ inputs.image_pull_concurrency }}
         run: |
           make dev-acceptance DEV_ACCEPTANCE_ARGS="--expected-revision=$GITHUB_SHA --evidence-dir=$RUNNER_TEMP/dev-acceptance --timeout=2400 --install-timeout=600 --image-pull-concurrency=$PULL_CONCURRENCY"
-      - name: Compare three full lifecycles on this runner
+      # Keep every phase in this job so the source, Docker daemon, host caches
+      # and hardware stay fixed. Default success() guards stop after any failure.
+      # Each lifecycle retains its internal deadlines; the job caps the full batch.
+      - name: Prepare shared host caches for the startup benchmark
         if: ${{ inputs.run_benchmark }}
-        # A separate whole-comparison ceiling bounds cost; individual lifecycle
-        # checks retain their own deadlines. Leave job time for artifact upload.
-        timeout-minutes: 180
-        run: ./.github/scripts/run-dev-benchmark.sh
+        timeout-minutes: 50
+        run: ./.github/scripts/run-dev-benchmark.sh prepare
+      - name: Benchmark cold startup with one image pull per node
+        if: ${{ inputs.run_benchmark }}
+        timeout-minutes: 150
+        run: ./.github/scripts/run-dev-benchmark.sh cold1
+      - name: Benchmark cold startup with two image pulls and export cache
+        if: ${{ inputs.run_benchmark }}
+        timeout-minutes: 150
+        run: ./.github/scripts/run-dev-benchmark.sh cold2
+      - name: Benchmark warm startup with two image pulls and imported cache
+        if: ${{ inputs.run_benchmark }}
+        timeout-minutes: 150
+        run: ./.github/scripts/run-dev-benchmark.sh warm2
+      - name: Compare accepted startup measurements
+        if: ${{ inputs.run_benchmark }}
+        timeout-minutes: 5
+        run: ./.github/scripts/run-dev-benchmark.sh compare
       # The runner writes explicit sanitized JSON summaries. Never upload the
       # evidence root, local logs, private diagnostics, kubeconfigs or Secrets.
       - name: Preserve sanitized acceptance evidence even on failure
