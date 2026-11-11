@@ -168,6 +168,89 @@ def node_inventory(node):
     )
 
 
+def incomplete_images(text, images):
+    """Parse native-platform content STATUS; UNPACKED is deliberately irrelevant."""
+    lines = text.splitlines()
+    if not lines or lines[0].split() != ["REF", "TYPE", "DIGEST", "STATUS", "SIZE", "UNPACKED"]:
+        raise ValueError("unexpected containerd image check header")
+    seen, incomplete = set(), {}
+    for line in lines[1:]:
+        fields = line.split()
+        if not fields or fields[0] not in images:
+            continue
+        reference = fields[0]
+        if len(fields) < 4 or fields[2] != images[reference]:
+            raise ValueError("image identity changed during native content check")
+        if fields[3] not in ("complete", "incomplete"):
+            raise ValueError("native image content is unavailable or could not be checked")
+        seen.add(reference)
+        if fields[3] == "incomplete":
+            incomplete.setdefault(fields[2], reference)
+    if seen != set(images):
+        raise ValueError("native content check omitted an inventoried image")
+    return incomplete
+
+
+def immutable_reference(reference, identity):
+    repository = reference.split("@", 1)[0]
+    # A registry's port is part of the repository, not an image tag.
+    if repository.rfind(":") > repository.rfind("/"):
+        repository = repository.rsplit(":", 1)[0]
+    return f"{repository}@{identity}"
+
+
+def hydrate_image_content(node, images):
+    """Fetch skipped compressed blobs without unpacking or changing original image identities."""
+    started = time.monotonic()
+    check = ["docker", "exec", node["container"], "ctr", "--namespace", "k8s.io", "images", "check"]
+    incomplete = incomplete_images(
+        command(check, stage="check-native-content", node=node["container"]), images
+    )
+    report = {"checked_references": len(images), "fetches": []}
+    for identity, reference in incomplete.items():
+        pinned = immutable_reference(reference, identity)
+        fetch_started = time.monotonic()
+        fetch = {"reference": reference, "pinned_reference": pinned, "digest": identity}
+        report["fetches"].append(fetch)
+        try:
+            run_command(
+                [
+                    "docker",
+                    "exec",
+                    node["container"],
+                    "ctr",
+                    "--namespace",
+                    "k8s.io",
+                    "content",
+                    "fetch",
+                    "--platform",
+                    node["platform"],
+                    "--skip-metadata",
+                    pinned,
+                ],
+                stage="hydrate-native-content",
+                node=node["container"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=120,
+            )
+        except CacheCommandError as error:
+            error.diagnostics["content_hydration"] = report
+            raise
+        finally:
+            fetch["elapsed_seconds"] = round(time.monotonic() - fetch_started, 3)
+    if incomplete:
+        actual = node_inventory(node["container"])
+        if any(actual.get(reference) != identity for reference, identity in images.items()):
+            raise ValueError("image identities changed while fetching missing native content")
+        if incomplete_images(
+            command(check, stage="verify-native-content", node=node["container"]), images
+        ):
+            raise ValueError("native image content remains incomplete after hydration")
+    report["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    return report
+
+
 def nodes_for(cluster):
     names = command(["kind", "get", "nodes", "--name", cluster]).split()
     if not names:
@@ -293,7 +376,9 @@ def export_cache(cache_dir, revision, nodes):
             raise ValueError("no platform images to cache")
         archive = cache_dir / f"{suffix}.tar"
         temporary = archive.with_suffix(".partial")
+        hydration = {}
         try:
+            hydration = hydrate_image_content(node, images)
             with temporary.open("xb") as stream:
                 run_command(
                     export_command(node, sorted(images)),
@@ -305,21 +390,26 @@ def export_cache(cache_dir, revision, nodes):
                 )
             temporary.replace(archive)
         except CacheCommandError as error:
-            error.diagnostics = {
-                "completed_nodes": manifest["nodes"],
-                "failed_node_images": images,
-                "error": classify_command_error(error),
-            }
-            try:
-                error.diagnostics["isolation"] = probe_export_failure(node, images)
-            except (OSError, ValueError, subprocess.SubprocessError) as diagnostic_error:
-                error.diagnostics["isolation_error_type"] = type(diagnostic_error).__name__
+            error.diagnostics.update(
+                {
+                    "completed_nodes": manifest["nodes"],
+                    "failed_node_images": images,
+                    "error": classify_command_error(error),
+                }
+            )
+            if error.stage == "export-archive":
+                error.diagnostics["content_hydration"] = hydration
+                try:
+                    error.diagnostics["isolation"] = probe_export_failure(node, images)
+                except (OSError, ValueError, subprocess.SubprocessError) as diagnostic_error:
+                    error.diagnostics["isolation_error_type"] = type(diagnostic_error).__name__
             raise
         finally:
             temporary.unlink(missing_ok=True)
         manifest["nodes"][suffix] = {
             **{key: value for key, value in node.items() if key != "container"},
             "images": images,
+            "content_hydration": hydration,
             "archive_bytes": archive.stat().st_size,
             "archive_sha256": digest(archive),
         }

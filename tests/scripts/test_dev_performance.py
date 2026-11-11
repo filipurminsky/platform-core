@@ -329,6 +329,7 @@ class ImageCacheTests(unittest.TestCase):
 
         with (
             patch.object(CACHE, "command", return_value=RETAINED_CONTENT),
+            patch.object(CACHE, "hydrate_image_content", return_value={"fetches": []}),
             patch.object(CACHE.subprocess, "run", side_effect=export),
             patch.object(CACHE, "node_inventory", return_value=images),
         ):
@@ -344,6 +345,7 @@ class ImageCacheTests(unittest.TestCase):
         error = subprocess.CalledProcessError(1, ["ctr"], stderr=private_stderr)
         with (
             patch.object(CACHE, "command", return_value=RETAINED_CONTENT),
+            patch.object(CACHE, "hydrate_image_content", return_value={"fetches": []}),
             patch.object(CACHE, "nodes_for", return_value=self.nodes),
             patch.object(CACHE, "node_inventory", return_value=self.images),
             patch.object(CACHE.subprocess, "run", side_effect=error),
@@ -453,6 +455,7 @@ class ImageCacheTests(unittest.TestCase):
 
         with (
             patch.object(CACHE, "command", return_value=RETAINED_CONTENT),
+            patch.object(CACHE, "hydrate_image_content", return_value={"fetches": []}),
             patch.object(CACHE, "node_inventory", return_value=self.images),
             patch.object(CACHE, "run_command", side_effect=export),
             patch.object(CACHE, "probe_export_failure", return_value={"fixture": True}),
@@ -464,6 +467,67 @@ class ImageCacheTests(unittest.TestCase):
         self.assertEqual(detail["completed_nodes"]["control-plane"]["archive_bytes"], 20)
         self.assertFalse((destination / "manifest.json").exists())
         self.assertFalse((destination / "worker.partial").exists())
+
+    def content_check(self, images, incomplete=()):
+        header = "REF TYPE DIGEST STATUS SIZE UNPACKED\n"
+        return header + "\n".join(
+            f"{ref} manifest {identity} {'incomplete' if ref in incomplete else 'complete'} "
+            "(2/3) 1.0 MiB/2.0 MiB false"
+            for ref, identity in images.items()
+        )
+
+    def test_hydration_fetches_only_incomplete_content_once_per_pinned_identity(self):
+        images = {
+            "registry.example.com:5000/grafana:v1": self.identity,
+            "registry.example.com:5000/grafana@" + self.identity: self.identity,
+            "registry.k8s.io/kube-apiserver-amd64:v1": "sha256:" + "c" * 64,
+        }
+        checks = [self.content_check(images, tuple(images)[:2]), self.content_check(images)]
+        with (
+            patch.object(CACHE, "command", side_effect=checks),
+            patch.object(CACHE, "node_inventory", return_value=images),
+            patch.object(CACHE, "run_command") as run,
+        ):
+            report = CACHE.hydrate_image_content(self.nodes["worker"], images)
+        run.assert_called_once()
+        arguments = run.call_args.args[0]
+        self.assertEqual(arguments[-1], "registry.example.com:5000/grafana@" + self.identity)
+        self.assertIn("--skip-metadata", arguments)
+        self.assertEqual(arguments[arguments.index("--platform") + 1], "linux/arm64")
+        self.assertEqual(run.call_args.kwargs["timeout"], 120)
+        self.assertEqual(len(report["fetches"]), 1)
+        self.assertEqual(report["fetches"][0]["digest"], self.identity)
+
+    def test_complete_but_not_unpacked_images_do_not_trigger_network_fetch(self):
+        with (
+            patch.object(CACHE, "command", return_value=self.content_check(self.images)),
+            patch.object(CACHE, "run_command") as run,
+        ):
+            report = CACHE.hydrate_image_content(self.nodes["worker"], self.images)
+        run.assert_not_called()
+        self.assertEqual(report["fetches"], [])
+
+    def test_hydration_rejects_changed_identity_or_remaining_missing_content(self):
+        for changed in (True, False):
+            incomplete = self.content_check(self.images, self.images)
+            with (
+                self.subTest(changed=changed),
+                patch.object(CACHE, "command", return_value=incomplete),
+                patch.object(CACHE, "node_inventory", return_value={} if changed else self.images),
+                patch.object(CACHE, "run_command"),
+            ):
+                with self.assertRaisesRegex(ValueError, "identities changed|remains incomplete"):
+                    CACHE.hydrate_image_content(self.nodes["worker"], self.images)
+
+    def test_content_check_refuses_omissions_unknown_status_or_changed_digest(self):
+        complete = self.content_check(self.images)
+        for invalid in (
+            "REF TYPE DIGEST STATUS SIZE UNPACKED\n",
+            complete.replace("complete", "unavailable"),
+            complete.replace(self.identity, "sha256:" + "c" * 64),
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                CACHE.incomplete_images(invalid, self.images)
 
 
 class ComparisonTests(unittest.TestCase):

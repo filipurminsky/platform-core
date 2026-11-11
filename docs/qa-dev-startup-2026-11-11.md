@@ -68,6 +68,24 @@ not run. The 21-file artifact ZIP SHA256 is
 `89612b5a87019ee4ad833ca2f94a91d6538ad9f7d1bab25aad4ed78f2f172a5e`.
 This second incomplete comparison is preserved in the portable evidence.
 
+## Focused hosted failure isolation
+
+The [focused hosted probe](https://github.com/filipurminsky/platform-core/actions/runs/43031126249)
+at revision `5b2b05c874b37cab724ab2f19a20038bb074554f` pulled all 50 immutable
+platform images successfully. Export isolated Grafana's AMD64 image as the first
+failure: its native manifest references the absent 141,259-byte compressed layer
+`sha256:0dab866abc129a9ddee4de3b47b772e62934e7a6828de0fd7a1b6308a711f3b2`.
+The source node retained image layers, and 73,505,230,848 bytes of host disk were
+free before export. Cleanup and resource preservation passed.
+
+Containerd's pinned unpacker can skip fetching a compressed blob when its
+unpacked chain already exists; retention alone therefore does not establish
+export completeness. See the
+[pinned implementation](https://raw.githubusercontent.com/containerd/containerd/db8809540e1a7a9da5d518876894933ff55692ab/core/unpack/unpacker.go).
+The repair checks native image completeness, fetches missing content using the
+recorded immutable image digest, and verifies existing image identities before
+export. Content-fetch time is cache preparation cost, separate from startup.
+
 ## Scope
 
 These are DEV mock/stub inference runs on kind. One run per configuration gives

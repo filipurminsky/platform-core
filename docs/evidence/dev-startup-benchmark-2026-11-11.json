@@ -478,5 +478,54 @@
     "elapsed_seconds": 37.261,
     "cache_helper_sha256": "8eab3e9b1fd29bf7ec10aa0711dc58016f83ed0a42d2c9410da335ecf12bfe66",
     "source_state": "working tree repair after 5177ac6; helper content identified by SHA256"
-  }
+  },
+  "cache_probes": [
+    {
+      "passed": false,
+      "source_revision": "5b2b05c874b37cab724ab2f19a20038bb074554f",
+      "scope": "real CRI pulls and OCI transfer; no full platform deployment or startup comparison",
+      "phase": "export",
+      "cleanup_errors": [],
+      "fixture_sha256": "56357b48c79be4f7763c2a6dc15b94ca96fbb60d809dfc32b36e782d7ecd21fb",
+      "kind_node_image": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+      "source_retention": {
+        "discard_unpacked_layers": false
+      },
+      "before_export_host_disk": {
+        "total_bytes": 154894188544,
+        "used_bytes": 81372180480,
+        "free_bytes": 73505230848
+      },
+      "failure_host_disk": {
+        "total_bytes": 154894188544,
+        "used_bytes": 81372209152,
+        "free_bytes": 73505202176
+      },
+      "owned_cluster_absent": true,
+      "clusters_preserved": true,
+      "containers_preserved": true,
+      "context_preserved": true,
+      "elapsed_seconds": 185.874,
+      "workflow_url": "https://github.com/filipurminsky/platform-core/actions/runs/43031126249",
+      "artifact_id": 13860064404,
+      "artifact_sha256": "b688bbc7638c8b5a7c1d4e830d347fd8c83f17c66ab31bf806e5301995fbec34",
+      "images_pulled": 50,
+      "fixture_count": 50,
+      "failure": {
+        "error_type": "CacheCommandError",
+        "stage": "export-archive",
+        "node": "control-plane",
+        "exit_code": 1,
+        "details": {
+          "category": "content-not-found",
+          "content_digests": [
+            "sha256:0dab866abc129a9ddee4de3b47b772e62934e7a6828de0fd7a1b6308a711f3b2"
+          ]
+        },
+        "first_failed_reference": "docker.io/grafana/grafana@sha256:540b8afb775bf34aefce417e4329039daa5d44b6f2fbda6881397b1b247ca7df",
+        "missing_blob_native_manifest": "sha256:ffa50e781972f7862410639eed96e0a9ad96c94ebeccd43e634141f3d9605a99",
+        "missing_blob_size_bytes": 141259
+      }
+    }
+  ]
 }

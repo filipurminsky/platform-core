@@ -139,6 +139,14 @@ pulls improved an uncached run. Cache archives remain local and are excluded
 from the CI evidence artifact. Archives use OCI format without the optional
 Docker-compatible manifest, and synthetic containerd import aliases are excluded.
 
+Before export, the cache tool checks native image completeness. Reusing an
+unpacked snapshot can leave a compressed blob absent even when layer retention
+is enabled. The tool fetches only incomplete native content from the original
+registry using the recorded image digest, verifies identities afterward, and
+records fetch durations in the cache manifest. Export therefore may require
+registry access; this preparation cost is excluded from startup timing and must
+be reported alongside the archive size and reuse benefit.
+
 Keep the host awake throughout a measurement. The sampler compares UTC elapsed
 time with its monotonic clock and rejects a discrepancy greater than five
 seconds, which can indicate host suspension or a clock correction. The runner
