@@ -232,6 +232,234 @@
           "all_functional_phase_exit_codes_zero": true
         }
       }
+    },
+    {
+      "source_revision": "87504e4f4a3cb40b93c60a65df5b4f2a562bd2c2",
+      "workflow_url": "https://github.com/filipurminsky/platform-core/actions/runs/43021775982",
+      "artifact_id": 13856658942,
+      "artifact_sha256": "89612b5a87019ee4ad833ca2f94a91d6538ad9f7d1bab25aad4ed78f2f172a5e",
+      "comparison_accepted": false,
+      "reason": "Both cold runs passed functional checks with verified image retention. Cache export failed on worker; warm2 not started.",
+      "export_failure": {
+        "operation": "export",
+        "cluster": "platform-acceptance-20261111125049-33475c22",
+        "source_revision": "87504e4f4a3cb40b93c60a65df5b4f2a562bd2c2",
+        "success": false,
+        "error": "CacheCommandError",
+        "stage": "export-archive",
+        "node": "worker",
+        "exit_code": 1,
+        "elapsed_seconds": 33.558
+      },
+      "runs": {
+        "cold1": {
+          "passed": true,
+          "functional_checks_passed": true,
+          "cleanup_errors": [],
+          "failure": null,
+          "owned_cluster_absent": true,
+          "context_preserved": true,
+          "original_running_containers_preserved": true,
+          "steps": [
+            {
+              "name": "clone",
+              "exit_code": 0,
+              "seconds": 0.365,
+              "interrupted": false
+            },
+            {
+              "name": "preflight",
+              "exit_code": 0,
+              "seconds": 0.365,
+              "interrupted": false
+            },
+            {
+              "name": "bootstrap",
+              "exit_code": 0,
+              "seconds": 145.361,
+              "interrupted": false
+            },
+            {
+              "name": "convergence",
+              "exit_code": 0,
+              "seconds": 448.252,
+              "interrupted": false
+            },
+            {
+              "name": "redis",
+              "exit_code": 0,
+              "seconds": 14.968,
+              "interrupted": false
+            },
+            {
+              "name": "smoke",
+              "exit_code": 0,
+              "seconds": 98.573,
+              "interrupted": false
+            },
+            {
+              "name": "tenant",
+              "exit_code": 0,
+              "seconds": 59.707,
+              "interrupted": false
+            },
+            {
+              "name": "portal",
+              "exit_code": 0,
+              "seconds": 2.57,
+              "interrupted": false
+            },
+            {
+              "name": "final-health",
+              "exit_code": 0,
+              "seconds": 0.366,
+              "interrupted": false
+            },
+            {
+              "name": "final-source",
+              "exit_code": 0,
+              "seconds": 0.315,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-1",
+              "exit_code": 0,
+              "seconds": 36.659,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-2",
+              "exit_code": 0,
+              "seconds": 0.064,
+              "interrupted": false
+            }
+          ],
+          "clock_guard": {
+            "passed": true,
+            "threshold_seconds": 5,
+            "max_absolute_drift_seconds": 0.0
+          },
+          "kubelet_pull_config_matches": true,
+          "containerd_image_retention_matches": true,
+          "measured_pull_concurrency": 1,
+          "resources_and_pulls": {
+            "peak_cluster_memory_bytes": 12285753951,
+            "peak_cluster_cpu_percent": 425.28,
+            "successful_pull_events": 115,
+            "already_present_events": 48,
+            "registry_pull_events": 67
+          },
+          "all_functional_phase_exit_codes_zero": true
+        },
+        "cold2": {
+          "passed": false,
+          "functional_checks_passed": null,
+          "cleanup_errors": [],
+          "failure": {
+            "error_type": "RuntimeError",
+            "message": "cache-export failed; inspect its local log"
+          },
+          "owned_cluster_absent": true,
+          "context_preserved": true,
+          "original_running_containers_preserved": true,
+          "steps": [
+            {
+              "name": "clone",
+              "exit_code": 0,
+              "seconds": 0.465,
+              "interrupted": false
+            },
+            {
+              "name": "preflight",
+              "exit_code": 0,
+              "seconds": 0.515,
+              "interrupted": false
+            },
+            {
+              "name": "bootstrap",
+              "exit_code": 0,
+              "seconds": 158.155,
+              "interrupted": false
+            },
+            {
+              "name": "convergence",
+              "exit_code": 0,
+              "seconds": 525.607,
+              "interrupted": false
+            },
+            {
+              "name": "redis",
+              "exit_code": 0,
+              "seconds": 15.615,
+              "interrupted": false
+            },
+            {
+              "name": "smoke",
+              "exit_code": 0,
+              "seconds": 93.254,
+              "interrupted": false
+            },
+            {
+              "name": "tenant",
+              "exit_code": 0,
+              "seconds": 61.169,
+              "interrupted": false
+            },
+            {
+              "name": "portal",
+              "exit_code": 0,
+              "seconds": 2.722,
+              "interrupted": false
+            },
+            {
+              "name": "final-health",
+              "exit_code": 0,
+              "seconds": 0.423,
+              "interrupted": false
+            },
+            {
+              "name": "final-source",
+              "exit_code": 0,
+              "seconds": 0.315,
+              "interrupted": false
+            },
+            {
+              "name": "cache-export",
+              "exit_code": 1,
+              "seconds": 33.664,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-1",
+              "exit_code": 0,
+              "seconds": 37.506,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-2",
+              "exit_code": 0,
+              "seconds": 0.064,
+              "interrupted": false
+            }
+          ],
+          "clock_guard": {
+            "passed": true,
+            "threshold_seconds": 5,
+            "max_absolute_drift_seconds": 0.0
+          },
+          "kubelet_pull_config_matches": true,
+          "containerd_image_retention_matches": true,
+          "measured_pull_concurrency": 2,
+          "resources_and_pulls": {
+            "peak_cluster_memory_bytes": 12064563135,
+            "peak_cluster_cpu_percent": 463.74,
+            "successful_pull_events": 110,
+            "already_present_events": 41,
+            "registry_pull_events": 69
+          },
+          "all_functional_phase_exit_codes_zero": true
+        }
+      }
     }
   ],
   "focused_local_oci_roundtrip": {

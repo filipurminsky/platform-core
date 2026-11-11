@@ -57,6 +57,17 @@ The repair passed 90 operational-script tests and 20 workflow tests, plus Ruff,
 ShellCheck, workflow lint and diff checks. Benchmark phases now appear separately
 in Actions while sharing one runner and requiring successful predecessors.
 
+## Preserved second hosted attempt
+
+[Run 43021775982](https://github.com/filipurminsky/platform-core/actions/runs/43021775982)
+tested revision `87504e4f4a3cb40b93c60a65df5b4f2a562bd2c2`. Both cold runs
+passed all functional phases with image retention and clock guards verified.
+The parallel run then failed exporting the worker-node archive after 33.558
+seconds. Both clusters were removed without cleanup errors; warm startup did
+not run. The 21-file artifact ZIP SHA256 is
+`89612b5a87019ee4ad833ca2f94a91d6538ad9f7d1bab25aad4ed78f2f172a5e`.
+This second incomplete comparison is preserved in the portable evidence.
+
 ## Scope
 
 These are DEV mock/stub inference runs on kind. One run per configuration gives

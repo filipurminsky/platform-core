@@ -173,6 +173,21 @@ comparison appear as separate Actions steps. They share one job and runner;
 each phase requires successful completion of its predecessor at the same source
 revision. A failed phase prevents later measurements from running.
 
+For an archive-format regression, select `cache_probe_only` instead of
+`run_benchmark`. This creates two sequential disposable single-node clusters,
+pulls the immutable platform-image corpus in
+`tests/fixtures/dev-cache-images.json`, and checks actual OCI export/import and
+CRI visibility. It does not install the platform or measure startup performance:
+
+```bash
+gh workflow run dev-acceptance.yaml --ref main -f cache_probe_only=true
+```
+
+The fixture is a regression corpus, not a deployment-version source. Cache
+failures retain safe error categories, content digests, completed-node archive
+details, and bounded per-image isolation results. Raw stderr and archives remain
+outside the uploaded JSON summaries.
+
 Before timing the first run, the workflow builds all seven service images and
 pulls the pinned kind node image. Thus every measured run starts with those host
 caches available. Preparation time and image identities are recorded separately

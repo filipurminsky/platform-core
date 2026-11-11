@@ -36,6 +36,92 @@ class CacheCommandError(RuntimeError):
         self.node = node
         self.exit_code = getattr(error, "returncode", None)
         self.stderr = error.stderr or b""
+        self.diagnostics = {}
+
+
+def classify_command_error(error):
+    """Expose only fixed categories and content identities, never raw command output."""
+    text = (
+        error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else error.stderr
+    )
+    category = "command-failed"
+    for marker, name in (
+        ("no space left on device", "disk-full"),
+        ("no manifest found for platform", "platform-unavailable"),
+        ("invalid checksum digest format", "invalid-digest"),
+        ("not found", "content-not-found"),
+        ("unexpected digest", "digest-mismatch"),
+        ("failed to copy to tar", "archive-write-failed"),
+    ):
+        if marker in text.lower():
+            category = name
+            break
+    if error.exit_code is None:
+        category = "timeout"
+    return {
+        "category": category,
+        "content_digests": sorted(set(re.findall(r"\bsha256:[a-f0-9]{64}\b", text)))[:4],
+    }
+
+
+def export_command(node, references):
+    return [
+        "docker",
+        "exec",
+        node["container"],
+        "ctr",
+        "--namespace",
+        "k8s.io",
+        "images",
+        "export",
+        "--local",
+        "--skip-manifest-json",
+        "--platform",
+        node["platform"],
+        "-",
+        *references,
+    ]
+
+
+def probe_export_failure(node, images):
+    """Bounded read-only isolation; a timed-out probe is explicitly inconclusive."""
+    started = time.monotonic()
+    deadline = started + 60
+    probes, seen = [], set()
+    report = {"budget_seconds": 60, "per_image_timeout_seconds": 10, "probes": probes}
+    for reference, identity in sorted(images.items()):
+        if identity in seen:
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or len(probes) >= 64:
+            break
+        seen.add(identity)
+        probe = {"reference": reference, "digest": identity}
+        try:
+            run_command(
+                export_command(node, [reference]),
+                stage="diagnose-export",
+                node=node["container"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=min(10, remaining),
+            )
+            probe["result"] = "passed"
+        except CacheCommandError as error:
+            probe.update(
+                result="inconclusive" if error.exit_code is None else "failed",
+                exit_code=error.exit_code,
+                error=classify_command_error(error),
+            )
+        probes.append(probe)
+        if probe["result"] == "failed":
+            report["first_failed_reference"] = reference
+            break
+    report["all_unique_images_checked"] = len(seen) == len(set(images.values())) and all(
+        probe["result"] != "inconclusive" for probe in probes
+    )
+    report["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    return report
 
 
 def run_command(args, *, stage, node=None, **kwargs):
@@ -210,24 +296,7 @@ def export_cache(cache_dir, revision, nodes):
         try:
             with temporary.open("xb") as stream:
                 run_command(
-                    [
-                        "docker",
-                        "exec",
-                        node["container"],
-                        "ctr",
-                        "--namespace",
-                        "k8s.io",
-                        "images",
-                        "export",
-                        "--local",
-                        # OCI is the actual interchange format. The optional
-                        # Docker manifest cannot represent some imported indexes.
-                        "--skip-manifest-json",
-                        "--platform",
-                        node["platform"],
-                        "-",
-                        *sorted(images),
-                    ],
+                    export_command(node, sorted(images)),
                     stage="export-archive",
                     node=suffix,
                     stdout=stream,
@@ -235,6 +304,17 @@ def export_cache(cache_dir, revision, nodes):
                     timeout=1200,
                 )
             temporary.replace(archive)
+        except CacheCommandError as error:
+            error.diagnostics = {
+                "completed_nodes": manifest["nodes"],
+                "failed_node_images": images,
+                "error": classify_command_error(error),
+            }
+            try:
+                error.diagnostics["isolation"] = probe_export_failure(node, images)
+            except (OSError, ValueError, subprocess.SubprocessError) as diagnostic_error:
+                error.diagnostics["isolation_error_type"] = type(diagnostic_error).__name__
+            raise
         finally:
             temporary.unlink(missing_ok=True)
         manifest["nodes"][suffix] = {
@@ -329,7 +409,13 @@ def main():
         # Captured command stderr can contain registry credentials; retain only safe error types.
         report["error"] = str(error) if isinstance(error, ValueError) else type(error).__name__
         if isinstance(error, CacheCommandError):
-            report.update(stage=error.stage, node=error.node, exit_code=error.exit_code)
+            report.update(
+                stage=error.stage,
+                node=error.node,
+                exit_code=error.exit_code,
+                failure_details=classify_command_error(error),
+                diagnostics=error.diagnostics,
+            )
             if args.diagnostic_log:
                 args.diagnostic_log.parent.mkdir(parents=True, exist_ok=True)
                 diagnostic = error.stderr

@@ -3,6 +3,10 @@ name: Full DEV acceptance (manual)
 on:
   workflow_dispatch:
     inputs:
+      cache_probe_only:
+        description: Verify native containerd cache export/import and cleanup without the full platform
+        type: boolean
+        default: false
       run_benchmark:
         description: Run cold serial, cold parallel, and warm parallel full lifecycles sequentially
         type: boolean
@@ -39,6 +43,11 @@ jobs:
         run: |
           echo '::error::Full DEV acceptance must be dispatched on main because GitOps sources track published main.'
           exit 1
+      - name: Reject conflicting cache probe and benchmark modes
+        if: ${{ inputs.cache_probe_only && inputs.run_benchmark }}
+        run: |
+          echo '::error::Choose cache_probe_only or run_benchmark; these modes cannot run together.'
+          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -56,8 +65,12 @@ jobs:
         run: python3 .github/scripts/check-dev-resources.py --output="$RUNNER_TEMP/dev-acceptance-resources.json"
       - name: Verify or install pinned lifecycle tools
         run: ./.github/scripts/setup-dev-acceptance.sh
+      - name: Probe native containerd cache export and import
+        if: ${{ inputs.cache_probe_only }}
+        timeout-minutes: 30
+        run: python3 .github/scripts/probe-dev-image-cache.py --evidence-dir="$RUNNER_TEMP/dev-cache-probe" --expected-revision="$GITHUB_SHA"
       - name: Exercise published-source lifecycle and owned-resource cleanup
-        if: ${{ !inputs.run_benchmark }}
+        if: ${{ !inputs.run_benchmark && !inputs.cache_probe_only }}
         # Leave room for the runner's separate install, convergence, functional
         # check and cleanup budgets; observed bootstrap alone took 39 minutes.
         timeout-minutes: 150
@@ -100,6 +113,7 @@ jobs:
             ${{ runner.temp }}/dev-benchmark/*/summary/*.json
             ${{ runner.temp }}/dev-benchmark/comparison.json
             ${{ runner.temp }}/dev-benchmark/preparation.json
+            ${{ runner.temp }}/dev-cache-probe/summary/*.json
             ${{ runner.temp }}/dev-acceptance-resources.json
           if-no-files-found: warn
           retention-days: 7

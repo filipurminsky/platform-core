@@ -386,6 +386,85 @@ class ImageCacheTests(unittest.TestCase):
                 inventory.assert_not_called()
                 self.assertFalse(destination.exists())
 
+    def test_error_classifier_never_exposes_registry_credentials_or_tokens(self):
+        raw = (
+            f"failed to get reader: content digest {self.identity}: not found "
+            "https://user:PRIVATE@registry/blob?token=SECRET"
+        ).encode()
+        error = CACHE.CacheCommandError(
+            "export-archive", "worker", subprocess.CalledProcessError(1, ["ctr"], stderr=raw)
+        )
+        classified = CACHE.classify_command_error(error)
+        self.assertEqual(classified["category"], "content-not-found")
+        self.assertEqual(classified["content_digests"], [self.identity])
+        self.assertNotIn("PRIVATE", json.dumps(classified))
+        self.assertNotIn("SECRET", json.dumps(classified))
+
+    def test_failure_probe_deduplicates_aliases_and_stops_at_first_failed_image(self):
+        images = {
+            "registry/a:1": self.identity,
+            "registry/a:alias": self.identity,
+            "registry/b:1": "sha256:" + "c" * 64,
+            "registry/c:1": "sha256:" + "d" * 64,
+        }
+        error = CACHE.CacheCommandError(
+            "diagnose-export",
+            "worker",
+            subprocess.CalledProcessError(1, ["ctr"], stderr=b"content not found"),
+        )
+        with patch.object(CACHE, "run_command", side_effect=[None, error]) as run:
+            result = CACHE.probe_export_failure(self.nodes["worker"], images)
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(result["first_failed_reference"], "registry/b:1")
+        self.assertFalse(result["all_unique_images_checked"])
+        for call in run.call_args_list:
+            self.assertIs(call.kwargs["stdout"], subprocess.DEVNULL)
+            self.assertLessEqual(call.kwargs["timeout"], 10)
+
+    def test_failure_probe_obeys_total_budget_and_marks_timeout_inconclusive(self):
+        with (
+            patch.object(CACHE.time, "monotonic", side_effect=[0, 61, 62]),
+            patch.object(CACHE, "run_command") as run,
+        ):
+            result = CACHE.probe_export_failure(self.nodes["worker"], self.images)
+        run.assert_not_called()
+        self.assertFalse(result["all_unique_images_checked"])
+        timeout = CACHE.CacheCommandError(
+            "diagnose-export", "worker", subprocess.TimeoutExpired(["ctr"], 10)
+        )
+        with patch.object(CACHE, "run_command", side_effect=timeout):
+            result = CACHE.probe_export_failure(self.nodes["worker"], self.images)
+        self.assertEqual(result["probes"][0]["result"], "inconclusive")
+        self.assertFalse(result["all_unique_images_checked"])
+        self.assertNotIn("first_failed_reference", result)
+
+    def test_failed_second_node_keeps_completed_bytes_and_failed_inventory(self):
+        destination = self.directory / "partial-nodes"
+
+        def export(arguments, **kwargs):
+            if kwargs["node"] == "control-plane":
+                kwargs["stdout"].write(b"complete OCI archive")
+                return
+            raise CACHE.CacheCommandError(
+                "export-archive",
+                "worker",
+                subprocess.CalledProcessError(1, ["ctr"], stderr=b"content not found"),
+            )
+
+        with (
+            patch.object(CACHE, "command", return_value=RETAINED_CONTENT),
+            patch.object(CACHE, "node_inventory", return_value=self.images),
+            patch.object(CACHE, "run_command", side_effect=export),
+            patch.object(CACHE, "probe_export_failure", return_value={"fixture": True}),
+        ):
+            with self.assertRaises(CACHE.CacheCommandError) as failure:
+                CACHE.export_cache(destination, self.revision, self.nodes)
+        detail = failure.exception.diagnostics
+        self.assertEqual(detail["failed_node_images"], self.images)
+        self.assertEqual(detail["completed_nodes"]["control-plane"]["archive_bytes"], 20)
+        self.assertFalse((destination / "manifest.json").exists())
+        self.assertFalse((destination / "worker.partial").exists())
+
 
 class ComparisonTests(unittest.TestCase):
     def setUp(self):

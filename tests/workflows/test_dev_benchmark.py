@@ -154,6 +154,28 @@ class DevBenchmark(unittest.TestCase):
             self.assertNotIn("continue-on-error", step)
         self.assertEqual(workflow.count("runs-on:"), 1)
 
+    def test_cache_probe_is_opt_in_and_conflicts_fail_before_resources(self):
+        workflow = (ROOT / ".github/workflows/dev-acceptance.yaml").read_text()
+        probe_input = workflow.split("      cache_probe_only:\n", 1)[1].split(
+            "      run_benchmark:\n", 1
+        )[0]
+        self.assertIn("type: boolean", probe_input)
+        self.assertIn("default: false", probe_input)
+        steps = workflow.split("      - name: ")
+        conflict = next(step for step in steps if step.startswith("Reject conflicting"))
+        self.assertIn("if: ${{ inputs.cache_probe_only && inputs.run_benchmark }}", conflict)
+        self.assertIn("exit 1", conflict)
+        self.assertLess(workflow.index(conflict), workflow.index("actions/checkout@"))
+        probe = next(step for step in steps if step.startswith("Probe native containerd"))
+        self.assertIn("if: ${{ inputs.cache_probe_only }}", probe)
+        self.assertIn("python3 .github/scripts/probe-dev-image-cache.py", probe)
+        self.assertIn('--evidence-dir="$RUNNER_TEMP/dev-cache-probe"', probe)
+        self.assertIn('--expected-revision="$GITHUB_SHA"', probe)
+        self.assertNotIn("continue-on-error", probe)
+        self.assertLess(workflow.index("setup-dev-acceptance.sh"), workflow.index(probe))
+        acceptance = next(step for step in steps if step.startswith("Exercise published-source"))
+        self.assertIn("if: ${{ !inputs.run_benchmark && !inputs.cache_probe_only }}", acceptance)
+
     def test_actual_workflow_artifact_patterns_exclude_private_files_and_cache(self):
         workflow = (ROOT / ".github/workflows/dev-acceptance.yaml").read_text()
         prefix = "${{ runner.temp }}/"
@@ -169,6 +191,7 @@ class DevBenchmark(unittest.TestCase):
             "dev-benchmark/warm2/summary/result.json",
             "dev-benchmark/comparison.json",
             "dev-benchmark/preparation.json",
+            "dev-cache-probe/summary/result.json",
             "dev-acceptance-resources.json",
         }
         private = {
@@ -178,6 +201,10 @@ class DevBenchmark(unittest.TestCase):
             "dev-acceptance/logs/bootstrap.log",
             "dev-benchmark-image-cache/manifest.json",
             "dev-benchmark-image-cache/worker.tar",
+            "dev-cache-probe/logs/export.log",
+            "dev-cache-probe/cache/manifest.json",
+            "dev-cache-probe/cache/worker.tar",
+            "dev-cache-probe/kubeconfig",
         }
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
