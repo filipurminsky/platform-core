@@ -25,6 +25,7 @@ need operational evidence. A source-level resolution is not a live acceptance re
 | Release supply chain | [Release workflow](../.github/workflows/docker-build.yaml) | Intended test → scan → build → sign → verify → promote sequence | Needs successful run artifacts and real registry/admission verification |
 | Canary recovery | `./scripts/canary-demo.sh bad`; [live report](qa-dev-2026-11-09.md) | Bad-canary rejection, good-canary promotion, serving checks and original-image restoration passed on fresh kind | Local prepared images; no AWS delivery proof |
 | Full local bootstrap | [Published-source acceptance](qa-followups-2026-11-10.md); [local guide](local-dev.md) | Clean checkout/fresh kind converged; Kafka/DLQ/audio, Redis replacement, tenant access, public portal, teardown and retained-QA restoration passed | Existing host tools/build caches; about 39-minute bootstrap; local mocks/stubs; no AWS claim |
+| Automated DEV lifecycle and startup comparison | `make dev-acceptance`; [matched hosted results](qa-dev-startup-2026-11-11.md) | Three full lifecycles passed, including recovery, tenant/portal checks, cache identity verification and repeated teardown; measured serial/parallel/warm startup at 10m40s/11m50s/17m20s | One run per configuration on one prepared four-CPU host; parallelism/cache reuse did not improve startup; serial remains default |
 | Tenant isolation and gateway access | [Tenant manifests](../kubernetes/tenants/); [access runner](../tests/network/README.md); [earlier live report](qa-dev-2026-11-09.md) | Eight additional access assertions passed on 2026-11-10, including authenticated gateway access and symmetric isolation | Local Cilium evidence; no AWS networking claim |
 | AWS foundation and storage | Terraform fmt/init/validate; [prod config](../terraform/environments/prod/), [Crossplane](crossplane.md) | Static configuration and provider schema validation | No live AWS apply, bucket lifecycle, IAM, restore, or teardown verification |
 | ML inference | Mock/stub service tests | Orchestration contracts with deterministic responses | No real STT/TTS accuracy or GPU cold-start/performance claim |
@@ -39,6 +40,11 @@ missing schema is not silently treated as valid. Some kinds are explicitly
 excluded in CI and remain outside its schema coverage.
 
 ## Current verification notes
+
+The [November 11 report](qa-dev-startup-2026-11-11.md) records the accepted
+three-run comparison, a passing 50-image OCI transfer probe, and the failed
+attempts that exposed export-format, content-retention and missing-blob defects.
+It separates functional cache correctness from measured startup benefit.
 
 The [November 10 follow-up report](qa-followups-2026-11-10.md) records published
 CI passes, hosted recovery artifacts, Redis backup/replacement observations,

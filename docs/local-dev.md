@@ -160,6 +160,13 @@ explicit pause/restore of a retained platform cluster. See
 and controlled startup comparison procedure. It deletes its disposable cluster;
 use ordinary bootstrap above when you want to retain an environment.
 
+The [November 11 hosted comparison](qa-dev-startup-2026-11-11.md) passed three
+complete lifecycles on one four-CPU runner: 10m40s serial cold startup, 11m50s
+with two pulls per node, and 17m20s with the verified image cache. Keep the
+serial default; parallel pulls and caching are opt-in experiments. These runs
+prepared host build/node caches and retained compressed image content. They
+are not directly comparable to the earlier local 39-minute observation.
+
 Bootstrap refuses to reuse nodes outside Kubernetes 1.36 or a cluster still
 using kindnet. Updating the checked-in node image does not upgrade an existing
 cluster. Preserve an older environment and use a separate name/config instead:

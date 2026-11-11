@@ -7,6 +7,56 @@ layers and the pinned kind image are prepared before timing starts. See the
 [reproduction guide](dev-acceptance.md) and
 [portable evidence](evidence/dev-startup-benchmark-2026-11-11.json).
 
+## Accepted comparison and default decision
+
+[Run 43034909936](https://github.com/filipurminsky/platform-core/actions/runs/43034909936)
+passed all three full lifecycles and the guarded comparison at revision
+`bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8`.
+The same Ubuntu 24.04.5 runner exposed four Docker CPUs and 16,759,308,288 bytes
+of RAM. Source/helper identities, hardware, unrelated-container inventory,
+actual kubelet limits, retained image content, and clocks matched. Preparation
+took 52.605 seconds before measurement began.
+
+| Configuration | Bootstrap | Convergence | Combined startup | Registry pull events | Peak sampled node RAM |
+|---|---:|---:|---:|---:|---:|
+| Cold, one pull/node | 177.662 s | 462.237 s | **639.899 s (10m40s)** | 69 | 10.97 GiB |
+| Cold, two pulls/node | 185.636 s | 524.190 s | **709.826 s (11m50s)** | 67 | 11.24 GiB |
+| Warm cache, two pulls/node | 400.639 s | 639.554 s | **1040.193 s (17m20s)** | 21 | 11.09 GiB |
+
+Two pulls were 10.93% slower than the serial baseline in this experiment. Warm
+startup was 46.54% slower than cold parallel startup despite fewer observed
+registry pulls. Keep **one pull per node as the default**, with parallel pulls
+and cache reuse opt-in. These results do not support a startup-speedup claim;
+they also do not establish which option wins on another machine or registry
+connection. There is one accepted run per configuration, in fixed order.
+
+The three archives totalled 7,198,366,720 bytes. Export preparation took
+212.857 seconds, excluded from startup. Warm import took 213.164 seconds inside
+bootstrap. An additional 27.271-second cache preflight ran before bootstrap:
+including that gives **1067.464 seconds (17m47s)** for warm preflight plus startup.
+The warm manifest matched the parallel run's export exactly. Caching remains
+useful as an explicitly verified transfer mechanism; this experiment did not
+demonstrate a startup benefit.
+
+Every run verified 37 synced Applications (36 Healthy and intentionally paused
+vLLM Suspended), four routed HTTP endpoints, exact Redis fixture state/TTLs on
+the same PVC/PV after pod replacement, matching Kafka/DLQ/audio jobs, all eight
+tenant checks, and a 25-file public-template dry run. Both teardown calls
+succeeded in every run, with no cleanup errors or unrelated-resource changes.
+
+The sampler collected 34/38/57 samples for serial/parallel/warm, with 20/21/35
+explicit sampling errors, primarily during early startup. No pressure condition
+was observed in the available samples; monitoring has gaps and does not prove
+there was no transient pressure. Pressure observations only began after
+325.988/342.054/590.666 seconds respectively. All clock guards passed with zero recorded
+drift at their reporting precision.
+
+The downloaded artifact contains 33 JSON files, excluding archives, raw logs,
+kubeconfigs and Secrets. ZIP SHA256 is
+`f79a236bea7f0b4e57145939a403d65eda96525e04398938c6350abca86ae638`.
+The portable summary retains outcomes, phase timings, source hashes, resource
+observations and cache identities beyond the seven-day hosted retention period.
+
 ## Preserved failed attempt
 
 [Run 42990053557](https://github.com/filipurminsky/platform-core/actions/runs/42990053557)
@@ -85,6 +135,23 @@ export completeness. See the
 The repair checks native image completeness, fetches missing content using the
 recorded immutable image digest, and verifies existing image identities before
 export. Content-fetch time is cache preparation cost, separate from startup.
+
+## Verified platform-image cache transfer
+
+The [repaired hosted probe](https://github.com/filipurminsky/platform-core/actions/runs/43033188141)
+passed at revision `bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8`. All 50
+registry pulls passed. Fourteen image identities needed compressed-content
+fetches; the complete native-content check/fetch phase took 10.195 seconds.
+Export took 101.774 seconds and produced a 4,752,619,008-byte archive with 64
+references, including the images bundled with kind. Import took 151.228 seconds.
+All original digests, CRI labels and image visibility checks passed; both nodes
+were removed and existing resources/context were preserved. Total probe time
+was 547.455 seconds. This establishes transfer correctness, not a startup gain.
+
+The artifact ZIP SHA256 is
+`610071dbe4a07fca29eeb2751c49a12a9fa0964ff1990269de69e509bb0ad436`.
+CI for the repair passed, as did 98 operational-script regressions and the
+previously validated 28 workflow/probe tests.
 
 ## Scope
 

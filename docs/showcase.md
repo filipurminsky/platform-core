@@ -3,6 +3,9 @@
 The [DEV acceptance report](qa-dev-2026-11-09.md) and
 [November 10 follow-up](qa-followups-2026-11-10.md) record actual live results,
 fixes, hosted recovery evidence, and remaining limits.
+The [November 11 startup experiment](qa-dev-startup-2026-11-11.md) adds three
+accepted full lifecycles and a measured decision to retain serial pulls:
+parallel pulls and cache reuse did not improve startup on the tested runner.
 
 Use `make dev-acceptance` for a complete disposable rehearsal before presenting.
 The [acceptance guide](dev-acceptance.md) explains its recovery, tenant, portal,

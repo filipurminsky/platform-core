@@ -526,6 +526,1067 @@
         "missing_blob_native_manifest": "sha256:ffa50e781972f7862410639eed96e0a9ad96c94ebeccd43e634141f3d9605a99",
         "missing_blob_size_bytes": 141259
       }
+    },
+    {
+      "passed": true,
+      "source_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+      "scope": "real CRI pulls and OCI transfer; no full platform deployment or startup comparison",
+      "phase": "complete",
+      "cleanup_errors": [],
+      "fixture_sha256": "56357b48c79be4f7763c2a6dc15b94ca96fbb60d809dfc32b36e782d7ecd21fb",
+      "kind_node_image": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+      "source_retention": {
+        "discard_unpacked_layers": false
+      },
+      "before_export_host_disk": {
+        "total_bytes": 154894188544,
+        "used_bytes": 81372344320,
+        "free_bytes": 73505067008
+      },
+      "destination_retention": {
+        "discard_unpacked_layers": false
+      },
+      "import_seconds": 151.228,
+      "cri_missing_references": [],
+      "exact_image_digests": true,
+      "cri_managed_labels": true,
+      "owned_cluster_absent": true,
+      "clusters_preserved": true,
+      "containers_preserved": true,
+      "context_preserved": true,
+      "elapsed_seconds": 547.455,
+      "workflow_url": "https://github.com/filipurminsky/platform-core/actions/runs/43033188141",
+      "artifact_id": 13861753171,
+      "artifact_sha256": "610071dbe4a07fca29eeb2751c49a12a9fa0964ff1990269de69e509bb0ad436",
+      "images_pulled": 50,
+      "fixture_count": 50,
+      "pull_seconds": 193.631,
+      "export": {
+        "seconds": 101.774,
+        "manifest_sha256": "20bee2bc746826f9ea6de87f57a6e3f5c438541295b2ccaf478a493a72d0aa29",
+        "nodes": {
+          "control-plane": {
+            "node_image_id": "sha256:0fa975026f71246c4e4744409d43e2e5884bb6e960851b438e50f455808c16f4",
+            "node_image_reference": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+            "platform": "linux/amd64",
+            "content_hydration": {
+              "checked_references": 64,
+              "fetches": [
+                {
+                  "reference": "docker.io/grafana/grafana@sha256:540b8afb775bf34aefce417e4329039daa5d44b6f2fbda6881397b1b247ca7df",
+                  "pinned_reference": "docker.io/grafana/grafana@sha256:540b8afb775bf34aefce417e4329039daa5d44b6f2fbda6881397b1b247ca7df",
+                  "digest": "sha256:540b8afb775bf34aefce417e4329039daa5d44b6f2fbda6881397b1b247ca7df",
+                  "elapsed_seconds": 1.448
+                },
+                {
+                  "reference": "docker.io/grafana/loki@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28",
+                  "pinned_reference": "docker.io/grafana/loki@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28",
+                  "digest": "sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28",
+                  "elapsed_seconds": 0.647
+                },
+                {
+                  "reference": "ghcr.io/external-secrets/external-secrets@sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc",
+                  "pinned_reference": "ghcr.io/external-secrets/external-secrets@sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc",
+                  "digest": "sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc",
+                  "elapsed_seconds": 0.647
+                },
+                {
+                  "reference": "ghcr.io/kedacore/keda-admission-webhooks@sha256:e1969628cca6123e32eea13c47c75817091af2657fa68d9d0d58a8620d1b75b1",
+                  "pinned_reference": "ghcr.io/kedacore/keda-admission-webhooks@sha256:e1969628cca6123e32eea13c47c75817091af2657fa68d9d0d58a8620d1b75b1",
+                  "digest": "sha256:e1969628cca6123e32eea13c47c75817091af2657fa68d9d0d58a8620d1b75b1",
+                  "elapsed_seconds": 0.448
+                },
+                {
+                  "reference": "ghcr.io/kedacore/keda-metrics-apiserver@sha256:255375037fe592732eeb554743aae360c2da88cf0b9b1258d0a987ef885f0881",
+                  "pinned_reference": "ghcr.io/kedacore/keda-metrics-apiserver@sha256:255375037fe592732eeb554743aae360c2da88cf0b9b1258d0a987ef885f0881",
+                  "digest": "sha256:255375037fe592732eeb554743aae360c2da88cf0b9b1258d0a987ef885f0881",
+                  "elapsed_seconds": 0.449
+                },
+                {
+                  "reference": "ghcr.io/kedacore/keda@sha256:81fe6547ce8d1cc29273f887b76507e9b853e5bc1f875ec23fe60061a38ed809",
+                  "pinned_reference": "ghcr.io/kedacore/keda@sha256:81fe6547ce8d1cc29273f887b76507e9b853e5bc1f875ec23fe60061a38ed809",
+                  "digest": "sha256:81fe6547ce8d1cc29273f887b76507e9b853e5bc1f875ec23fe60061a38ed809",
+                  "elapsed_seconds": 0.347
+                },
+                {
+                  "reference": "quay.io/argoproj/argo-rollouts@sha256:2a395642ea411ae7b09274a560c3934b16134dfe36f5ffaaa6054c8a21a2eecf",
+                  "pinned_reference": "quay.io/argoproj/argo-rollouts@sha256:2a395642ea411ae7b09274a560c3934b16134dfe36f5ffaaa6054c8a21a2eecf",
+                  "digest": "sha256:2a395642ea411ae7b09274a560c3934b16134dfe36f5ffaaa6054c8a21a2eecf",
+                  "elapsed_seconds": 0.848
+                },
+                {
+                  "reference": "quay.io/argoproj/kubectl-argo-rollouts@sha256:800b189be3d9efedeb0fdc6d38169ec02198f51c71a6669c54dc97226d64ce2d",
+                  "pinned_reference": "quay.io/argoproj/kubectl-argo-rollouts@sha256:800b189be3d9efedeb0fdc6d38169ec02198f51c71a6669c54dc97226d64ce2d",
+                  "digest": "sha256:800b189be3d9efedeb0fdc6d38169ec02198f51c71a6669c54dc97226d64ce2d",
+                  "elapsed_seconds": 0.948
+                },
+                {
+                  "reference": "quay.io/cilium/hubble-relay@sha256:cb23408209697ed30d2bc462e1f01eb622ea4423a891458f78bc88d7255bbfc1",
+                  "pinned_reference": "quay.io/cilium/hubble-relay@sha256:cb23408209697ed30d2bc462e1f01eb622ea4423a891458f78bc88d7255bbfc1",
+                  "digest": "sha256:cb23408209697ed30d2bc462e1f01eb622ea4423a891458f78bc88d7255bbfc1",
+                  "elapsed_seconds": 0.547
+                },
+                {
+                  "reference": "quay.io/jetstack/cert-manager-cainjector@sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f",
+                  "pinned_reference": "quay.io/jetstack/cert-manager-cainjector@sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f",
+                  "digest": "sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f",
+                  "elapsed_seconds": 0.546
+                },
+                {
+                  "reference": "quay.io/jetstack/cert-manager-controller@sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc",
+                  "pinned_reference": "quay.io/jetstack/cert-manager-controller@sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc",
+                  "digest": "sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc",
+                  "elapsed_seconds": 0.349
+                },
+                {
+                  "reference": "quay.io/jetstack/cert-manager-startupapicheck@sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1",
+                  "pinned_reference": "quay.io/jetstack/cert-manager-startupapicheck@sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1",
+                  "digest": "sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1",
+                  "elapsed_seconds": 0.449
+                },
+                {
+                  "reference": "quay.io/jetstack/cert-manager-webhook@sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458",
+                  "pinned_reference": "quay.io/jetstack/cert-manager-webhook@sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458",
+                  "digest": "sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458",
+                  "elapsed_seconds": 0.453
+                },
+                {
+                  "reference": "quay.io/prometheus/prometheus@sha256:451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934",
+                  "pinned_reference": "quay.io/prometheus/prometheus@sha256:451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934",
+                  "digest": "sha256:451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934",
+                  "elapsed_seconds": 0.549
+                }
+              ],
+              "elapsed_seconds": 10.195
+            },
+            "archive_bytes": 4752619008,
+            "archive_sha256": "d2f819145b7221535aadf345f96d7b3f7a3c13cf43434bab474ca5e66badb1eb",
+            "image_reference_count": 64
+          }
+        }
+      }
     }
-  ]
+  ],
+  "matched_comparison": {
+    "controlled_comparison": true,
+    "runs": {
+      "cold1": {
+        "source_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+        "runner_sha256": "a8dd1435a602fe3a7a8aaa864b15021379e9f5e78c8862690a252f0613839875",
+        "source_helpers_sha256": [
+          {
+            "name": "bootstrap.sh",
+            "sha256": "2747376f61d12e5bf7159e74d2f8a203abf04e473b8509ebadecb82c05217747"
+          },
+          {
+            "name": "dev-performance.py",
+            "sha256": "6e70ea9a0f48207d47298d7b0028efc4177a8fa33fe976a0f6e87b5742ad4606"
+          },
+          {
+            "name": "verify-dev-portal.py",
+            "sha256": "1b429247418f13992a6ac0d8427e20ebee62ff87ff7b5d78b862268364d10c6d"
+          },
+          {
+            "name": "test-redis-persistence.py",
+            "sha256": "5f3c2ded95b5fdfb1837933aaf627cf5b432a140bd4cd662b76ff7e70cf718a8"
+          },
+          {
+            "name": "test-tenant-access.py",
+            "sha256": "2752dd1f3998ede1b2c8f3aeb83f549c7b22ecb226e9e3a0976bb533bd184a71"
+          },
+          {
+            "name": "smoke-test.sh",
+            "sha256": "96da2e649140bdfcb38527004f6042ffaa90b4543ee57b46d0c1a4fe2fdf6ee3"
+          }
+        ],
+        "hardware": {
+          "NCPU": 4,
+          "MemTotal": 16759308288,
+          "Architecture": "x86_64",
+          "ServerVersion": "28.0.4",
+          "OperatingSystem": "Ubuntu 24.04.5 LTS"
+        },
+        "other_running_containers": [],
+        "bootstrap_seconds": 177.662,
+        "convergence_seconds": 462.237,
+        "bootstrap_and_convergence_seconds": 639.899,
+        "cache_import_seconds": 0,
+        "cache_preflight_seconds": 0,
+        "cache_manifest_sha256": null,
+        "cache_export_seconds_excluded": 0,
+        "resources_and_pulls": {
+          "peak_cluster_memory_bytes": 11783242777,
+          "peak_cluster_cpu_percent": 452.54,
+          "successful_pull_events": 114,
+          "already_present_events": 45,
+          "registry_pull_events": 69
+        },
+        "sampling_errors": 20,
+        "clock_guard": {
+          "passed": true,
+          "threshold_seconds": 5,
+          "max_absolute_drift_seconds": 0.0
+        },
+        "pressure_sample_count": 16,
+        "first_pressure_sample_seconds": 325.988,
+        "observed_pressure_conditions": [],
+        "sample_count": 34,
+        "sample_errors_by_operation": {
+          "pull-events": 2,
+          "dependency-state": 17,
+          "node-stats": 1
+        },
+        "measured_pull_concurrency": 1,
+        "image_retention_verified": true,
+        "acceptance": {
+          "passed": true,
+          "functional_checks_passed": true,
+          "cleanup_errors": [],
+          "owned_cluster_absent": true,
+          "context_preserved": true,
+          "existing_clusters_preserved": true,
+          "original_running_containers_preserved": true,
+          "steps": [
+            {
+              "name": "clone",
+              "exit_code": 0,
+              "seconds": 0.565,
+              "interrupted": false
+            },
+            {
+              "name": "preflight",
+              "exit_code": 0,
+              "seconds": 0.415,
+              "interrupted": false
+            },
+            {
+              "name": "bootstrap",
+              "exit_code": 0,
+              "seconds": 177.662,
+              "interrupted": false
+            },
+            {
+              "name": "convergence",
+              "exit_code": 0,
+              "seconds": 462.237,
+              "interrupted": false
+            },
+            {
+              "name": "redis",
+              "exit_code": 0,
+              "seconds": 13.397,
+              "interrupted": false
+            },
+            {
+              "name": "smoke",
+              "exit_code": 0,
+              "seconds": 97.326,
+              "interrupted": false
+            },
+            {
+              "name": "tenant",
+              "exit_code": 0,
+              "seconds": 57.208,
+              "interrupted": false
+            },
+            {
+              "name": "portal",
+              "exit_code": 0,
+              "seconds": 2.872,
+              "interrupted": false
+            },
+            {
+              "name": "final-health",
+              "exit_code": 0,
+              "seconds": 0.367,
+              "interrupted": false
+            },
+            {
+              "name": "final-source",
+              "exit_code": 0,
+              "seconds": 0.415,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-1",
+              "exit_code": 0,
+              "seconds": 55.835,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-2",
+              "exit_code": 0,
+              "seconds": 0.064,
+              "interrupted": false
+            }
+          ]
+        },
+        "final_health": {
+          "application_count": 37,
+          "health_counts": {
+            "Healthy": 36,
+            "Suspended": 1
+          },
+          "all_synced": true,
+          "failures": [],
+          "http_checks": [
+            {
+              "host": "echo.platform-core.local",
+              "path": "/",
+              "status": 200
+            },
+            {
+              "host": "echo.platform-core.local",
+              "path": "/healthz",
+              "status": 200
+            },
+            {
+              "host": "audio-api.platform-core.local",
+              "path": "/healthz",
+              "status": 200
+            },
+            {
+              "host": "backstage.platform-core.local",
+              "path": "/.backstage/health/v1/readiness",
+              "status": 200
+            }
+          ],
+          "gateway_programmed": true
+        },
+        "redis": {
+          "passed": true,
+          "replacement_ready_seconds": 11.892,
+          "state_verified_seconds": 12.27,
+          "values_match": true,
+          "same_pvc_and_pv": true,
+          "remaining_ttl_ms": [
+            604787631,
+            604787630
+          ],
+          "cleanup": {
+            "owned_keys_deleted": 2
+          }
+        },
+        "smoke": {
+          "passed": true,
+          "ping_job_id": "smoke-3581cbb9ca144e858a49aa8137711f8d",
+          "poison_job_id": "poison-976c339bcfa847938b37a24c1f1b7381",
+          "audio_job_id": "e036d7ac04064790aba45463599ffaa1",
+          "audio_status": "done",
+          "output_keys": {
+            "audio": "audio/e036d7ac04064790aba45463599ffaa1",
+            "transcript": "transcripts/e036d7ac04064790aba45463599ffaa1",
+            "summary": "summaries/e036d7ac04064790aba45463599ffaa1",
+            "speech": "speech/e036d7ac04064790aba45463599ffaa1"
+          }
+        },
+        "tenant": {
+          "passed": true,
+          "checks": {
+            "reverse_cross_tenant_denied": true,
+            "gateway_to_inference": true,
+            "same_tenant_allowed": true,
+            "cross_tenant_denied": true,
+            "direct_inference_denied": true,
+            "missing_key_401": true,
+            "wrong_key_401": true,
+            "authenticated_gateway_200": true
+          },
+          "cleanup_errors": []
+        },
+        "portal": {
+          "passed": true,
+          "expected_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+          "application_count": 37,
+          "applicationset_count": 22,
+          "catalog_entity_count": 28,
+          "catalog_templates": [
+            "llm-service",
+            "microservice",
+            "platform-app"
+          ],
+          "dry_run_actions": [
+            "fetch:template",
+            "fetch:template"
+          ],
+          "generated_file_count": 25,
+          "dry_run_seconds": 2.264,
+          "external_writes": false
+        }
+      },
+      "cold2": {
+        "source_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+        "runner_sha256": "a8dd1435a602fe3a7a8aaa864b15021379e9f5e78c8862690a252f0613839875",
+        "source_helpers_sha256": [
+          {
+            "name": "bootstrap.sh",
+            "sha256": "2747376f61d12e5bf7159e74d2f8a203abf04e473b8509ebadecb82c05217747"
+          },
+          {
+            "name": "dev-performance.py",
+            "sha256": "6e70ea9a0f48207d47298d7b0028efc4177a8fa33fe976a0f6e87b5742ad4606"
+          },
+          {
+            "name": "verify-dev-portal.py",
+            "sha256": "1b429247418f13992a6ac0d8427e20ebee62ff87ff7b5d78b862268364d10c6d"
+          },
+          {
+            "name": "test-redis-persistence.py",
+            "sha256": "5f3c2ded95b5fdfb1837933aaf627cf5b432a140bd4cd662b76ff7e70cf718a8"
+          },
+          {
+            "name": "test-tenant-access.py",
+            "sha256": "2752dd1f3998ede1b2c8f3aeb83f549c7b22ecb226e9e3a0976bb533bd184a71"
+          },
+          {
+            "name": "smoke-test.sh",
+            "sha256": "96da2e649140bdfcb38527004f6042ffaa90b4543ee57b46d0c1a4fe2fdf6ee3"
+          }
+        ],
+        "hardware": {
+          "NCPU": 4,
+          "MemTotal": 16759308288,
+          "Architecture": "x86_64",
+          "ServerVersion": "28.0.4",
+          "OperatingSystem": "Ubuntu 24.04.5 LTS"
+        },
+        "other_running_containers": [],
+        "bootstrap_seconds": 185.636,
+        "convergence_seconds": 524.19,
+        "bootstrap_and_convergence_seconds": 709.826,
+        "cache_import_seconds": 0,
+        "cache_preflight_seconds": 0,
+        "cache_manifest_sha256": null,
+        "cache_export_seconds_excluded": 212.857,
+        "resources_and_pulls": {
+          "peak_cluster_memory_bytes": 12066710618,
+          "peak_cluster_cpu_percent": 444.8,
+          "successful_pull_events": 111,
+          "already_present_events": 44,
+          "registry_pull_events": 67
+        },
+        "sampling_errors": 21,
+        "clock_guard": {
+          "passed": true,
+          "threshold_seconds": 5,
+          "max_absolute_drift_seconds": 0.0
+        },
+        "pressure_sample_count": 19,
+        "first_pressure_sample_seconds": 342.054,
+        "observed_pressure_conditions": [],
+        "sample_count": 38,
+        "sample_errors_by_operation": {
+          "pull-events": 2,
+          "dependency-state": 18,
+          "node-stats": 1
+        },
+        "measured_pull_concurrency": 2,
+        "image_retention_verified": true,
+        "acceptance": {
+          "passed": true,
+          "functional_checks_passed": true,
+          "cleanup_errors": [],
+          "owned_cluster_absent": true,
+          "context_preserved": true,
+          "existing_clusters_preserved": true,
+          "original_running_containers_preserved": true,
+          "steps": [
+            {
+              "name": "clone",
+              "exit_code": 0,
+              "seconds": 0.816,
+              "interrupted": false
+            },
+            {
+              "name": "preflight",
+              "exit_code": 0,
+              "seconds": 1.166,
+              "interrupted": false
+            },
+            {
+              "name": "bootstrap",
+              "exit_code": 0,
+              "seconds": 185.636,
+              "interrupted": false
+            },
+            {
+              "name": "convergence",
+              "exit_code": 0,
+              "seconds": 524.19,
+              "interrupted": false
+            },
+            {
+              "name": "redis",
+              "exit_code": 0,
+              "seconds": 14.254,
+              "interrupted": false
+            },
+            {
+              "name": "smoke",
+              "exit_code": 0,
+              "seconds": 97.559,
+              "interrupted": false
+            },
+            {
+              "name": "tenant",
+              "exit_code": 0,
+              "seconds": 55.753,
+              "interrupted": false
+            },
+            {
+              "name": "portal",
+              "exit_code": 0,
+              "seconds": 2.872,
+              "interrupted": false
+            },
+            {
+              "name": "final-health",
+              "exit_code": 0,
+              "seconds": 0.315,
+              "interrupted": false
+            },
+            {
+              "name": "final-source",
+              "exit_code": 0,
+              "seconds": 0.317,
+              "interrupted": false
+            },
+            {
+              "name": "cache-export",
+              "exit_code": 0,
+              "seconds": 212.857,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-1",
+              "exit_code": 0,
+              "seconds": 59.778,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-2",
+              "exit_code": 0,
+              "seconds": 0.064,
+              "interrupted": false
+            }
+          ]
+        },
+        "final_health": {
+          "application_count": 37,
+          "health_counts": {
+            "Healthy": 36,
+            "Suspended": 1
+          },
+          "all_synced": true,
+          "failures": [],
+          "http_checks": [
+            {
+              "host": "echo.platform-core.local",
+              "path": "/",
+              "status": 200
+            },
+            {
+              "host": "echo.platform-core.local",
+              "path": "/healthz",
+              "status": 200
+            },
+            {
+              "host": "audio-api.platform-core.local",
+              "path": "/healthz",
+              "status": 200
+            },
+            {
+              "host": "backstage.platform-core.local",
+              "path": "/.backstage/health/v1/readiness",
+              "status": 200
+            }
+          ],
+          "gateway_programmed": true
+        },
+        "redis": {
+          "passed": true,
+          "replacement_ready_seconds": 12.953,
+          "state_verified_seconds": 13.294,
+          "values_match": true,
+          "same_pvc_and_pv": true,
+          "remaining_ttl_ms": [
+            604786702,
+            604786701
+          ],
+          "cleanup": {
+            "owned_keys_deleted": 2
+          }
+        },
+        "smoke": {
+          "passed": true,
+          "ping_job_id": "smoke-21535c9474eb459a8947b5deb3863d69",
+          "poison_job_id": "poison-94761c5784514b29b3a2bdd2ff6679b5",
+          "audio_job_id": "b36b9723fc80462aac77c47c5ceca226",
+          "audio_status": "done",
+          "output_keys": {
+            "audio": "audio/b36b9723fc80462aac77c47c5ceca226",
+            "transcript": "transcripts/b36b9723fc80462aac77c47c5ceca226",
+            "summary": "summaries/b36b9723fc80462aac77c47c5ceca226",
+            "speech": "speech/b36b9723fc80462aac77c47c5ceca226"
+          }
+        },
+        "tenant": {
+          "passed": true,
+          "checks": {
+            "reverse_cross_tenant_denied": true,
+            "gateway_to_inference": true,
+            "same_tenant_allowed": true,
+            "cross_tenant_denied": true,
+            "direct_inference_denied": true,
+            "missing_key_401": true,
+            "wrong_key_401": true,
+            "authenticated_gateway_200": true
+          },
+          "cleanup_errors": []
+        },
+        "portal": {
+          "passed": true,
+          "expected_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+          "application_count": 37,
+          "applicationset_count": 22,
+          "catalog_entity_count": 28,
+          "catalog_templates": [
+            "llm-service",
+            "microservice",
+            "platform-app"
+          ],
+          "dry_run_actions": [
+            "fetch:template",
+            "fetch:template"
+          ],
+          "generated_file_count": 25,
+          "dry_run_seconds": 2.266,
+          "external_writes": false
+        }
+      },
+      "warm2": {
+        "source_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+        "runner_sha256": "a8dd1435a602fe3a7a8aaa864b15021379e9f5e78c8862690a252f0613839875",
+        "source_helpers_sha256": [
+          {
+            "name": "bootstrap.sh",
+            "sha256": "2747376f61d12e5bf7159e74d2f8a203abf04e473b8509ebadecb82c05217747"
+          },
+          {
+            "name": "dev-performance.py",
+            "sha256": "6e70ea9a0f48207d47298d7b0028efc4177a8fa33fe976a0f6e87b5742ad4606"
+          },
+          {
+            "name": "verify-dev-portal.py",
+            "sha256": "1b429247418f13992a6ac0d8427e20ebee62ff87ff7b5d78b862268364d10c6d"
+          },
+          {
+            "name": "test-redis-persistence.py",
+            "sha256": "5f3c2ded95b5fdfb1837933aaf627cf5b432a140bd4cd662b76ff7e70cf718a8"
+          },
+          {
+            "name": "test-tenant-access.py",
+            "sha256": "2752dd1f3998ede1b2c8f3aeb83f549c7b22ecb226e9e3a0976bb533bd184a71"
+          },
+          {
+            "name": "smoke-test.sh",
+            "sha256": "96da2e649140bdfcb38527004f6042ffaa90b4543ee57b46d0c1a4fe2fdf6ee3"
+          }
+        ],
+        "hardware": {
+          "NCPU": 4,
+          "MemTotal": 16759308288,
+          "Architecture": "x86_64",
+          "ServerVersion": "28.0.4",
+          "OperatingSystem": "Ubuntu 24.04.5 LTS"
+        },
+        "other_running_containers": [],
+        "bootstrap_seconds": 400.639,
+        "convergence_seconds": 639.554,
+        "bootstrap_and_convergence_seconds": 1040.193,
+        "cache_import_seconds": 213.164,
+        "cache_preflight_seconds": 27.271,
+        "cache_manifest_sha256": "9601b58e19452354dbe39a87cd5a28a90a2a2fc0b47855148cfa712dafb4b5f6",
+        "cache_export_seconds_excluded": 0,
+        "resources_and_pulls": {
+          "peak_cluster_memory_bytes": 11903501861,
+          "peak_cluster_cpu_percent": 481.45,
+          "successful_pull_events": 112,
+          "already_present_events": 91,
+          "registry_pull_events": 21
+        },
+        "sampling_errors": 35,
+        "clock_guard": {
+          "passed": true,
+          "threshold_seconds": 5,
+          "max_absolute_drift_seconds": 0.0
+        },
+        "pressure_sample_count": 24,
+        "first_pressure_sample_seconds": 590.666,
+        "observed_pressure_conditions": [],
+        "sample_count": 57,
+        "sample_errors_by_operation": {
+          "pull-events": 2,
+          "dependency-state": 32,
+          "node-stats": 1
+        },
+        "measured_pull_concurrency": 2,
+        "image_retention_verified": true,
+        "acceptance": {
+          "passed": true,
+          "functional_checks_passed": true,
+          "cleanup_errors": [],
+          "owned_cluster_absent": true,
+          "context_preserved": true,
+          "existing_clusters_preserved": true,
+          "original_running_containers_preserved": true,
+          "steps": [
+            {
+              "name": "clone",
+              "exit_code": 0,
+              "seconds": 0.766,
+              "interrupted": false
+            },
+            {
+              "name": "preflight",
+              "exit_code": 0,
+              "seconds": 0.966,
+              "interrupted": false
+            },
+            {
+              "name": "cache-preflight",
+              "exit_code": 0,
+              "seconds": 27.271,
+              "interrupted": false
+            },
+            {
+              "name": "bootstrap",
+              "exit_code": 0,
+              "seconds": 400.639,
+              "interrupted": false
+            },
+            {
+              "name": "convergence",
+              "exit_code": 0,
+              "seconds": 639.554,
+              "interrupted": false
+            },
+            {
+              "name": "redis",
+              "exit_code": 0,
+              "seconds": 14.591,
+              "interrupted": false
+            },
+            {
+              "name": "smoke",
+              "exit_code": 0,
+              "seconds": 112.56,
+              "interrupted": false
+            },
+            {
+              "name": "tenant",
+              "exit_code": 0,
+              "seconds": 54.143,
+              "interrupted": false
+            },
+            {
+              "name": "portal",
+              "exit_code": 0,
+              "seconds": 3.426,
+              "interrupted": false
+            },
+            {
+              "name": "final-health",
+              "exit_code": 0,
+              "seconds": 0.415,
+              "interrupted": false
+            },
+            {
+              "name": "final-source",
+              "exit_code": 0,
+              "seconds": 0.316,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-1",
+              "exit_code": 0,
+              "seconds": 59.219,
+              "interrupted": false
+            },
+            {
+              "name": "teardown-2",
+              "exit_code": 0,
+              "seconds": 0.064,
+              "interrupted": false
+            }
+          ]
+        },
+        "final_health": {
+          "application_count": 37,
+          "health_counts": {
+            "Healthy": 36,
+            "Suspended": 1
+          },
+          "all_synced": true,
+          "failures": [],
+          "http_checks": [
+            {
+              "host": "echo.platform-core.local",
+              "path": "/",
+              "status": 200
+            },
+            {
+              "host": "echo.platform-core.local",
+              "path": "/healthz",
+              "status": 200
+            },
+            {
+              "host": "audio-api.platform-core.local",
+              "path": "/healthz",
+              "status": 200
+            },
+            {
+              "host": "backstage.platform-core.local",
+              "path": "/.backstage/health/v1/readiness",
+              "status": 200
+            }
+          ],
+          "gateway_programmed": true
+        },
+        "redis": {
+          "passed": true,
+          "replacement_ready_seconds": 12.917,
+          "state_verified_seconds": 13.249,
+          "values_match": true,
+          "same_pvc_and_pv": true,
+          "remaining_ttl_ms": [
+            604786748,
+            604786748
+          ],
+          "cleanup": {
+            "owned_keys_deleted": 2
+          }
+        },
+        "smoke": {
+          "passed": true,
+          "ping_job_id": "smoke-7a4f34817019402e9cda68477c47d690",
+          "poison_job_id": "poison-e75203d60da14ba3ada770a3bc521fbc",
+          "audio_job_id": "3b1e371cdb1d4cb5bab5e3ea749cea63",
+          "audio_status": "done",
+          "output_keys": {
+            "audio": "audio/3b1e371cdb1d4cb5bab5e3ea749cea63",
+            "transcript": "transcripts/3b1e371cdb1d4cb5bab5e3ea749cea63",
+            "summary": "summaries/3b1e371cdb1d4cb5bab5e3ea749cea63",
+            "speech": "speech/3b1e371cdb1d4cb5bab5e3ea749cea63"
+          }
+        },
+        "tenant": {
+          "passed": true,
+          "checks": {
+            "reverse_cross_tenant_denied": true,
+            "gateway_to_inference": true,
+            "same_tenant_allowed": true,
+            "cross_tenant_denied": true,
+            "direct_inference_denied": true,
+            "missing_key_401": true,
+            "wrong_key_401": true,
+            "authenticated_gateway_200": true
+          },
+          "cleanup_errors": []
+        },
+        "portal": {
+          "passed": true,
+          "expected_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+          "application_count": 37,
+          "applicationset_count": 22,
+          "catalog_entity_count": 28,
+          "catalog_templates": [
+            "llm-service",
+            "microservice",
+            "platform-app"
+          ],
+          "dry_run_actions": [
+            "fetch:template",
+            "fetch:template"
+          ],
+          "generated_file_count": 25,
+          "dry_run_seconds": 2.462,
+          "external_writes": false
+        }
+      }
+    },
+    "cold_parallel_vs_serial": {
+      "seconds_saved": -69.927,
+      "percent_saved": -10.93
+    },
+    "warm_cache_vs_cold_parallel": {
+      "seconds_saved": -330.367,
+      "percent_saved": -46.54
+    },
+    "limitations": [
+      "One accepted run per configuration is descriptive evidence, not a statistically established speedup.",
+      "Cold means fresh kind node image stores without imported platform archives; host node-image and application-build caches remain available.",
+      "Warm bootstrap includes cache import and bootstrap cache validation. Preflight before pausing retained clusters is reported separately; add it for end-to-end preparation cost. Cache export is reported separately and excluded from startup comparisons.",
+      "Network/registry conditions and background activity inside unchanged containers can vary.",
+      "Node pressure observations are sampled; absence of observed pressure does not prove there was no transient pressure."
+    ],
+    "workflow_url": "https://github.com/filipurminsky/platform-core/actions/runs/43034909936",
+    "main_ci_url": "https://github.com/filipurminsky/platform-core/actions/runs/43033143294",
+    "artifact_id": 13866012996,
+    "artifact_sha256": "f79a236bea7f0b4e57145939a403d65eda96525e04398938c6350abca86ae638",
+    "artifact_json_file_count": 33,
+    "cache_export": {
+      "operation": "export",
+      "source_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+      "success": true,
+      "manifest_sha256": "9601b58e19452354dbe39a87cd5a28a90a2a2fc0b47855148cfa712dafb4b5f6",
+      "elapsed_seconds": 212.759,
+      "nodes": {
+        "control-plane": {
+          "node_image_id": "sha256:0fa975026f71246c4e4744409d43e2e5884bb6e960851b438e50f455808c16f4",
+          "node_image_reference": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+          "platform": "linux/amd64",
+          "content_hydration": {
+            "checked_references": 24,
+            "fetches": [],
+            "elapsed_seconds": 0.444
+          },
+          "archive_bytes": 1111975424,
+          "archive_sha256": "65166dd5aa46a9ffd13f8178ab11a8f117628480492793b775546bec80e2d4f1",
+          "image_reference_count": 24
+        },
+        "worker": {
+          "node_image_id": "sha256:0fa975026f71246c4e4744409d43e2e5884bb6e960851b438e50f455808c16f4",
+          "node_image_reference": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+          "platform": "linux/amd64",
+          "content_hydration": {
+            "checked_references": 72,
+            "fetches": [
+              {
+                "reference": "docker.io/grafana/grafana:13.3.0-distroless",
+                "pinned_reference": "docker.io/grafana/grafana@sha256:540b8afb775bf34aefce417e4329039daa5d44b6f2fbda6881397b1b247ca7df",
+                "digest": "sha256:540b8afb775bf34aefce417e4329039daa5d44b6f2fbda6881397b1b247ca7df",
+                "elapsed_seconds": 0.965
+              },
+              {
+                "reference": "ghcr.io/external-secrets/external-secrets:v2.14.0",
+                "pinned_reference": "ghcr.io/external-secrets/external-secrets@sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc",
+                "digest": "sha256:10608eb53e636e744903d5f3657a4d9c44e28d9d9c181b73e07bc7dd2e6884dc",
+                "elapsed_seconds": 1.35
+              },
+              {
+                "reference": "ghcr.io/kedacore/keda:2.21.0",
+                "pinned_reference": "ghcr.io/kedacore/keda@sha256:81fe6547ce8d1cc29273f887b76507e9b853e5bc1f875ec23fe60061a38ed809",
+                "digest": "sha256:81fe6547ce8d1cc29273f887b76507e9b853e5bc1f875ec23fe60061a38ed809",
+                "elapsed_seconds": 0.389
+              },
+              {
+                "reference": "quay.io/jetstack/cert-manager-controller:v1.21.3",
+                "pinned_reference": "quay.io/jetstack/cert-manager-controller@sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc",
+                "digest": "sha256:9f4f96a33c7774cef24466fcd85031997531a03a8d117f151126baa8d1290dcc",
+                "elapsed_seconds": 0.374
+              },
+              {
+                "reference": "quay.io/jetstack/cert-manager-startupapicheck:v1.21.3",
+                "pinned_reference": "quay.io/jetstack/cert-manager-startupapicheck@sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1",
+                "digest": "sha256:1c519d4afca1413d1e4ccd78bdc756184418ab55a34569a3b3de39d32f9974e1",
+                "elapsed_seconds": 0.354
+              },
+              {
+                "reference": "quay.io/jetstack/cert-manager-webhook:v1.21.3",
+                "pinned_reference": "quay.io/jetstack/cert-manager-webhook@sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458",
+                "digest": "sha256:055ac8e9de6a0ba6763794838fe38944acc650f68ebe1b01dd8be079e580f458",
+                "elapsed_seconds": 0.356
+              },
+              {
+                "reference": "quay.io/prometheus/prometheus:v3.15.1-distroless",
+                "pinned_reference": "quay.io/prometheus/prometheus@sha256:451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934",
+                "digest": "sha256:451a845bae1d51622b41af1780eb2ad911bbb79a9855bc8e9bb67fabbc03f934",
+                "elapsed_seconds": 0.373
+              }
+            ],
+            "elapsed_seconds": 6.246
+          },
+          "archive_bytes": 3739740160,
+          "archive_sha256": "04820f6fcf88b2c0ce2440696afb510563672ba05192fdbec02a06fbc171007a",
+          "image_reference_count": 72
+        },
+        "worker2": {
+          "node_image_id": "sha256:0fa975026f71246c4e4744409d43e2e5884bb6e960851b438e50f455808c16f4",
+          "node_image_reference": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+          "platform": "linux/amd64",
+          "content_hydration": {
+            "checked_references": 58,
+            "fetches": [
+              {
+                "reference": "docker.io/grafana/loki:3.7.9",
+                "pinned_reference": "docker.io/grafana/loki@sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28",
+                "digest": "sha256:0db216b630ae1f348a1584c67f3cead8b4c1fc839169a39501db664744158e28",
+                "elapsed_seconds": 0.865
+              },
+              {
+                "reference": "docker.io/library/python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f",
+                "pinned_reference": "docker.io/library/python@sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f",
+                "digest": "sha256:9aaa474097d094040649f2162a627c0049b408f52138d980916788d80f04802f",
+                "elapsed_seconds": 1.068
+              },
+              {
+                "reference": "quay.io/argoproj/argo-rollouts:v1.10.2",
+                "pinned_reference": "quay.io/argoproj/argo-rollouts@sha256:2a395642ea411ae7b09274a560c3934b16134dfe36f5ffaaa6054c8a21a2eecf",
+                "digest": "sha256:2a395642ea411ae7b09274a560c3934b16134dfe36f5ffaaa6054c8a21a2eecf",
+                "elapsed_seconds": 0.662
+              },
+              {
+                "reference": "quay.io/argoproj/kubectl-argo-rollouts:v1.10.2",
+                "pinned_reference": "quay.io/argoproj/kubectl-argo-rollouts@sha256:800b189be3d9efedeb0fdc6d38169ec02198f51c71a6669c54dc97226d64ce2d",
+                "digest": "sha256:800b189be3d9efedeb0fdc6d38169ec02198f51c71a6669c54dc97226d64ce2d",
+                "elapsed_seconds": 0.368
+              },
+              {
+                "reference": "quay.io/jetstack/cert-manager-cainjector:v1.21.3",
+                "pinned_reference": "quay.io/jetstack/cert-manager-cainjector@sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f",
+                "digest": "sha256:083d0e906f8eb44e255fe4ff817ae54e49f9ed82e22f1011bb4e9e4f4b8a641f",
+                "elapsed_seconds": 0.466
+              }
+            ],
+            "elapsed_seconds": 5.279
+          },
+          "archive_bytes": 2346651136,
+          "archive_sha256": "5e23bac843cf5c01c392682fc36a3c8d5ea6b1a3e85e97c2ce6a322abfc2d405",
+          "image_reference_count": 58
+        }
+      },
+      "total_archive_bytes": 7198366720
+    },
+    "preparation": {
+      "passed": true,
+      "source_revision": "bfda89f247ef9fed83fe53cc597d9ed0cdc9b0b8",
+      "included_in_startup_comparison": false,
+      "kind_node_image": "kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed",
+      "phase": "complete",
+      "app_image_ids": {
+        "platform-core/echo-service:dev": "sha256:b984247e8f1b12a5c886c9b719054d700b4c2d602532132dd860592837353e3e",
+        "platform-core/worker-service:dev": "sha256:2f29b533ce004a6858208a3eec87fc7bfa5a0305bc7396a2787edf46d10b93c7",
+        "platform-core/llm-gateway:dev": "sha256:c9f91d62bb9353f49db4be55ac4fe511e49cc7560e4ebe4e69eb82f889e1d1c9",
+        "platform-core/audio-api:dev": "sha256:0b599c3e29c0af76a517b722aea6b1a8cf6304279a22001a16d350d8d36e044d",
+        "platform-core/stt-worker:dev": "sha256:414db7e398fb7a1fe0167bcd0b2566aa3043f47021aa4dc9fd397bc24851003d",
+        "platform-core/tts-worker:dev": "sha256:90404b0cecfb3401031de020a8254e3a6cc1c8197666c99b4fec677655218f54",
+        "platform-core/llm-worker:dev": "sha256:0ecd188de3997af463e615a7383932fda8b303c884e1bee8bc93142436aeb7ab"
+      },
+      "scope": "Host app-build layers and pinned kind node image; new nodes have no imported platform OCI cache",
+      "elapsed_seconds": 52.605
+    },
+    "resource_preflight": {
+      "nominal_memory_gib": 16,
+      "minimum_docker_visible_memory_bytes": 16106127360,
+      "minimum_storage_free_bytes": 42949672960,
+      "docker_memory_bytes": 16759308288,
+      "docker_cpus": 4,
+      "docker_storage_free_bytes": 91910955008,
+      "passed": true,
+      "failures": []
+    },
+    "decision": "Keep one pull per node as the default. Parallel pulls and cache reuse remain opt-in; neither improved startup in this accepted one-run-per-configuration experiment.",
+    "warm_preflight_and_startup_seconds": 1067.464
+  }
 }

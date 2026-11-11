@@ -78,6 +78,12 @@ to identify the cause first.
 
 ## Controlled startup comparison
 
+The [accepted November 11 comparison](qa-dev-startup-2026-11-11.md) measured
+10m40s for cold serial startup, 11m50s for cold parallel startup, and 17m20s
+with cache reuse on one four-CPU runner. All functional and cleanup gates passed.
+One pull per node remains the default; use the options below to measure your
+environment. Neither option demonstrated a startup gain in that experiment.
+
 Measure the same published revision on the same Docker allocation, with the
 same unrelated workloads present. Run one full lifecycle at a time. Compare
 fresh nodes with one image pull per node against fresh nodes with two concurrent

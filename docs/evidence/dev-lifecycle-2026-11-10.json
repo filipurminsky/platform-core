@@ -224,7 +224,8 @@
     }
   },
   "local_comparison": {
-    "status": "excluded_interrupted_attempt; matched comparison will run on one dedicated hosted runner"
+    "status": "excluded_interrupted_attempt; accepted dedicated-host comparison recorded separately",
+    "accepted_followup": "dev-startup-benchmark-2026-11-11.json"
   },
   "limitations": [
     "DEV mock/stub inference; no AWS or GPU verification",

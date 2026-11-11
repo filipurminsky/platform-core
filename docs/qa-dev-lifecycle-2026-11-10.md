@@ -63,8 +63,10 @@ subsequent measurements use new directories.
 
 This exposed an observation gap in the first harness version. The follow-up
 adds UTC-versus-monotonic discontinuity detection and early sampler-failure
-propagation through the same teardown/restoration path. A fresh comparison is
-required after that repair; the successful hosted run above remains valid.
+propagation through the same teardown/restoration path. The
+[November 11 matched comparison](qa-dev-startup-2026-11-11.md) subsequently passed
+all three lifecycles and retained the serial default; the successful hosted run
+above remains separate historical evidence.
 
 ## Scope
 

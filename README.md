@@ -82,8 +82,11 @@ For the Kubernetes path, use Docker, kind **≥ 0.33.0**, kubectl compatible wit
 Kubernetes **1.36**, and Helm **4.3.1**. The kind configuration pins node image
 **1.36.4**. Allocate at least 16 GiB of Docker memory for one full stack; the
 observed QA nodes used about 11 GiB. Concurrent clusters and builds need more.
-The verified cold-cluster bootstrap took about 39 minutes with existing host
-tools/build caches; allow setup time separately from the demo.
+Observed setup varies: an earlier local cold-cluster bootstrap took about
+39 minutes; the [matched hosted experiment](docs/qa-dev-startup-2026-11-11.md)
+took 10m40s with serial pulls and prepared host caches. Parallel pulls and image
+cache reuse were slower in that experiment and remain opt-in. Allow setup time
+separately from the demo; these are observations, not guarantees.
 See [local development](docs/local-dev.md) for setup and prerequisites.
 
 ```bash
