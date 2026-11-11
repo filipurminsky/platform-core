@@ -3,15 +3,56 @@
 
 import argparse
 import json
+import math
+from datetime import datetime
 from pathlib import Path
 
 HARDWARE = ("NCPU", "MemTotal", "Architecture", "ServerVersion", "OperatingSystem")
+
+
+def require_valid_clock(performance):
+    """Reject legacy, incomplete, failed or internally inconsistent timing evidence."""
+    try:
+        guard = performance["clock_guard"]
+        maximum = guard["max_absolute_drift_seconds"]
+        if (
+            guard["passed"] is not True
+            or performance["suitable_for_comparison"] is not True
+            or guard["threshold_seconds"] != 5
+            or isinstance(maximum, bool)
+            or not math.isfinite(maximum)
+            or not 0 <= maximum <= 5
+            or not performance["samples"]
+        ):
+            raise ValueError("failed clock guard")
+        for sample in performance["samples"]:
+            wall = sample["wall_elapsed_seconds"]
+            monotonic = sample["monotonic_elapsed_seconds"]
+            drift = sample["clock_drift_seconds"]
+            timestamp = datetime.fromisoformat(sample["sampled_utc"])
+            if (
+                timestamp.utcoffset() is None
+                or any(
+                    isinstance(value, bool) or not math.isfinite(value)
+                    for value in (wall, monotonic, drift)
+                )
+                or monotonic < 0
+                or abs(drift) > 5
+                or abs(drift) > maximum + 0.003
+                or abs(wall - monotonic - drift) > 0.003
+            ):
+                raise ValueError("invalid sample clock evidence")
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(
+            "clock-discontinuity guard missing, failed or invalid; timing is unsuitable for comparison"
+        ) from error
 
 
 def load_run(directory, concurrency, cache_mode):
     summary = directory / "summary"
     result = json.loads((summary / "result.json").read_text())
     performance = json.loads((summary / "performance.json").read_text())
+    require_valid_clock(performance)
     if (
         not result.get("passed")
         or not result.get("functional_checks_passed")
@@ -74,6 +115,7 @@ def load_run(directory, concurrency, cache_mode):
         "cache_export_seconds_excluded": steps.get("cache-export", {}).get("seconds", 0),
         "resources_and_pulls": performance["summary"],
         "sampling_errors": len(performance["sample_errors"]),
+        "clock_guard": performance["clock_guard"],
         "node_pressure_observations": [
             {"elapsed_seconds": sample["elapsed_seconds"], "nodes": sample["node_conditions"]}
             for sample in performance["samples"]

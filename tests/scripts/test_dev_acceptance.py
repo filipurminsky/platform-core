@@ -1,6 +1,7 @@
 """Owned acceptance lifecycle boundaries; no real Docker or Kubernetes mutations."""
 
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -63,6 +64,36 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.commands, [])
         self.assertFalse(self.runner.private.exists())
         self.assertFalse(self.runner.report["passed"])
+
+    def test_failed_sampler_during_bootstrap_still_tears_down_and_restores(self):
+        self.args.pause_cluster = "retained"
+        self.args.restore_gateway_url = "http://127.0.0.1:1234"
+        self.runner.paused = {"retained-id": True}
+        self.runner.containers = lambda _: {"retained-id": True}
+        self.runner.wait_nodes = lambda: None
+        self.runner.health = lambda *a: self.commands.append(("restored-health", []))
+        self.runner.monitor = Mock(returncode=1)
+        self.runner.monitor.poll.return_value = 1
+        process = Mock(stdout=io.StringIO(""), returncode=-15)
+
+        def execute():
+            self.runner.owned = True
+            self.runner.pause_attempted = True
+            ACCEPT.Acceptance.run(self.runner, "bootstrap", ["owned-bootstrap"])
+
+        self.runner.execute = execute
+        with (
+            patch.object(ACCEPT.subprocess, "Popen", return_value=process),
+            patch.object(ACCEPT, "stop_group") as stop,
+        ):
+            self.assertEqual(self.runner.perform(), 1)
+        stop.assert_called_once_with(process)
+        self.assertTrue(self.runner.report["retained_cluster_restored"])
+        self.assertEqual(
+            [name for name, _ in self.commands],
+            ["teardown-1", "teardown-2", "restore-retained", "restored-health"],
+        )
+        self.assertIn("sampler exited unexpectedly", self.runner.report["failure"]["message"])
 
     def test_success_requires_two_teardowns_and_absence(self):
         def execute():
@@ -169,6 +200,87 @@ class LifecycleTests(unittest.TestCase):
         self.assertNotIn(
             str(self.runner.private), (self.runner.summary / "result.json").read_text()
         )
+
+
+class SamplerExitTests(unittest.TestCase):
+    def test_early_exit_interrupts_only_current_phase_within_progress_cadence(self):
+        for phase in ("bootstrap", "convergence"):
+            for status in (0, 1):
+                with (
+                    self.subTest(phase=phase, status=status),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    root = Path(directory)
+                    runner = ACCEPT.Acceptance(SimpleNamespace(evidence_dir=root / "evidence"))
+                    runner.monitor = Mock(returncode=status)
+                    runner.monitor.poll.side_effect = [None, status]
+                    process = Mock(stdout=io.StringIO(""), returncode=-15)
+                    process.wait.side_effect = ACCEPT.subprocess.TimeoutExpired(["owned"], 60)
+                    try:
+                        with (
+                            patch.object(ACCEPT.subprocess, "Popen", return_value=process),
+                            patch.object(ACCEPT, "stop_group") as stop,
+                        ):
+                            with self.assertRaisesRegex(
+                                RuntimeError, f"during {phase} \\(exit {status}\\)"
+                            ):
+                                runner.run(phase, ["owned"], cwd=root, timeout=600)
+                        stop.assert_called_once_with(process)
+                        process.wait.assert_called_once_with(timeout=60)
+                        self.assertTrue(runner.report["steps"][0]["interrupted"])
+                    finally:
+                        shutil.rmtree(runner.private)
+
+    def test_sampler_exit_at_phase_completion_cannot_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner = ACCEPT.Acceptance(SimpleNamespace(evidence_dir=root / "evidence"))
+            runner.monitor = Mock(returncode=1)
+            runner.monitor.poll.side_effect = [None, 1]
+            process = Mock(stdout=io.StringIO(""), returncode=0)
+            try:
+                with (
+                    patch.object(ACCEPT.subprocess, "Popen", return_value=process),
+                    patch.object(ACCEPT, "stop_group") as stop,
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "sampler exited unexpectedly"):
+                        runner.run("convergence", ["owned"], cwd=root)
+                stop.assert_called_once_with(process)
+                self.assertTrue(runner.report["steps"][0]["interrupted"])
+            finally:
+                shutil.rmtree(runner.private)
+
+    def test_explicitly_stopped_sampler_and_other_phases_are_unaffected(self):
+        for phase, stopped in (
+            ("bootstrap", True),
+            ("convergence", True),
+            ("cache-preflight", False),
+            ("cache-export", False),
+            ("teardown-1", False),
+        ):
+            with (
+                self.subTest(phase=phase, stopped=stopped),
+                tempfile.TemporaryDirectory() as directory,
+            ):
+                root = Path(directory)
+                runner = ACCEPT.Acceptance(SimpleNamespace(evidence_dir=root / "evidence"))
+                runner.monitor = Mock(returncode=0)
+                if stopped:
+                    runner.stop_monitor()
+                    runner.stop_monitor()
+                    runner.monitor.wait.assert_called_once_with(timeout=45)
+                runner.monitor.poll.return_value = 1
+                process = Mock(stdout=io.StringIO(""), returncode=0)
+                try:
+                    with (
+                        patch.object(ACCEPT.subprocess, "Popen", return_value=process),
+                        patch.object(ACCEPT, "stop_group") as stop,
+                    ):
+                        self.assertEqual(runner.run(phase, ["owned"], cwd=root), 0)
+                    stop.assert_not_called()
+                    runner.monitor.poll.assert_not_called()
+                finally:
+                    shutil.rmtree(runner.private)
 
 
 class ProcessTests(unittest.TestCase):

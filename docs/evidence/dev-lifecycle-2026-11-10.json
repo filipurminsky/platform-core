@@ -1,0 +1,317 @@
+{
+  "source_revision": "80b2c051c5a5f944ecb603e133f2dc4ff9a0d67d",
+  "hosted_acceptance": {
+    "url": "https://github.com/filipurminsky/platform-core/actions/runs/42859286693",
+    "main_ci_url": "https://github.com/filipurminsky/platform-core/actions/runs/42859193770",
+    "artifact_id": 13786585174,
+    "artifact_sha256": "70dad9897a6d84da01ed77085ff9ffe642700463d702da9541416b9f04fb635a",
+    "passed": true,
+    "steps": [
+      {
+        "name": "clone",
+        "exit_code": 0,
+        "seconds": 2.82,
+        "interrupted": false
+      },
+      {
+        "name": "preflight",
+        "exit_code": 0,
+        "seconds": 1.417,
+        "interrupted": false
+      },
+      {
+        "name": "bootstrap",
+        "exit_code": 0,
+        "seconds": 207.399,
+        "interrupted": false
+      },
+      {
+        "name": "convergence",
+        "exit_code": 0,
+        "seconds": 577.671,
+        "interrupted": false
+      },
+      {
+        "name": "redis",
+        "exit_code": 0,
+        "seconds": 13.94,
+        "interrupted": false
+      },
+      {
+        "name": "smoke",
+        "exit_code": 0,
+        "seconds": 95.242,
+        "interrupted": false
+      },
+      {
+        "name": "tenant",
+        "exit_code": 0,
+        "seconds": 49.417,
+        "interrupted": false
+      },
+      {
+        "name": "portal",
+        "exit_code": 0,
+        "seconds": 4.074,
+        "interrupted": false
+      },
+      {
+        "name": "final-health",
+        "exit_code": 0,
+        "seconds": 0.265,
+        "interrupted": false
+      },
+      {
+        "name": "final-source",
+        "exit_code": 0,
+        "seconds": 1.818,
+        "interrupted": false
+      },
+      {
+        "name": "teardown-1",
+        "exit_code": 0,
+        "seconds": 50.793,
+        "interrupted": false
+      },
+      {
+        "name": "teardown-2",
+        "exit_code": 0,
+        "seconds": 0.032,
+        "interrupted": false
+      }
+    ],
+    "cleanup_errors": [],
+    "bootstrap_and_convergence_seconds": 785.07,
+    "owned_cluster_absent": true,
+    "context_preserved": true,
+    "existing_clusters_preserved": true,
+    "original_running_containers_preserved": true,
+    "runner_sha256": "6e4f5847aa32630d11b901a5b7cf21d0ef8279d35a5ae62fca668f5f69cf0b49",
+    "source_helpers_sha256": [
+      {
+        "name": "bootstrap.sh",
+        "sha256": "2747376f61d12e5bf7159e74d2f8a203abf04e473b8509ebadecb82c05217747"
+      },
+      {
+        "name": "dev-performance.py",
+        "sha256": "801471d7673109f1ff7ea8f8727c738a469491c7a5b3a4f9d1459b69b75ab2d3"
+      },
+      {
+        "name": "verify-dev-portal.py",
+        "sha256": "1b429247418f13992a6ac0d8427e20ebee62ff87ff7b5d78b862268364d10c6d"
+      },
+      {
+        "name": "test-redis-persistence.py",
+        "sha256": "5f3c2ded95b5fdfb1837933aaf627cf5b432a140bd4cd662b76ff7e70cf718a8"
+      },
+      {
+        "name": "test-tenant-access.py",
+        "sha256": "2752dd1f3998ede1b2c8f3aeb83f549c7b22ecb226e9e3a0976bb533bd184a71"
+      },
+      {
+        "name": "smoke-test.sh",
+        "sha256": "96da2e649140bdfcb38527004f6042ffaa90b4543ee57b46d0c1a4fe2fdf6ee3"
+      }
+    ],
+    "resources": {
+      "nominal_memory_gib": 16,
+      "minimum_docker_visible_memory_bytes": 16106127360,
+      "minimum_storage_free_bytes": 42949672960,
+      "docker_memory_bytes": 16760348672,
+      "docker_cpus": 4,
+      "docker_storage_free_bytes": 91910963200,
+      "passed": true,
+      "failures": []
+    },
+    "image_pull_concurrency_per_node": 2,
+    "cache_mode": "cold",
+    "kubelet_pull_config_matches": true,
+    "resource_peaks_and_pulls": {
+      "peak_cluster_memory_bytes": 11684458530,
+      "peak_cluster_cpu_percent": 445.11,
+      "successful_pull_events": 116,
+      "already_present_events": 48,
+      "registry_pull_events": 68
+    },
+    "sample_count": 44,
+    "sample_errors_by_operation": {
+      "pull-events": 3,
+      "dependency-state": 18,
+      "node-stats": 2
+    },
+    "application_count": 37,
+    "gateway_programmed": true,
+    "http_checks": [
+      {
+        "host": "echo.platform-core.local",
+        "path": "/",
+        "status": 200
+      },
+      {
+        "host": "echo.platform-core.local",
+        "path": "/healthz",
+        "status": 200
+      },
+      {
+        "host": "audio-api.platform-core.local",
+        "path": "/healthz",
+        "status": 200
+      },
+      {
+        "host": "backstage.platform-core.local",
+        "path": "/.backstage/health/v1/readiness",
+        "status": 200
+      }
+    ],
+    "smoke": {
+      "passed": true,
+      "ping_job_id": "smoke-69fe95657ab049e69989c3d097067ef6",
+      "poison_job_id": "poison-78022641a9d045edad83becaa13820bd",
+      "audio_job_id": "e7c1d6a0287c4b5cb528adb037060453",
+      "audio_status": "done",
+      "output_keys": {
+        "audio": "audio/e7c1d6a0287c4b5cb528adb037060453",
+        "transcript": "transcripts/e7c1d6a0287c4b5cb528adb037060453",
+        "summary": "summaries/e7c1d6a0287c4b5cb528adb037060453",
+        "speech": "speech/e7c1d6a0287c4b5cb528adb037060453"
+      }
+    },
+    "redis": {
+      "passed": true,
+      "replacement_ready_seconds": 12.783,
+      "state_verified_seconds": 13.064,
+      "values_match": true,
+      "same_pvc_and_pv": true,
+      "cleanup": {
+        "owned_keys_deleted": 2
+      },
+      "limits": [
+        "single-instance service interruption",
+        "fsync-confirmed synthetic writes",
+        "graceful pod deletion, not node/power loss",
+        "readiness timing is not continuous client outage measurement",
+        "PVC/PV preserved; no HA or lost-volume restore claim"
+      ]
+    },
+    "tenant_checks": {
+      "reverse_cross_tenant_denied": true,
+      "gateway_to_inference": true,
+      "same_tenant_allowed": true,
+      "cross_tenant_denied": true,
+      "direct_inference_denied": true,
+      "missing_key_401": true,
+      "wrong_key_401": true,
+      "authenticated_gateway_200": true
+    },
+    "tenant_cleanup_errors": [],
+    "portal": {
+      "passed": true,
+      "application_count": 37,
+      "applicationset_count": 22,
+      "catalog_entity_count": 28,
+      "catalog_templates": [
+        "llm-service",
+        "microservice",
+        "platform-app"
+      ],
+      "dry_run_actions": [
+        "fetch:template",
+        "fetch:template"
+      ],
+      "generated_file_count": 25,
+      "dry_run_seconds": 3.688,
+      "external_writes": false
+    }
+  },
+  "local_comparison": {
+    "status": "excluded_interrupted_attempt; matched comparison will run on one dedicated hosted runner"
+  },
+  "limitations": [
+    "DEV mock/stub inference; no AWS or GPU verification",
+    "Fetch-only portal dry run; no external repository or PR publication",
+    "Same-volume graceful Redis pod replacement; no HA or node-loss proof",
+    "Startup samples include explicit gaps; node-pressure observations begin after Argo/KEDA queries succeed",
+    "Hosted timing is a single run on different hardware from the local baseline"
+  ],
+  "interrupted_local_attempt": {
+    "source_revision": "80b2c051c5a5f944ecb603e133f2dc4ff9a0d67d",
+    "started_at": "2026-11-10T16:53:49.046212+00:00",
+    "finished_at": "2026-11-11T00:18:33.486443+00:00",
+    "passed": false,
+    "failure": {
+      "error_type": "RuntimeError",
+      "message": "convergence failed; inspect its local log"
+    },
+    "cleanup_errors": [],
+    "owned_cluster_absent": true,
+    "retained_cluster_restored": true,
+    "context_preserved": true,
+    "original_running_containers_preserved": true,
+    "steps": [
+      {
+        "name": "clone",
+        "exit_code": 0,
+        "seconds": 3.019,
+        "interrupted": false
+      },
+      {
+        "name": "preflight",
+        "exit_code": 0,
+        "seconds": 2.383,
+        "interrupted": false
+      },
+      {
+        "name": "retained-before",
+        "exit_code": 0,
+        "seconds": 0.333,
+        "interrupted": false
+      },
+      {
+        "name": "pause-retained",
+        "exit_code": 0,
+        "seconds": 60.611,
+        "interrupted": false
+      },
+      {
+        "name": "bootstrap",
+        "exit_code": 0,
+        "seconds": 563.515,
+        "interrupted": false
+      },
+      {
+        "name": "convergence",
+        "exit_code": 1,
+        "seconds": 2406.015,
+        "interrupted": false
+      },
+      {
+        "name": "teardown-1",
+        "exit_code": 0,
+        "seconds": 18.155,
+        "interrupted": false
+      },
+      {
+        "name": "teardown-2",
+        "exit_code": 0,
+        "seconds": 0.079,
+        "interrupted": false
+      },
+      {
+        "name": "restore-retained",
+        "exit_code": 0,
+        "seconds": 0.416,
+        "interrupted": false
+      },
+      {
+        "name": "retained-restored",
+        "exit_code": 0,
+        "seconds": 46.67,
+        "interrupted": false
+      }
+    ],
+    "eligible_for_performance_comparison": false,
+    "wall_seconds": 26684.44,
+    "phase_monotonic_seconds": 3101.196,
+    "exclusion_reason": "Substantial host-time discontinuities and failed convergence; preserve as failed evidence, not a timing baseline"
+  }
+}

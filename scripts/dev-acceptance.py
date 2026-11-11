@@ -206,11 +206,13 @@ class Acceptance:
         error = None
         try:
             while True:
+                self.check_monitor(name)
                 remaining = timeout - (time.monotonic() - started)
                 if remaining <= 0:
                     raise subprocess.TimeoutExpired(command, timeout)
                 try:
                     process.wait(timeout=min(60, remaining))
+                    self.check_monitor(name)
                     break
                 except subprocess.TimeoutExpired:
                     print(f"RUNNING {name}: {int(time.monotonic() - started)}s", flush=True)
@@ -239,6 +241,17 @@ class Acceptance:
         if required and process.returncode:
             raise RuntimeError(f"{name} failed; inspect its local log")
         return process.returncode
+
+    def check_monitor(self, phase):
+        if phase not in {"bootstrap", "convergence"} or self.monitor_stopped:
+            return
+        if self.monitor is not None:
+            status = self.monitor.poll()
+            if status is not None:
+                raise RuntimeError(
+                    f"Performance sampler exited unexpectedly during {phase} (exit {status}); "
+                    "inspect summary/performance.json"
+                )
 
     def clusters(self):
         return set(self.capture(["kind", "get", "clusters"]).split())

@@ -126,6 +126,13 @@ and any remaining registry pulls. A warm-run gain is not evidence that parallel
 pulls improved an uncached run. Cache archives remain local and are excluded
 from the CI evidence artifact.
 
+Keep the host awake throughout a measurement. The sampler compares UTC elapsed
+time with its monotonic clock and rejects a discrepancy greater than five
+seconds, which can indicate host suspension or a clock correction. The runner
+then stops its current phase and cleans up/restores owned resources. It does
+not override explicit system sleep. Repeat an interrupted run in a new evidence
+directory; never use its timing in the startup comparison.
+
 The comparison rejects failed acceptance/cleanup, mismatched measured kubelet
 settings, different source revisions or Docker allocations, changed unrelated
 container identities, and a warm run that did not use the parallel run's cache.
@@ -137,6 +144,23 @@ Dispatch [Full DEV acceptance](../.github/workflows/dev-acceptance.yaml) on `mai
 It has no automatic push, PR, or scheduled trigger. Select image-pull concurrency
 1 or 2. The workflow performs an uncached full lifecycle and uploads only
 sanitized JSON summaries, including failure evidence, for seven days.
+
+Select `run_benchmark` to run the serial, parallel, and cached lifecycles
+sequentially on the same runner, followed by the guarded comparison. Every run
+must pass functional checks and cleanup before the next one starts. Image
+archives stay outside the uploaded evidence. This option isolates the comparison
+from laptop sleep and changing local workloads:
+
+```bash
+gh workflow run dev-acceptance.yaml --ref main -f run_benchmark=true
+```
+
+Before timing the first run, the workflow builds all seven service images and
+pulls the pinned kind node image. Thus every measured run starts with those host
+caches available. Preparation time and image identities are recorded separately
+in `preparation.json`; each cold run still creates fresh node image stores with
+no imported platform archive. Archive export is excluded from startup timing,
+while warm import and its bootstrap validation are included.
 
 The selected Linux x64 runner must expose at least four Docker CPUs, 15 GiB of
 usable Docker memory (a nominal 16 GiB machine), and 40 GiB of free space on

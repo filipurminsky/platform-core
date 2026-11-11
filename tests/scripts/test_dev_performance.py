@@ -5,6 +5,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -20,6 +21,83 @@ def module(name):
 CACHE = module("dev-image-cache")
 PERF = module("dev-performance")
 COMPARE = module("compare-dev-performance")
+
+
+class ClockGuardTests(unittest.TestCase):
+    def test_equal_advances_pass_and_forward_or_backward_jumps_latch_failure(self):
+        for jump in (6, -6, 3600):
+            with (
+                self.subTest(jump=jump),
+                patch.object(PERF.time, "monotonic", return_value=100) as monotonic,
+                patch.object(PERF.time, "time", return_value=1000) as wall,
+            ):
+                guard = PERF.ClockGuard()
+                monotonic.return_value, wall.return_value = 110, 1010
+                self.assertEqual(guard.observe()["clock_drift_seconds"], 0)
+                self.assertTrue(guard.passed)
+                wall.return_value = 1015
+                guard.observe()
+                self.assertTrue(guard.passed, "exactly five seconds remains within the bound")
+                wall.return_value = 1010 + jump
+                guard.observe()
+                self.assertFalse(guard.passed)
+                wall.return_value = 1010
+                guard.observe()
+                self.assertFalse(
+                    guard.passed, "a subsequent correction cannot erase a detected jump"
+                )
+                self.assertEqual(guard.evidence()["max_absolute_drift_seconds"], abs(jump))
+
+    def test_sampler_stops_between_commands_and_preserves_resource_evidence(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(PERF.signal, "signal"),
+            patch.object(PERF.time, "monotonic", return_value=100),
+            patch.object(PERF.time, "time", return_value=1000) as wall,
+        ):
+            output = Path(directory) / "performance.json"
+            args = SimpleNamespace(
+                cluster="fixture",
+                context="kind-fixture",
+                source_revision="a" * 40,
+                image_pull_concurrency=1,
+                cache_mode="cold",
+                output=output,
+                stop_file=Path(directory) / "stop",
+                max_duration=7200,
+                interval=15,
+            )
+
+            def command(arguments, **_):
+                if arguments[:2] == ["docker", "info"]:
+                    return "{}"
+                if arguments[:2] == ["docker", "ps"]:
+                    return ""
+                if arguments[:3] == ["kind", "get", "nodes"]:
+                    return "fixture-worker\n"
+                if arguments[:2] == ["docker", "stats"]:
+                    wall.return_value = 2000
+                    return json.dumps(
+                        {
+                            "Name": "fixture-worker",
+                            "CPUPerc": "10%",
+                            "MemUsage": "1GiB / 32GiB",
+                            "NetIO": "1MB / 2MB",
+                            "BlockIO": "0B / 3MB",
+                        }
+                    )
+                self.fail(f"sampler continued querying after clock discontinuity: {arguments}")
+
+            with patch.object(PERF, "command", side_effect=command):
+                self.assertEqual(PERF.monitor(args), 1)
+            evidence = json.loads(output.read_text())
+            self.assertFalse(evidence["suitable_for_comparison"])
+            self.assertEqual(evidence["failure_reason"], "clock-discontinuity")
+            self.assertEqual(evidence["clock_guard"]["max_absolute_drift_seconds"], 1000)
+            self.assertEqual(evidence["summary"]["peak_cluster_memory_bytes"], 2**30)
+            self.assertEqual(evidence["samples"][0]["wall_elapsed_seconds"], 1000)
+            self.assertEqual(evidence["samples"][0]["monotonic_elapsed_seconds"], 0)
+            self.assertTrue(evidence["completed"])
 
 
 class PullConfigurationTests(unittest.TestCase):
@@ -243,6 +321,12 @@ class ComparisonTests(unittest.TestCase):
                 json.dumps(
                     {
                         "completed": True,
+                        "clock_guard": {
+                            "passed": True,
+                            "threshold_seconds": 5,
+                            "max_absolute_drift_seconds": 0,
+                        },
+                        "suitable_for_comparison": True,
                         "kubelet_pull_config_matches": True,
                         "source_revision": "a" * 40,
                         "image_pull_concurrency_per_node": concurrency,
@@ -256,6 +340,10 @@ class ComparisonTests(unittest.TestCase):
                         "samples": [
                             {
                                 "elapsed_seconds": 10,
+                                "sampled_utc": "2026-11-11T00:00:10+00:00",
+                                "wall_elapsed_seconds": 10,
+                                "monotonic_elapsed_seconds": 10,
+                                "clock_drift_seconds": 0,
                                 "node_conditions": {
                                     "worker": [{"type": "MemoryPressure", "status": "False"}]
                                 },
@@ -282,6 +370,41 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(report["runs"]["warm2"]["bootstrap_and_convergence_seconds"], 70)
         self.assertEqual(report["runs"]["warm2"]["cache_import_seconds"], 5)
         self.assertEqual(report["runs"]["cold2"]["cache_export_seconds_excluded"], 999)
+
+    def test_comparison_rejects_missing_failed_and_invalid_clock_evidence(self):
+        path = self.paths[1] / "summary/performance.json"
+        original = path.read_text()
+        for mutation in (
+            "missing",
+            "failed",
+            "nonfinite",
+            "negative",
+            "sample_missing",
+            "sample_inconsistent",
+            "sample_jump",
+            "naive_utc",
+        ):
+            with self.subTest(mutation=mutation):
+                data = json.loads(original)
+                if mutation == "missing":
+                    del data["clock_guard"]
+                elif mutation == "failed":
+                    data["clock_guard"]["passed"] = False
+                elif mutation == "nonfinite":
+                    data["clock_guard"]["max_absolute_drift_seconds"] = float("nan")
+                elif mutation == "negative":
+                    data["clock_guard"]["max_absolute_drift_seconds"] = -1
+                elif mutation == "sample_missing":
+                    del data["samples"][0]["monotonic_elapsed_seconds"]
+                elif mutation == "sample_inconsistent":
+                    data["samples"][0]["wall_elapsed_seconds"] = 11
+                elif mutation == "sample_jump":
+                    data["samples"][0]["clock_drift_seconds"] = 3600
+                else:
+                    data["samples"][0]["sampled_utc"] = "2026-11-11T00:00:10"
+                path.write_text(json.dumps(data))
+                with self.assertRaisesRegex(ValueError, "clock-discontinuity"):
+                    COMPARE.compare(*self.paths)
 
     def test_changed_hardware_revision_or_failed_acceptance_is_not_a_controlled_comparison(self):
         for filename, field, value in (

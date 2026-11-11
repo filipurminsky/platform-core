@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import math
 import re
 import shutil
 import signal
@@ -175,6 +176,46 @@ def pressure_conditions(items):
     }
 
 
+class ClockGuard:
+    """Latch suspend/clock-adjustment drift without attributing its cause."""
+
+    threshold_seconds = 5
+
+    def __init__(self):
+        self.started_monotonic = time.monotonic()
+        self.started_wall = time.time()
+        self.max_absolute_drift = 0.0
+        self.passed = True
+
+    def observe(self):
+        monotonic_elapsed = time.monotonic() - self.started_monotonic
+        wall_now = time.time()
+        wall_elapsed = wall_now - self.started_wall
+        drift = wall_elapsed - monotonic_elapsed
+        self.max_absolute_drift = max(self.max_absolute_drift, abs(drift))
+        self.passed = self.passed and math.isfinite(drift) and abs(drift) <= self.threshold_seconds
+        return {
+            "sampled_utc": datetime.fromtimestamp(wall_now, UTC).isoformat(),
+            "elapsed_seconds": round(monotonic_elapsed, 3),
+            "monotonic_elapsed_seconds": round(monotonic_elapsed, 3),
+            "wall_elapsed_seconds": round(wall_elapsed, 3),
+            "clock_drift_seconds": round(drift, 3),
+        }
+
+    def evidence(self):
+        return {
+            "passed": self.passed,
+            "threshold_seconds": self.threshold_seconds,
+            "max_absolute_drift_seconds": round(self.max_absolute_drift, 3),
+        }
+
+
+def write_report(path, report):
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(report, indent=2) + "\n")
+    temporary.replace(path)
+
+
 def monitor(args):
     stop = False
 
@@ -184,11 +225,18 @@ def monitor(args):
 
     signal.signal(signal.SIGTERM, request_stop)
     signal.signal(signal.SIGINT, request_stop)
-    started = time.monotonic()
+    clock = ClockGuard()
+    started = clock.started_monotonic
     samples, events, errors, kubelets = [], {}, [], {}
 
     def stopping():
-        return stop or args.stop_file.exists() or time.monotonic() - started >= args.max_duration
+        clock.observe()
+        return (
+            not clock.passed
+            or stop
+            or args.stop_file.exists()
+            or time.monotonic() - started >= args.max_duration
+        )
 
     info = json.loads(command(["docker", "info", "--format", "{{json .}}"]))
     report = {
@@ -198,7 +246,7 @@ def monitor(args):
         "source_revision": args.source_revision,
         "image_pull_concurrency_per_node": args.image_pull_concurrency,
         "cache_mode": args.cache_mode,
-        "started_utc": datetime.now(UTC).isoformat(),
+        "started_utc": datetime.fromtimestamp(clock.started_wall, UTC).isoformat(),
         "docker": {
             key: info.get(key)
             for key in ("NCPU", "MemTotal", "Architecture", "ServerVersion", "OperatingSystem")
@@ -211,10 +259,23 @@ def monitor(args):
             "Fresh kind nodes still reuse the host kind image and application BuildKit cache; cold means no imported platform OCI cache.",
             "Other running containers are recorded to expose contention; they are never stopped or changed by the sampler.",
             "Kubernetes Events may aggregate attempts or expire; sample errors are retained, never treated as zero usage.",
+            "Wall/monotonic drift over five seconds invalidates timing; it can indicate suspend or a clock correction, without identifying which.",
         ],
     }
     while True:
-        sample = {"elapsed_seconds": round(time.monotonic() - started, 3)}
+        sample = clock.observe()
+        if not clock.passed:
+            samples.append(sample)
+            report.update(
+                samples=samples,
+                elapsed_seconds=sample["elapsed_seconds"],
+                completed=True,
+                clock_guard=clock.evidence(),
+                suitable_for_comparison=False,
+                failure_reason="clock-discontinuity",
+            )
+            write_report(args.output, report)
+            return 1
         try:
             nodes = command(["kind", "get", "nodes", "--name", args.cluster]).split()
             if nodes:
@@ -340,15 +401,18 @@ def monitor(args):
             )
         samples.append(sample)
         ended = stopping()
-        if ended:
+        if ended and clock.passed:
             report["running_containers_at_end"] = running_containers()
+        sample.update(clock.observe())
         report.update(
             samples=samples,
             pull_events=list(events.values()),
             sample_errors=errors,
             summary=summarize(samples, list(events.values())),
             elapsed_seconds=round(time.monotonic() - started, 3),
-            completed=ended,
+            completed=ended or not clock.passed,
+            clock_guard=clock.evidence(),
+            suitable_for_comparison=clock.passed,
             kubelet_pull_config=kubelets,
             kubelet_pull_config_matches=bool(kubelets)
             and all(
@@ -362,13 +426,13 @@ def monitor(args):
             and set(kubelets)
             == {node["node"] for record in samples for node in record.get("nodes", [])},
         )
-        temporary = args.output.with_suffix(".tmp")
-        temporary.write_text(json.dumps(report, indent=2) + "\n")
-        temporary.replace(args.output)
-        if ended:
-            return 0 if report["kubelet_pull_config_matches"] else 1
+        if not clock.passed:
+            report["failure_reason"] = "clock-discontinuity"
+        write_report(args.output, report)
+        if ended or not clock.passed:
+            return 0 if clock.passed and report["kubelet_pull_config_matches"] else 1
         deadline = time.monotonic() + args.interval
-        while time.monotonic() < deadline and not stop and not args.stop_file.exists():
+        while time.monotonic() < deadline and not stopping():
             time.sleep(min(0.5, max(0, deadline - time.monotonic())))
 
 
