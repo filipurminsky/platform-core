@@ -48,7 +48,7 @@ spec:
           # uid, zero functional change. Licence note: Redis >= 7.4 is
           # RSALv2/SSPLv1 (Redis 8 adds AGPLv3) — fine for unmodified internal use;
           # Valkey (BSD, protocol-compatible) is the drop-in if that ever matters.
-          image: redis:7.4.12-alpine
+          image: redis:7.4.12-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           # AOF on (durable), RDB snapshot as a periodic backstop. requirepass is

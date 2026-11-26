@@ -61,7 +61,7 @@ spec:
           # -cu129 (CUDA 12.9) rather than the default CUDA 13.0 tag: CUDA 13
           # needs NVIDIA driver >= 580, which the AL2 GPU AMI used by the GPU
           # nodegroup/Karpenter EC2NodeClass does not ship.
-          image: vllm/vllm-openai:v0.32.0-cu129
+          image: vllm/vllm-openai:v0.32.0-cu129@sha256:bc0445dac61accbf1c3b17fbb524a71eee0b1b32f55ba45952095e3be8991c3f
           imagePullPolicy: IfNotPresent
           args:
             - "--model"
