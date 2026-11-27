@@ -280,7 +280,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
         with:
           enable-cache: true
 
@@ -337,7 +337,7 @@ jobs:
 
       # Both scans use the pinned Checkov CLI (one version, no third-party action).
       - name: Set up uv
-        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
 
       # Gate on our own Terraform (resources + IAM policies authored in-repo).
       # External modules are NOT resolved here, so this is fast and deterministic.
@@ -454,7 +454,7 @@ jobs:
         uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           version: v0.33.0
-          node_image: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+          node_image: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
           cluster_name: e2e
 
       # echo-service ships an HTTPRoute and its Rollout routes canary traffic via

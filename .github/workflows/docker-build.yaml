@@ -145,7 +145,7 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
 
       - name: Compute image reference
         id: ref
@@ -221,7 +221,7 @@ jobs:
             --severity HIGH,CRITICAL --format table "$IMAGE"
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3 (cosign v3.1.4)
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4 (cosign v3.1.4)
 
       # Keyless; the certificate identity is this workflow on refs/heads/main.
       # cosign v3 defaults to the new Sigstore-bundle (OCI referrer) format;
@@ -269,10 +269,10 @@ jobs:
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3 (cosign v3.1.4)
+        uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4 (cosign v3.1.4)
 
       - name: Install kustomize (checksum-verified)
         run: |

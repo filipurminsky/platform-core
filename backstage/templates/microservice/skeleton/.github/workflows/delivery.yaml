@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
       - run: uv lock --check && uv run --frozen pytest -q
         env: {OTEL_SDK_DISABLED: 'true'}
       - name: Validate deployment overlays
@@ -76,8 +76,8 @@ jobs:
           for architecture in amd64 arm64; do
             trivy image --platform "linux/$architecture" --exit-code 1 --severity HIGH,CRITICAL "$IMAGE@$DIGEST"
           done
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-        with: {cosign-release: v3.1.4}
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+        with: {cosign-release: v3.1.5}
       - name: Sign only after both variants pass
         env:
           IMAGE: ${{ steps.ref.outputs.image }}
@@ -91,8 +91,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {persist-credentials: false}
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
-        with: {cosign-release: v3.1.4}
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+        with: {cosign-release: v3.1.5}
       - name: Verify trusted signer and open promotion PR
         env:
           GH_TOKEN: ${{ github.token }}
